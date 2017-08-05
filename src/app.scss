@@ -1,0 +1,21 @@
+body {
+  margin: 0;
+  padding: 0;
+  font-size: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.app {
+  margin: 0 auto;
+  width: 100%;
+
+  .content {
+    overflow: hidden;
+    width: 100%;
+    height: calc(100% - 50px);
+    background: #fff;
+  }
+}

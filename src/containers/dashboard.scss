@@ -1,0 +1,152 @@
+
+.dashboard {
+  width: 480px;
+  margin: 20px auto;
+
+  .form-group {
+    margin-bottom: 15px;
+  }
+
+  .toolbox {
+    display: flex;
+
+    .record-ops {
+      flex: 1;
+      text-align: right;
+    }
+
+    .play-ops {
+      margin-left: 15px;
+    }
+  }
+
+  .ant-table-pagination {
+    display: none;
+  }
+
+  .ant-table-header {
+    overflow: hidden !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+
+    .ant-table-thead > tr > th {
+      padding: 13px 8px;
+    }
+  }
+
+  .ant-table-tbody > tr > td {
+    padding: 8px 8px;
+  }
+
+  tr.selected-command > td {
+    background-color: #fdffd1 !important;
+  }
+
+  tr.error-command > td {
+    background-color: #f7c1c1 !important;
+  }
+
+  tr.running-command > td {
+    background-color: #d5d6f9 !important;
+  }
+
+  tr.done-command > td {
+    background-color: #d1ffd8 !important;
+  }
+
+  .ant-btn-group > .ant-btn-group {
+    float: none;
+  }
+
+  .ant-form-item {
+    margin-bottom: 15px;
+  }
+
+  .log-container {
+    overflow: hidden;
+    height: 160px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+
+    .log-header {
+      padding: 5px 10px;
+      height: 38px;
+      background: #f7f7f7;
+      border-bottom: 1px solid #ccc;
+
+      h3 {
+        font-size: 15px;
+      }
+
+      .log-toolbox {
+        float: right;
+      }
+    }
+
+    .log-content {
+      list-style: none;
+      margin: 0;
+      padding: 0 10px;
+      height: calc(100% - 38px);
+      overflow-y: scroll;
+
+      li {
+        padding: 5px 0;
+        font-size: 12px;
+        border-bottom: 1px solid #f3f3f3;
+
+        // clearfix
+        &:after {
+          content: "";
+          display: table;
+          clear: both;
+        }
+
+        &.error {
+          color: red;
+          font-weight: bold;
+        }
+
+        .log-type {
+          float: left;
+          margin-right: 10px;
+        }
+
+        .log-detail {
+          white-space: pre-wrap;
+        }
+      }
+    }
+  }
+
+  .online-help {
+    margin-top: 15px;
+    padding: 0 10px;
+    height: 25px;
+    line-height: 25px;
+    font-size: 14px;
+    text-align: right;
+  }
+
+  #context_menu {
+    .ant-menu {
+      border: '1px solid #ccc';
+      border-radius: 4px;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+
+      .ant-menu-item {
+        height: 36px;
+        line-height: 36px;
+
+        &:hover {
+          background: #ecf6fd;
+        }
+      }
+    }
+  }
+}
+
+.source-error {
+  color: red;
+  white-space: pre-wrap;
+}

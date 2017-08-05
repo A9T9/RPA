@@ -1,0 +1,43 @@
+.header {
+  overflow: hidden;
+  padding: 0 20px;
+  width: 100%;
+  height: 44px;
+  border-bottom: 2px solid #ccc;
+  background-color: #f9f9f9;
+
+  .status {
+    float: right;
+    line-height: 42px;
+    font-size: 14px;
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 44px;
+    }
+  }
+
+  .select-case {
+
+    margin-top: 7px;
+
+    .unsaved {
+      color: orange;
+
+      &::after {
+        content: '*';
+        margin-left: 5px;
+      }
+    }
+  }
+}
+
+.ant-dropdown-menu {
+  max-height: 300px;
+  overflow-y: scroll;
+
+  .editing {
+    color: blue !important;
+  }
+}
