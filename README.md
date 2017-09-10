@@ -10,7 +10,9 @@ Kantu for Chrome - our attempt at creating a Selenium IDE Light for Chrome
 
 You need to build the extension first using this command line:
 
-run npm i
+```
+npm i
 npm run build
+```
 
 Once done, the ready-to-use extension code appears in the /dist directory
