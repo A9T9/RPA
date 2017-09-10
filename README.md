@@ -8,7 +8,7 @@ Kantu for Chrome - our attempt at creating a Selenium IDE Light for Chrome
 
 # Building the Chrome Extension
 
-You need to build the extension first using this command line:
+You can [install Kantu directly from the Chrome store](https://chrome.google.com/webstore/detail/kantu-browser-automation/gcbalfbdmfieckjlnblleoemohcganoc), which is the easiest and the recommended way of using the Kantu Selenium IDE. But of course developers can also build it directly from the source code with this command line:
 
 ```
 npm i
