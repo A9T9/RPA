@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head profile="http://selenium-ide.openqa.org/profiles/test-case">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<link rel="selenium.base" href="https://login.salesforce.com/" />
+<title>salesforce</title>
+</head>
+<body>
+<table cellpadding="1" cellspacing="1" border="1">
+<thead>
+<tr><td rowspan="1" colspan="3">salesforce</td></tr>
+</thead><tbody>
+<tr>
+	<td>open</td>
+	<td>/</td>
+	<td></td>
+</tr>
+<tr>
+	<td>type</td>
+	<td>id=username</td>
+	<td>user1</td>
+</tr>
+<tr>
+	<td>type</td>
+	<td>id=password</td>
+	<td>wrong</td>
+</tr>
+<tr>
+	<td>click</td>
+	<td>id=rememberUn</td>
+	<td></td>
+</tr>
+<tr>
+	<td>clickAndWait</td>
+	<td>id=Login</td>
+	<td></td>
+</tr>
+<tr>
+	<td>type</td>
+	<td>id=username</td>
+	<td>tryagain</td>
+</tr>
+<tr>
+	<td>type</td>
+	<td>id=password</td>
+	<td>stillwrong</td>
+</tr>
+<tr>
+	<td>clickAndWait</td>
+	<td>id=Login</td>
+	<td></td>
+</tr>
+<tr>
+	<td>click</td>
+	<td>id=mydomainLink</td>
+	<td></td>
+</tr>
+<tr>
+	<td>type</td>
+	<td>id=mydomain</td>
+	<td>test123</td>
+</tr>
+<tr>
+	<td>clickAndWait</td>
+	<td>id=mydomainContinue</td>
+	<td></td>
+</tr>
+<tr>
+	<td>type</td>
+	<td>id=username</td>
+	<td>ok</td>
+</tr>
+<tr>
+	<td>type</td>
+	<td>id=password</td>
+	<td>ok</td>
+</tr>
+<tr>
+	<td>clickAndWait</td>
+	<td>id=Login</td>
+	<td></td>
+</tr>
+
+</tbody></table>
+</body>
+</html>
