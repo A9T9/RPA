@@ -6,7 +6,7 @@ Kantu for Chrome - our attempt at creating a Selenium IDE Light for Chrome
 
 - [Kantu for Chrome (Selenium IDE Light) Homepage / Docs](https://a9t9.com/kantu/web-automation/chrome)
 
-- List of supported [Selenium IDE](https://a9t9.com/kantu/docs/webextensions/selenium-ide/) commands
+- List of supported [Selenium IDE commands](https://a9t9.com/kantu/docs/webextensions/selenium-ide/)
 
 # Building the Chrome Extension
 
