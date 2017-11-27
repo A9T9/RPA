@@ -1,0 +1,35 @@
+{
+  "CreationDate": "2017-11-27",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/demo/webtest/implicitwaiting/",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "15",
+      "Value": "!TIMEOUT_WAIT"
+    },
+    {
+      "Command": "assertText",
+      "Target": "/html/body/header/center/p[2]",
+      "Value": "Use the select box to start the timer..."
+    },
+    {
+      "Command": "select",
+      "Target": "id=minutesSelect",
+      "Value": "label=5 Seconds"
+    },
+    {
+      "Command": "echo",
+      "Target": "The next element (target) is not available yet... Kantu waits for it up to ${!TIMEOUT_STEP} seconds to appear.",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "/html/body/header/center/img",
+      "Value": ""
+    }
+  ]
+}

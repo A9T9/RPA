@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head profile="http://selenium-ide.openqa.org/profiles/test-case">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<link rel="selenium.base" href="https://a9t9.com/" />
+<title>DemoExtract</title>
+</head>
+<body>
+<table cellpadding="1" cellspacing="1" border="1">
+<thead>
+<tr><td rowspan="1" colspan="3">DemoExtract</td></tr>
+</thead><tbody>
+
+    <tr>
+      <td>open</td>
+      <td>/kantu/demo/storeeval</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>Current page URL = ${!URL}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>Current loop value = ${!LOOP}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>This macro shows various methods to extract and save data from a website</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeAttribute</td>
+      <td>css=img.responsive-img@src</td>
+      <td>mylink</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>href=${mylink}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeAttribute</td>
+      <td>css=img.responsive-img@alt</td>
+      <td>myalttext</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>alt text = ${myalttext}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeAttribute</td>
+      <td>//input[@id='sometext']@size</td>
+      <td>boxsize</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>input box size =${boxsize}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>type</td>
+      <td>id=sometext</td>
+      <td>This box is ${boxsize} chars wide</td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>document.title = ${boxsize};</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>assertTitle</td>
+      <td>70</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>click</td>
+      <td>//*[@id="content"]/div[2]/div/h2[3]</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeText</td>
+      <td>//*[@id="content"]/div[2]/div/h2[3]</td>
+      <td>myheader</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>header = ${myheader}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeTitle</td>
+      <td></td>
+      <td>mytitle</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>page title = ${mytitle}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>Last but not least, taking a screenshot is another way to extract data</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>captureScreenshot</td>
+      <td>myscreenshot-${mytitle}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>Need to save data to CSV files? Contact us for a pre-beta of the next version ;-)</td>
+      <td></td>
+    </tr>
+    
+</tbody></table>
+</body>
+</html>
+  

@@ -19,7 +19,7 @@
   }
 
   .select-case {
-
+    display: inline-block;
     margin-top: 7px;
 
     .unsaved {
@@ -31,11 +31,22 @@
       }
     }
   }
+
+  .show-sidebar {
+    display: none;
+  }
+
+  &.normal {
+    .show-sidebar {
+      display: inline-block;
+      margin-left: 15px;
+    }
+  }
 }
 
 .ant-dropdown-menu {
   max-height: 300px;
-  overflow-y: scroll;
+  overflow-y: auto;
 
   .editing {
     color: blue !important;

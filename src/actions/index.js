@@ -1,8 +1,67 @@
 import { type3, types as T } from './action_types'
-import { pick } from '../common/utils'
+import { pick, until, on, map, compose } from '../common/utils'
 import csIpc from '../common/ipc/ipc_cs'
 import storage from '../common/storage'
-import testCaseModel from '../models/test_case_model'
+import testCaseModel, { normalizeCommand } from '../models/test_case_model'
+import { getPlayer } from '../common/player'
+import { getCSVMan } from '../common/csv_man'
+import log from '../common/log'
+
+let recordedCount = 0
+
+const saveEditing = ({dispatch, getState}) => {
+  const { editor }  = getState()
+  const { editing } = editor
+
+  storage.set('editing', editing)
+}
+
+const saveConfig = (function () {
+  let lastSize = {}
+
+  return ({dispatch, getState}) => {
+    let { config } = getState()
+    config = config || {}
+
+    storage.set('config', config)
+
+    const savedSize = config.size ? config.size[config.showSidebar ? 'with_sidebar' : 'standard'] : null
+    const finalSize = savedSize || (
+      config.showSidebar
+        ? {
+          width: 720,
+          height: 775
+        } : {
+          width: 520,
+          height: 775
+        }
+    )
+
+    if (finalSize.width !== lastSize.width ||
+      finalSize.height !== lastSize.height) {
+      until('find app dom', () => {
+        const $app = document.querySelector('.app')
+        return {
+          pass: !!$app,
+          result: $app
+        }
+      }, 100)
+      .then($app => {
+        if (config.showSidebar) {
+          $app.classList.add('with-sidebar')
+        } else {
+          $app.classList.remove('with-sidebar')
+        }
+      })
+
+      if (finalSize.width !== window.outerWidth || finalSize.height !== window.outerHeight) {
+        csIpc.ask('PANEL_RESIZE_WINDOW', { size: finalSize })
+      }
+
+      lastSize = finalSize
+    }
+  }
+})()
 
 export function setRoute (data) {
   return {
@@ -12,6 +71,8 @@ export function setRoute (data) {
 }
 
 export function startRecording () {
+  recordedCount = 0
+
   return {
     types: type3('START_RECORDING'),
     promise: () => {
@@ -68,17 +129,27 @@ export function doneInspecting () {
   }
 }
 
-const saveEditing = ({dispatch, getState}) => {
-  const { editor }  = getState()
-  const { editing } = editor
+export function appendCommand (cmdObj, fromRecord = false) {
+  if (fromRecord) {
+    recordedCount += 1
+    // Note: show in badge the recorded count
+    csIpc.ask('PANEL_UPDATE_BADGE', {
+      type: 'record',
+      text: '' + recordedCount
+    })
+  }
 
-  storage.set('editing', editing)
-}
-
-export function appendCommand (cmdObj) {
   return {
     type: T.APPEND_COMMAND,
     data: { command: cmdObj },
+    post: saveEditing
+  }
+}
+
+export function duplicateCommand (index) {
+  return {
+    type: T.DUPLICATE_COMMAND,
+    data: { index },
     post: saveEditing
   }
 }
@@ -144,26 +215,18 @@ export function pasteCommand (index) {
   }
 }
 
+export function normalizeCommands () {
+  return {
+    type: T.NORMALIZE_COMMANDS,
+    data: {},
+    post: saveEditing
+  }
+}
+
 export function updateSelectedCommand (obj) {
   return {
     type: T.UPDATE_SELECTED_COMMAND,
     data: obj,
-    post: saveEditing
-  }
-}
-
-export function setCommandBaseUrl (url) {
-  return {
-    type: T.SET_COMMAND_BASE_URL,
-    data: url,
-    post: saveEditing
-  }
-}
-
-export function updateBaseUrl (url) {
-  return {
-    type: T.UPDATE_BASE_URL,
-    data: url,
     post: saveEditing
   }
 }
@@ -174,7 +237,10 @@ export function saveEditingAsExisted () {
     const state = getState()
     const src   = state.editor.editing.meta.src
     const tc    = state.editor.testCases.find(tc => tc.id === src.id)
-    const data  = pick(['commands', 'baseUrl'], state.editor.editing)
+    const data  = pick(['commands'], state.editor.editing)
+
+    // Make sure, only 'cmd', 'value', 'target' are saved in storage
+    data.commands = data.commands.map(normalizeCommand)
 
     return testCaseModel.update(src.id, {...tc, data})
     .then(() => {
@@ -191,7 +257,12 @@ export function saveEditingAsExisted () {
 export function saveEditingAsNew (name) {
   return (dispatch, getState) => {
     const state = getState()
-    const data  = pick(['commands', 'baseUrl'], state.editor.editing)
+    const data  = pick(['commands'], state.editor.editing)
+    const sameName = state.editor.testCases.find(tc => tc.name === name)
+
+    if (sameName) {
+      return Promise.reject(new Error('The test case name already exists!'))
+    }
 
     return testCaseModel.insert({name, data})
     .then(id => {
@@ -210,7 +281,17 @@ export function saveEditingAsNew (name) {
 export function setTestCases (tcs) {
   return {
     type: T.SET_TEST_CASES,
-    data: tcs
+    data: tcs,
+    post: ({dispatch, getState}) => {
+      const state = getState()
+      const shouldSelectDefault = state.editor.testCases.length > 0 &&
+                                  !state.editor.editing.meta.src &&
+                                  state.editor.editing.commands.length === 0
+
+      if (shouldSelectDefault) {
+        dispatch(editTestCase(state.editor.testCases[0].id))
+      }
+    }
   }
 }
 
@@ -239,7 +320,20 @@ export function editNewTestCase () {
 
 export function addTestCases (tcs) {
   return (dispatch, getState) => {
-    return testCaseModel.bulkInsert(tcs)
+    const state     = getState()
+    const testCases = state.editor.testCases
+    const validTcs  = tcs.filter(tc => !testCases.find(tcc => tcc.name === tc.name))
+    const failTcs   = tcs.filter(tc => testCases.find(tcc => tcc.name === tc.name))
+
+    const passCount = validTcs.length
+    const failCount = tcs.length - passCount
+
+    if (passCount === 0) {
+      return Promise.resolve({ passCount, failCount, failTcs })
+    }
+
+    return testCaseModel.bulkInsert(validTcs)
+    .then(() => ({ passCount, failCount, failTcs }))
   }
 }
 
@@ -248,6 +342,11 @@ export function renameTestCase (name) {
     const state = getState()
     const id    = state.editor.editing.meta.src.id
     const tc    = state.editor.testCases.find(tc => tc.id === id)
+    const sameName = state.editor.testCases.find(tc => tc.id !== id && tc.name === name)
+
+    if (sameName) {
+      return Promise.reject(new Error('The test case name already exists!'))
+    }
 
     return testCaseModel.update(id, {...tc, name})
       .then(() => {
@@ -273,7 +372,7 @@ export function removeCurrentTestCase () {
           post: saveEditing
         })
       })
-      .catch(e => console.err(e.stack))
+      .catch(e => log.error(e.stack))
   }
 }
 
@@ -286,6 +385,13 @@ export function setPlayerState (obj) {
   return {
     type: T.SET_PLAYER_STATE,
     data: obj
+  }
+}
+
+export function addPlayerErrorCommandIndex (index) {
+  return {
+    type: T.PLAYER_ADD_ERROR_COMMAND_INDEX,
+    data: index
   }
 }
 
@@ -304,5 +410,92 @@ export function clearLogs () {
   return {
     type: T.CLEAR_LOGS,
     data: null
+  }
+}
+
+export function addScreenshot (screenshot) {
+  return {
+    type: T.ADD_SCREENSHOT,
+    data: {
+      ...screenshot,
+      createTime: new Date()
+    }
+  }
+}
+
+export function clearScreenshots () {
+  return {
+    type: T.CLEAR_SCREENSHOTS,
+    data: null
+  }
+}
+
+export function updateConfig (data) {
+  return {
+    type: T.UPDATE_CONFIG,
+    data: data,
+    post: saveConfig
+  }
+}
+
+export function updateTestCasePlayStatus (id, status) {
+  return (dispatch, getState) => {
+    const state = getState()
+    const tc    = state.editor.testCases.find(tc => tc.id === id)
+
+    return testCaseModel.update(id, {...tc, status})
+    .then(() => {
+      dispatch({
+        type: T.UPDATE_TEST_CASE_STATUS,
+        data: { id, status }
+      })
+    })
+  }
+}
+
+export function playerPlay (options) {
+  return (dispatch, getState) => {
+    const state     = getState()
+    const { config } = state
+    const cfg        = pick(['playHighlightElements', 'playScrollElementsIntoView'], config)
+    const macroName  = state.editor.editing.meta.src ? state.editor.editing.meta.src.name : 'Untitled'
+    const scope      = {
+      '!MACRONAME':         macroName,
+      '!TIMEOUT_PAGELOAD':  parseInt(config.timeoutPageLoad, 10),
+      '!TIMEOUT_WAIT':      parseInt(config.timeoutElement, 10),
+      '!REPLAYSPEED': ({
+        '0':    'FAST',
+        '0.3':  'MEDIUM',
+        '2':    'SLOW'
+      })[options.postDelay]
+    }
+
+    const opts = compose(
+      on('resources'),
+      map,
+      on('extra')
+    )((extra = {}) => ({
+      ...extra,
+      ...cfg
+    }))(options)
+
+    getPlayer().play({
+      ...opts,
+      public: {
+        ...(opts.public || {}),
+        scope
+      }
+    })
+  }
+}
+
+export function listCSV () {
+  return (dispatch, getState) => {
+    getCSVMan().list().then(list => {
+      dispatch({
+        type: T.SET_CSV_LIST,
+        data: list
+      })
+    })
   }
 }

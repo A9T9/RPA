@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head profile="http://selenium-ide.openqa.org/profiles/test-case">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<link rel="selenium.base" href="https://a9t9.com/" />
+<title>DemoStoreEval</title>
+</head>
+<body>
+<table cellpadding="1" cellspacing="1" border="1">
+<thead>
+<tr><td rowspan="1" colspan="3">DemoStoreEval</td></tr>
+</thead><tbody>
+
+    <tr>
+      <td>open</td>
+      <td>/kantu/demo/storeeval</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>assertText</td>
+      <td>//*[@id="content"]/div[2]/div/h2[1]</td>
+      <td>Input box to display some results</td>
+    </tr>
+    
+
+    <tr>
+      <td>verifyText</td>
+      <td>//*[@id="content"]/div[2]/div/h2[1]</td>
+      <td>Input box to display some results</td>
+    </tr>
+    
+
+    <tr>
+      <td>verifyTitle</td>
+      <td>Selenium IDE store, storeEval, Demo Page</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>assertTitle</td>
+      <td>Selenium IDE store, storeEval, Demo Page</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>storeEVAL can run Javascript... and store the result in a variable (optional)</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>document.title = "123";</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>assertTitle</td>
+      <td>123</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>First some basic calculations with STORE</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>15</td>
+      <td>AAA</td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>10</td>
+      <td>BBB</td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>storedVars['AAA']-storedVars['BBB']</td>
+      <td>CCC</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>${CCC}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>document.title = "${CCC}";</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>assertTitle</td>
+      <td>5</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>storedVars gives access to VARIABLE, ${...} to VALUE</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>SELenium IDe</td>
+      <td>AAA</td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>storedVars['AAA'].toUpperCase()</td>
+      <td>CCC</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>${CCC}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>type</td>
+      <td>id=sometext</td>
+      <td>${CCC}</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>Generate TODAYs date in in YYYY-MM-DD format </td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>var d= new Date(); var m=((d.getMonth()+1)<10)?'0'+(d.getMonth()+1):(d.getMonth()+1); d.getFullYear()+"-"+m+"-"+d.getDate();</td>
+      <td>mydate</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>Today is ${mydate}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>Pick a random item from a list, useful for data-driven testing</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>new Array ('cat','dog','fish','dog','??','frog','?','dog','??','horse','??elephant')</td>
+      <td>names</td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>storedVars['names'].length</td>
+      <td>length</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>array length = ${length}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>Math.floor(Math.random()*storedVars['length'])</td>
+      <td>num</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>num=${num}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>The next command picks the random item</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>storedVars['names'][${num}]</td>
+      <td>myrandomname</td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>Today is ${mydate}, and we draw a ${myrandomname}</td>
+      <td>output</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>To is ${mydate}, and we draw a ${myrandomname}</td>
+      <td>${output}</td>
+    </tr>
+    
+
+    <tr>
+      <td>type</td>
+      <td>id=sometext</td>
+      <td>${output}</td>
+    </tr>
+    
+</tbody></table>
+</body>
+</html>
+  

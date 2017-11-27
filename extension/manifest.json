@@ -4,7 +4,7 @@
   "name": "Kantu Browser Automation",
   "description": "Web Browser Automation plus Selenium IDE Light",
   "short_name": "Kantu Macros",
-  "version": "0.5.0",
+  "version": "2.0.2",
 
   "icons": {
     "128": "logo.png"
@@ -22,23 +22,29 @@
   },
 
   "web_accessible_resources": [
-    "inject.js"
+    "content_script.js"
   ],
 
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
+      "all_frames": true,
+      "match_about_blank": true,
       "js": ["content_script.js"],
       "run_at": "document_start"
     }
   ],
 
+  "offline_enabled": true,
+
   "permissions": [
     "storage",
     "tabs",
     "notifications",
+    "cookies",
     "file:///*",
     "http://*/*",
-    "https://*/*"
+    "https://*/*",
+    "\u003Call_urls>"
   ]
 }

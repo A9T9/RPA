@@ -36,8 +36,21 @@ function jsonDataUri (str) {
 }
 
 // generate html from a test case
-export function toHtml ({ name, baseUrl, commands }) {
-  const commandTrs = commands.map(c => `
+export function toHtml ({ name, commands }) {
+  const copyCommands  = commands.map(c => Object.assign({}, c))
+  const openTc        = copyCommands.find(tc => tc.cmd === 'open')
+
+  if (!openTc) {
+    throw new Error('To export html, test case must contain an open command')
+  }
+
+  const url     = new URL(openTc.target)
+  const origin  = url.origin
+  const path    = url.href.replace(origin, '')
+
+  openTc.target = path
+
+  const commandTrs = copyCommands.map(c => `
     <tr>
       <td>${c.cmd || ''}</td>
       <td>${c.target || ''}</td>
@@ -46,7 +59,11 @@ export function toHtml ({ name, baseUrl, commands }) {
     `
   )
 
-  return genHtml({ name, baseUrl, commandTrs })
+  return genHtml({
+    name,
+    commandTrs,
+    baseUrl: origin + '/'
+  })
 }
 
 // generate data uri of html from a test case
@@ -80,17 +97,21 @@ export function fromHtml (html) {
     const $tgt      = $children.eq(1)
     const $val      = $children.eq(2)
     const cmd       = $cmd && $cmd.text()
-    const target    = $tgt && $tgt.text()
     const value     = $val && $val.text()
+    let target      = $tgt && $tgt.text()
 
     if (!cmd || !cmd.length) {
       throw new Error('missing cmd in ' + trHtml)
     }
 
+    if (cmd === 'open') {
+      target = (baseUrl + '/' + target).replace(/\/+/g, '/')
+    }
+
     return { cmd, target, value }
   })
 
-  return { name, data: {baseUrl, commands} }
+  return { name, data: { commands } }
 }
 
 // parse json to test case
@@ -108,18 +129,8 @@ export function fromJSONString (str, fileName) {
     target: c.Target,
     value: c.Value
   }))
-  const openTc = commands.find(tc => tc.cmd === 'open')
-  let url     = ''
-  let baseUrl = ''
 
-  if (openTc) {
-    url     = new URL(openTc.target)
-    baseUrl = url.origin + '/'
-
-    openTc.target = url.href.replace(url.origin, '')
-  }
-
-  return { name, data: { baseUrl, commands } }
+  return { name, data: { commands } }
 }
 
 // generate json from a test case
@@ -135,10 +146,9 @@ export function toJSONString (obj) {
   const data = {
     CreationDate: getToday(),
     Commands: obj.commands.map(c => {
-      const target = c.cmd !== 'open' ? c.target : (obj.baseUrl.replace(/\/\s*$/, '') + c.target)
       return {
         Command: c.cmd,
-        Target: target || '',
+        Target: c.target || '',
         Value: c.value || ''
       }
     })

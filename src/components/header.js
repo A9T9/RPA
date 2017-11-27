@@ -2,7 +2,7 @@ import React from 'react'
 import { connect } from 'react-redux'
 import { bindActionCreators } from 'redux'
 import { withRouter, Link } from 'react-router-dom'
-import { Button, Dropdown, Menu, Icon, Modal } from 'antd'
+import { Button, Checkbox, Dropdown, Menu, Icon, Modal } from 'antd'
 
 import './header.scss'
 import * as actions from '../actions'
@@ -28,6 +28,12 @@ class Header extends React.Component {
     }
 
     go()
+  }
+
+  onChangeSidebar = (e) => {
+    this.props.updateConfig({
+      showSidebar: e.target.checked
+    })
   }
 
   componentDidMount () {
@@ -115,7 +121,7 @@ class Header extends React.Component {
     )
 
     return (
-      <div className="header">
+      <div className={'header ' + this.props.status.toLowerCase()}>
         <div className="status">
           {this.renderStatus()}
         </div>
@@ -128,6 +134,15 @@ class Header extends React.Component {
             </Button>
           </Dropdown>
         </div>
+
+        <div className="show-sidebar">
+          <Checkbox
+            onChange={this.onChangeSidebar}
+            checked={this.props.config.showSidebar}
+          >
+            Show sidebar
+          </Checkbox>
+        </div>
       </div>
     )
   }
@@ -139,7 +154,8 @@ export default connect(
     testCases: [...state.editor.testCases],
     editing: state.editor.editing,
     player: state.player,
-    status: state.status
+    status: state.status,
+    config: state.config
   }),
   dispatch  => bindActionCreators({...actions}, dispatch)
 )(withRouter(Header))

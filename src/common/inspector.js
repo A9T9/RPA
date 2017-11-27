@@ -1,4 +1,6 @@
 
+import log from './log'
+
 /*
  * Basic tool function
  */
@@ -288,6 +290,10 @@ var xpath = function (dom, cur, list) {
       }
     }
 
+    if (!cur.parentNode) {
+      return ['html'].concat(list)
+    }
+
     if (cur.tagName === 'BODY') {
       return ['html', 'body'].concat(list)
     }
@@ -325,38 +331,95 @@ var atXPath = function (xpath, document) {
   }, document)
 }
 
+var domText = ($dom) => {
+  const it  = $dom.innerText
+  const tc  = $dom.textContent
+  const pos = tc.toUpperCase().indexOf(it.toUpperCase())
+
+  return tc.substr(pos, it.length)
+}
+
 // Note: get the locator of a DOM
-var getLocator = ($dom) => {
+var getLocator = ($dom, withAllOptions) => {
   const id      = $dom.getAttribute('id')
   const name    = $dom.getAttribute('name')
   const isLink  = $dom.tagName.toLowerCase() === 'a'
-  const text    = $dom.textContent
+  const text    = domText($dom)
   const classes = Array.from($dom.classList)
+  const candidates = []
 
   if (id && id.length) {
-    return `id=${id}`
+    candidates.push(`id=${id}`)
   }
 
   if (name && name.length) {
-    return `name=${name}`
+    candidates.push(`name=${name}`)
   }
 
   if (isLink && text && text.length) {
-    return `link=${text}`
+    const links   = [].slice.call(document.getElementsByTagName('a'))
+    const matches = links.filter($el => domText($el) === text)
+    const index   = matches.findIndex($el => $el === $dom)
+
+    if (index !== -1) {
+      candidates.push(
+        index === 0 ? `link=${text}` : `link=${text}@POS=${index + 1}`
+      )
+    }
   }
 
   if (classes.length > 0) {
     const selector = $dom.tagName.toLowerCase() + classes.map(c => '.' + c).join('')
-    console.log('selector', selector)
+    log('selector', selector)
     const $doms = document.querySelectorAll(selector)
 
     // Note: to use css selector, we need to make sure that selecor is unique
     if ($doms[0] === $dom) {
-      return `css=${selector}`
+      candidates.push(`css=${selector}`)
     }
   }
 
-  return xpath($dom)
+  candidates.push(xpath($dom))
+
+  if (withAllOptions) {
+    return {
+      target: candidates[0],
+      targetOptions: candidates
+    }
+  }
+
+  return candidates[0]
+}
+
+var checkIframe = (iframeWin) => {
+  var key = new Date() * 1 + '' + Math.random()
+
+  try {
+    iframeWin[key] = 'asd'
+    return iframeWin[key] === 'asd'
+  } catch (e) {
+    return false
+  }
+}
+
+// Note: get the locator for frame
+var getFrameLocator = (frameWin, win) => {
+  if (checkIframe(frameWin)) {
+    const frameDom = frameWin.frameElement
+    const locator  = getLocator(frameDom)
+
+    if (/^id=/.test(locator) || /^name=/.test(locator)) {
+      return locator
+    }
+  }
+
+  for (let i = 0, len = win.frames.length; i < len; i++) {
+    if (win.frames[i] === frameWin) {
+      return `index=${i}`
+    }
+  }
+
+  throw new Error('Frame locator not found')
 }
 
 /*
@@ -426,7 +489,9 @@ export default {
   selector,
   xpath,
   atXPath,
+  domText,
   getLocator,
+  getFrameLocator,
   maskFactory,
   showMaskOver,
   inDom,

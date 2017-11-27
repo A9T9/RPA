@@ -15,11 +15,12 @@ export const delay = (fn, timeout) => {
 // Poll on whatever you want to check, and will time out after a specific duration
 // `check` should return `{ pass: Boolean, result: Any }`
 // `name` is for a meaningful error message
-export const until = (name, check, interval = 1000, expire = 10000) => {
+export const until = (name, check, interval = 1000, expire = 10000, errorMsg) => {
   const start = new Date()
   const go    = () => {
     if (expire && new Date() - start >= expire) {
-      throw new Error(`until: ${name} expired!`)
+      const msg = errorMsg || `until: ${name} expired!`
+      throw new Error(msg)
     }
 
     const { pass, result } = check()
@@ -128,7 +129,9 @@ export const getIn = partial((keys, obj) => {
 // return the passed in object with only certains keys
 export const pick = (keys, obj) => {
   return keys.reduce((prev, key) => {
-    prev[key] = obj[key]
+    if (obj[key] !== undefined) {
+      prev[key] = obj[key]
+    }
     return prev
   }, {})
 }
@@ -140,4 +143,50 @@ export const uid = () => {
 
 export const flatten = (list) => {
   return [].concat.apply([], list);
+}
+
+export const splitIntoTwo = (pattern, str) => {
+  const index = str.indexOf(pattern)
+  if (index === -1)  return [str]
+
+  return [
+    str.substr(0, index),
+    str.substr(index + 1)
+  ]
+}
+
+export const splitKeep = (pattern, str) => {
+  const result    = []
+  let startIndex  = 0
+  let reg, match, lastMatchIndex
+
+  if (pattern instanceof RegExp) {
+    reg = new RegExp(
+      pattern,
+      pattern.flags.indexOf('g') !== -1 ? pattern.flags : (pattern.flags + 'g')
+    )
+  } else if (typeof pattern === 'string') {
+    reg = new RegExp(pattern, 'g')
+  }
+
+  // eslint-disable-next-line no-cond-assign
+  while (match = reg.exec(str)) {
+    if (lastMatchIndex === match.index) {
+      break
+    }
+
+    if (match.index > startIndex) {
+      result.push(str.substring(startIndex, match.index))
+    }
+
+    result.push(match[0])
+    startIndex      = match.index + match[0].length
+    lastMatchIndex  = match.index
+  }
+
+  if (startIndex < str.length) {
+    result.push(str.substr(startIndex))
+  }
+
+  return result
 }

@@ -1,0 +1,70 @@
+{
+  "CreationDate": "2017-11-27",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/storeeval",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "How to use gotoIf and label(s) for flow control. For a while/endWhile demo, see the DemoSaveCSV macro.",
+      "Value": ""
+    },
+    {
+      "Command": "storeAttribute",
+      "Target": "//input[@id='sometext']@size",
+      "Value": "boxsize"
+    },
+    {
+      "Command": "echo",
+      "Target": "input box size =${boxsize}",
+      "Value": ""
+    },
+    {
+      "Command": "gotoIf",
+      "Target": "${boxsize} > 70",
+      "Value": "BOX-TOO-BIG"
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext",
+      "Value": "This box is ${boxsize} chars wide"
+    },
+    {
+      "Command": "storeEval",
+      "Target": "document.title = ${boxsize};",
+      "Value": ""
+    },
+    {
+      "Command": "gotoLabel",
+      "Target": "END",
+      "Value": ""
+    },
+    {
+      "Command": "label",
+      "Target": "BOX-TOO-BIG",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Input box too big. This is just a test of gotoIf",
+      "Value": ""
+    },
+    {
+      "Command": "storeEval",
+      "Target": "document.title = \"Just a gotoIf test. This line should not be reached unless you edit the macro\"",
+      "Value": ""
+    },
+    {
+      "Command": "label",
+      "Target": "END",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "test case completed",
+      "Value": ""
+    }
+  ]
+}

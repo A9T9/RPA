@@ -35,3 +35,9 @@ export const CONTENT_SCRIPT_STATUS = mk([
   'INSPECTING',
   'PLAYING'
 ])
+
+export const TEST_CASE_STATUS = mk([
+  'NORMAL',
+  'SUCCESS',
+  'ERROR'
+])

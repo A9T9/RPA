@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head profile="http://selenium-ide.openqa.org/profiles/test-case">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<link rel="selenium.base" href="https://a9t9.com/" />
+<title>DemoTabs</title>
+</head>
+<body>
+<table cellpadding="1" cellspacing="1" border="1">
+<thead>
+<tr><td rowspan="1" colspan="3">DemoTabs</td></tr>
+</thead><tbody>
+
+    <tr>
+      <td>open</td>
+      <td>/kantu/demo/tabs</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>click</td>
+      <td>link=Open new web page in new browser tab</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>selectWindow</td>
+      <td>tab=1</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>assertTitle</td>
+      <td>*1* TAB1</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>type</td>
+      <td>id=sometext1</td>
+      <td>this is tab 1</td>
+    </tr>
+    
+
+    <tr>
+      <td>click</td>
+      <td>link=Open yet another web page in a new browser tab</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>selectWindow</td>
+      <td>tab=2</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>assertTitle</td>
+      <td>*2* TAB2</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>type</td>
+      <td>id=sometext2</td>
+      <td>And this is tab 2!</td>
+    </tr>
+    
+
+    <tr>
+      <td>selectWindow</td>
+      <td>tab=1</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>assertTitle</td>
+      <td>*1* TAB1</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>type</td>
+      <td>id=sometext1</td>
+      <td>Now back in tab 1 - test done!</td>
+    </tr>
+    
+</tbody></table>
+</body>
+</html>
+  

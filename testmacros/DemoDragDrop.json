@@ -1,0 +1,45 @@
+{
+  "CreationDate": "2017-11-27",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/demo/webtest/dragdrop/",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Reduce replay speed so we can better see what is going on...",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "medium",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "dragAndDropToObject",
+      "Target": "id=one",
+      "Value": "id=bin"
+    },
+    {
+      "Command": "dragAndDropToObject",
+      "Target": "id=two",
+      "Value": "id=bin"
+    },
+    {
+      "Command": "dragAndDropToObject",
+      "Target": "id=three",
+      "Value": "id=bin"
+    },
+    {
+      "Command": "dragAndDropToObject",
+      "Target": "id=four",
+      "Value": "id=bin"
+    },
+    {
+      "Command": "dragAndDropToObject",
+      "Target": "id=five",
+      "Value": "id=bin"
+    }
+  ]
+}

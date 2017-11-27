@@ -32,7 +32,6 @@ const initialState = {
   doneIndices: [],
 
   mode: MODE.STRAIGHT,
-  loopsLeft: 0,
   resources: [],
 
   // preDelay: 0,
@@ -79,8 +78,13 @@ export class Player {
       throw new Error('Player - constructor: must provide a prepare function')
     }
 
+    if (typeof opts.handleResult !== 'function') {
+      throw new Error('Player - constructor: must provide a handleResult function')
+    }
+
     this.__run      = opts.run
     this.__prepare  = opts.prepare
+    this.__handle   = opts.handleResult
 
     this.__setState(state || {})
   }
@@ -95,8 +99,9 @@ export class Player {
     }
 
     if (config.mode === MODE.LOOP &&
-        (!config.loops || config.loops <= 0 || Math.floor(config.loops) !== config.loops)) {
-      throw new Error('Player - play: must provide a positive integer for loops in loop mode, now it is ' + config.loops)
+        (!config.loopsStart || config.loopsStart < 0 || Math.floor(config.loopsStart) !== config.loopsStart ||
+         !config.loopsEnd   || config.loopsEnd < config.loopsStart || Math.floor(config.loopsEnd) !== config.loopsEnd)) {
+      throw new Error(`Player - play: must provide a valid tuple of "loopsStart" and "loopsEnd" in loop mode, now it is ${config.loopsStart}, ${config.loopsEnd}`)
     }
 
     if (!config.resources || !config.resources.length) {
@@ -114,10 +119,11 @@ export class Player {
       throw new Error(`Player - play: endIndex out of range, now it is ${config.endIndex}, len: ${config.resources.length}`)
     }
 
-    const { startIndex, startUrl, resources, title } = config
+    const { startIndex, startUrl, resources, title, extra } = config
     const endIndex = config.endIndex || resources.length - 1
     const basicState = {
       title,
+      extra,
       startUrl,
       startIndex,
       endIndex,
@@ -125,10 +131,12 @@ export class Player {
       errorIndex: null,
       doneIndices: [],
       mode: config.mode,
-      loopsLeft: 0,
-      loops: 1,
+      loopsCursor: 1,
+      loopsStart: 1,
+      loopsEnd: 1,
       resources: config.resources,
-      status: STATUS.PLAYING
+      status: STATUS.PLAYING,
+      public: config.public || {}
     }
 
     ;['preDelay', 'postDelay'].forEach(key => {
@@ -153,8 +161,9 @@ export class Player {
       case MODE.LOOP:
         this.__setState({
           ...basicState,
-          loopsLeft: config.loops - 1,
-          loops: config.loops
+          loopsCursor: config.loopsStart,
+          loopsStart: config.loopsStart,
+          loopsEnd: config.loopsEnd
         })
         break
 
@@ -163,8 +172,13 @@ export class Player {
     }
 
     this.emit('START', { title })
-    this.__prepare(this.state)
-        .then(() => this.__go())
+
+    return Promise.resolve()
+    .then(() => this.__prepare(this.state))
+    .then(
+      ()  => this.__go(),
+      e   => this.__errLog(e, e.errorIndex)
+    )
   }
 
   pause () {
@@ -188,6 +202,26 @@ export class Player {
     this.__end(END_REASON.MANUAL)
   }
 
+  jumpTo (nextIndex) {
+    const { resources } = this.state
+
+    // Note: validate nextIndex by resources.length instead of startIndex and endIndex,
+    // to make it possible for 'run from here' to jump to commands ahead of the start point
+    if (nextIndex < 0 || nextIndex >= resources.length) {
+      throw new Error('jumpTo: nextIndex out of range')
+    }
+
+    this.__setState({
+      nextIndex
+    })
+  }
+
+  setPostDelay (n) {
+    this.__setState({
+      postDelay: n
+    })
+  }
+
   __go () {
     const { resources, nextIndex, preDelay } = this.state
     const pre = preDelay > 0 ? this.__delay(() => undefined, preDelay) : Promise.resolve()
@@ -206,37 +240,53 @@ export class Player {
         if (stopped)      return this.__end(END_REASON.COMPLETE)
         else if (paused)  return
 
-        const { resources, nextIndex, loops, loopsLeft } = this.state
+        const {
+          resources, nextIndex, startIndex,
+          loopsCursor, loopsStart, loopsEnd
+        } = this.state
+
+        // Note: when we're running loops
+        if (loopsCursor !== loopsStart && nextIndex === startIndex) {
+          this.emit('LOOP_RESTART', {
+            index: nextIndex,
+            currentLoop: loopsCursor - loopsStart + 1,
+            loops: loopsEnd - loopsStart + 1,
+            resource: resources[nextIndex]
+          })
+        }
 
         this.emit('TO_PLAY', {
           index: nextIndex,
-          currentLoop: loops - loopsLeft,
-          loops: loops,
+          currentLoop: loopsCursor - loopsStart + 1,
+          loops: loopsEnd - loopsStart + 1,
           resource: resources[nextIndex]
         })
 
         return this.__run(resources[nextIndex], this.state)
-          .then(
-            (res) => {
-              this.__setNext()
+          .then(res => {
+            const { postDelay } = this.state
+
+            // Note: allow users to handle the result
+            return this.__handle(res, resources[nextIndex], this.state)
+            .then(nextIndex => {
+              // Note: __handle has the chance to return a `nextIndex`, mostly when it's
+              // from a flow logic. But still, it could be undefined for normal commands
+              this.__setNext(nextIndex)
               this.emit('PLAYED_LIST', {
                 indices: this.state.doneIndices
               })
-
-              const { postDelay } = this.state
-              const post = postDelay > 0 ? this.__delay(() => undefined, postDelay) : Promise.resolve()
-
-              return post.then(() => this.__go())
-            },
-            (err) => {
-              this.__errLog(err)
-            }
-          )
+            })
+            .then(
+              () => postDelay > 0 ? this.__delay(() => undefined, postDelay) : Promise.resolve()
+            )
+            .then(() => this.__go())
+          })
+          .catch(err => this.__errLog(err))
       })
   }
 
   __shouldContinue () {
-    const { status, mode, nextIndex, startIndex, endIndex, loopsLeft } = this.state
+    const { status, mode, nextIndex, startIndex, endIndex } = this.state
     let ret
 
     if (status === STATUS.PLAYING &&
@@ -259,45 +309,53 @@ export class Player {
       throw new Error('Player - __end: invalid reason, ' + reason)
     }
 
+    this.emit('END', { reason, extra: this.state.extra })
     this.__setState(initialState)
-
-    this.emit('END', { reason })
   }
 
-  __errLog (err) {
+  __errLog (err, errorIndex) {
     this.emit('ERROR', {
-      errorIndex: this.state.nextIndex,
+      errorIndex: errorIndex !== undefined ? errorIndex : this.state.nextIndex,
       msg: err && err.message
     })
     this.__end(END_REASON.ERROR)
   }
 
-  __setNext () {
+  __setNext (nextIndexPassed) {
+    if (nextIndexPassed !== undefined &&
+        (nextIndexPassed < 0 || nextIndexPassed > this.state.resources.length)) {
+      // Note: nextIndexPassed is allowed to be equal to resources.length
+      // That means we run out of commands
+      throw new Error(`invalid nextIndexPassed ${nextIndexPassed}`)
+    }
+
     const {
       mode, doneIndices, nextIndex,
-      endIndex, startIndex, loopsLeft
+      endIndex, startIndex, loopsCursor, loopsEnd
     } = this.state
 
+    const nextIndexToSet = nextIndexPassed !== undefined ? nextIndexPassed : (nextIndex + 1)
+
     let done = [...doneIndices, nextIndex]
-    let left = loopsLeft
+    let lcur = loopsCursor
     let next = null
 
     if (mode === MODE.LOOP) {
-      if (nextIndex + 1 <= endIndex) {
-        next = nextIndex + 1
-      } else if (loopsLeft <= 0) {
-        next = nextIndex + 1
+      if (nextIndexToSet <= endIndex) {
+        next = nextIndexToSet
+      } else if (loopsCursor >= loopsEnd) {
+        next = nextIndexToSet
       } else {
-        left -= 1
+        lcur += 1
         next = startIndex
         done = []
       }
     } else {
-      next = nextIndex + 1
+      next = nextIndexToSet
     }
 
     this.__setState({
-      loopsLeft: left,
+      loopsCursor: lcur,
       nextIndex: next,
       doneIndices: done
     })

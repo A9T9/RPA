@@ -64,7 +64,7 @@ function ipcPromise (options) {
     }
 
     if (!uid || !askCache[uid]) {
-      log('ipcPromise: response uid invalid: ' + uid);
+      // log('ipcPromise: response uid invalid: ' + uid);
       return;
     }
 
@@ -109,8 +109,9 @@ function ipcPromise (options) {
     );
   });
 
-  var wrapAsk = function (cmd, args) {
+  var wrapAsk = function (cmd, args, timeoutToOverride) {
     var uid = 'ipcp_' + new Date() * 1 + '_' + Math.round(Math.random() * 1000);
+    var finalTimeout = timeoutToOverride || timeout
 
     setTimeout(function () {
       var reject;
@@ -118,9 +119,9 @@ function ipcPromise (options) {
       if (askCache && askCache[uid]) {
         reject = askCache[uid][1];
         askCache[uid] = TO_BE_REMOVED;
-        reject(new Error('ipcPromise: onAsk timeout ' + timeout + ' for cmd "' + cmd + '", args "'  + args + '"'));
+        reject(new Error('ipcPromise: onAsk timeout ' + finalTimeout + ' for cmd "' + cmd + '", args "'  + args + '"'));
       }
-    }, timeout);
+    }, finalTimeout);
 
     ask(uid, cmd, args || []);
 
@@ -190,12 +191,12 @@ function ipcPromise (options) {
 
 ipcPromise.serialize = function (obj) {
   return {
-    ask: function (cmd, args) {
-      return obj.ask(cmd, JSON.stringify(args));
+    ask: function (cmd, args, timeout) {
+      return obj.ask(cmd, JSON.stringify(args), timeout);
     },
 
-    send: function (cmd, args) {
-      return obj.send(cmd, JSON.stringify(args));
+    send: function (cmd, args, timeout) {
+      return obj.send(cmd, JSON.stringify(args), timeout);
     },
 
     onAsk: function (fn) {

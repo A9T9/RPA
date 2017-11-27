@@ -1,0 +1,300 @@
+@import '../../styles/common.scss';
+
+.dashboard {
+  @include flexcol();
+  flex: 1;
+  margin: 20px 20px 0;
+
+  .form-group {
+    margin-bottom: 15px;
+  }
+
+  .toolbox {
+    display: flex;
+
+    .record-ops {
+      flex: 1;
+      text-align: right;
+    }
+
+    .play-ops {
+      margin-left: 15px;
+    }
+  }
+
+  .ant-table-pagination {
+    display: none;
+  }
+
+  .ant-table-header {
+    overflow: hidden !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+
+    .ant-table-thead > tr > th {
+      padding: 13px 8px;
+    }
+  }
+
+  .ant-table-tbody > tr > td {
+    padding: 8px 8px;
+  }
+
+  tr.selected-command > td {
+    background-color: #fdffd1 !important;
+  }
+
+  tr.error-command > td {
+    background-color: #f7c1c1 !important;
+  }
+
+  tr.running-command > td {
+    background-color: #d5d6f9 !important;
+  }
+
+  tr.done-command > td {
+    background-color: #d1ffd8 !important;
+  }
+
+  .ant-btn-group > .ant-btn-group {
+    float: none;
+  }
+
+  .ant-form-item {
+    margin-bottom: 15px;
+  }
+
+  .editor-wrapper {
+    @include flexcol();
+    flex: 2;
+  }
+
+  .commands-view {
+    @include flexcol();
+    flex: 2;
+    margin-bottom: 15px;
+
+    .ant-tabs-bar {
+      margin-bottom: 0;
+    }
+
+    .ant-tabs-content {
+      @include flexcol();
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #d9d9d9;
+      border-width: 0 1px 1px;
+
+      .ant-tabs-tabpane {
+        flex: 1;
+        flex-shrink: unset !important;
+        position: relative;
+      }
+
+      .table-wrapper {
+        position: absolute;
+        top: 0;
+        bottom: 140px;
+        left: 0;
+        right: 0;
+        overflow-y: auto;
+      }
+
+      .fields-wrapper {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 130px;
+      }
+
+      .react-codemirror2 {
+        position: relative;
+
+        &.has-error {
+          height: calc(100% - 70px);
+        }
+
+        &.no-error {
+          height: calc(100% - 0px);
+        }
+
+        .CodeMirror {
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: auto;
+          font-size: 13px;
+        }
+      }
+
+      .ant-table-wrapper,
+      .ant-spin-nested-loading,
+      .ant-spin-container,
+      .ant-table,
+      .ant-table-content,
+      .ant-table-scroll {
+        @include flexcol();
+        flex: 1;
+      }
+
+      .ant-table-scroll {
+        overflow-y: auto;
+      }
+    }
+  }
+
+  .logs-screenshots {
+    @include flexcol();
+    flex: 1;
+    position: relative;
+
+    .ant-tabs {
+      @include flexcol();
+      flex: 1;
+    }
+
+    .ant-tabs-bar {
+      margin-bottom: 0;
+    }
+  
+    .ant-tabs-content {
+      flex: 1;
+      overflow-y: auto;
+      height: 160px;
+      border: 1px solid #d9d9d9;
+      border-width: 0 1px 1px;
+    }
+  
+    .ls-toolbox {
+      position: absolute;
+      right: 10px;
+      top: 0px;
+    }
+
+    .screenshot-content,
+    .log-content {
+      padding: 10px 0;
+    }
+
+    .screenshot-content {
+      li {
+        padding: 0 20px 20px;
+
+        .timestamp {
+          display: block;
+          margin-bottom: 10px;
+          font-size: 14px;
+        }
+
+        .filename {
+          font-weight: bold;
+        }
+
+        a {
+          display: inline-block;
+          margin-left: 20px;
+  
+          img {
+            max-width: 250px;
+            border: 1px solid #ccc;
+          }
+        }
+      }
+    }
+
+    .log-content {
+      list-style: none;
+      margin: 0;
+      padding: 0 10px;
+      height: calc(100% - 38px);
+      overflow-y: auto;
+
+      li {
+        padding: 5px 0;
+        font-size: 12px;
+        border-bottom: 1px solid #f3f3f3;
+
+        // clearfix
+        &:after {
+          content: "";
+          display: table;
+          clear: both;
+        }
+
+        &.error {
+          color: red;
+          font-weight: bold;
+        }
+
+        .log-type {
+          float: left;
+          margin-right: 10px;
+        }
+
+        .log-detail {
+          white-space: pre-wrap;
+        }
+      }
+    }
+    
+    .csv-content {
+      padding: 10px;
+
+      button {
+        margin-right: 5px;
+      }
+    }
+  }
+
+  .online-help {
+    margin-top: 15px;
+    padding: 0 10px;
+    height: 25px;
+    line-height: 25px;
+    font-size: 14px;
+    text-align: right;
+  }
+
+  #context_menu {
+    z-index: 10;
+
+    .ant-menu {
+      border: '1px solid #ccc';
+      border-radius: 4px;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+
+      .ant-menu-item {
+        height: 36px;
+        line-height: 36px;
+
+        &:hover {
+          background: #ecf6fd;
+        }
+      }
+    }
+  }
+}
+
+.source-error {
+  color: red;
+  white-space: pre-wrap;
+  font-size: 12px;
+}
+
+// For setting menu, default max-height of ant-dropdown-menu is 300px
+.ant-dropdown .ant-dropdown-menu {
+  max-height: none;
+}
+
+@media (max-width: 768px) {
+  .rename-modal,
+  .duplicate-modal,
+  .save-modal,
+  .play-loop-modal {
+    width: 400px !important;
+    margin: 0 auto;
+  }
+}

@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head profile="http://selenium-ide.openqa.org/profiles/test-case">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<link rel="selenium.base" href="https://a9t9.com/" />
+<title>DemoCsvSave</title>
+</head>
+<body>
+<table cellpadding="1" cellspacing="1" border="1">
+<thead>
+<tr><td rowspan="1" colspan="3">DemoCsvSave</td></tr>
+</thead><tbody>
+
+    <tr>
+      <td>open</td>
+      <td>/kantu/demo/csvsave</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>new Date().getFullYear()+"-"+(new Date().getMonth()+1)+"-"+new Date().getDate()+" "+ new Date().getHours()+":" + new Date().getMinutes() + ":" + new Date().getSeconds()</td>
+      <td>timestamp</td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>${timestamp}</td>
+      <td>!csvLine</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>First column in the CSV is time (${timestamp})</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>Set i = 1 as we start the extraction with the 2nd table cell.</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>1</td>
+      <td>i</td>
+    </tr>
+    
+
+    <tr>
+      <td>while</td>
+      <td>(${i} < 8)</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>${i}+1</td>
+      <td>i</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>Current value of i = ${i}</td>
+      <td>i</td>
+    </tr>
+    
+
+    <tr>
+      <td>storeText</td>
+      <td>//*[@id="gcw_mainFNGP5XSu6"]/div[2]/table/tbody/tr[2]/td[${i}]/a</td>
+      <td>c2</td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>${c2}</td>
+      <td>!csvLine</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>Extracted Value for i=${i} is exchange rate = ${c2}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>endWhile</td>
+      <td></td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>${!csvLine}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>csvSave</td>
+      <td>CurrencyConverterData</td>
+      <td></td>
+    </tr>
+    
+</tbody></table>
+</body>
+</html>
+  

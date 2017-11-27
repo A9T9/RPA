@@ -1,0 +1,100 @@
+{
+  "CreationDate": "2017-11-27",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/iframes",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//*[@id=\"content\"]/div[2]/div/p[1]",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//*[@id=\"content\"]/div[2]/div/h2[1]",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=0",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//*[@id=\"mG61Hd\"]/div/div[2]/div[2]/div[1]/div[2]/div/content/div/div/label/div/div[1]/div[3]/div",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "css=input.quantumWizTextinputSimpleinputInput.exportInput",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "css=input.quantumWizTextinputSimpleinputInput.exportInput",
+      "Value": "hello iframe"
+    },
+    {
+      "Command": "click",
+      "Target": "css=div.quantumWizTogglePapercheckboxInnerBox.exportInnerBox",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//*[@id=\"mG61Hd\"]/div/div[2]/div[2]/div[2]/div[2]/div[2]/div/label/div/div[1]/div[2]",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//*[@id=\"mG61Hd\"]/div/div[2]/div[2]/div[2]/div[2]/div[3]/div/label/div/div[1]/div[2]",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "relative=top",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=1",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "css=button.ytp-large-play-button.ytp-button",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "relative=top",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "id=twitter-widget-0",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "/html/body/div/div[2]/div[2]/ol/li[2]/div/div[2]/div/a/span[1]/img",
+      "Value": ""
+    },
+    {
+      "Command": "selectWindow",
+      "Target": "tab=1",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "link=a9t9.com",
+      "Value": ""
+    },
+    {
+      "Command": "selectWindow",
+      "Target": "tab=2",
+      "Value": ""
+    }
+  ]
+}

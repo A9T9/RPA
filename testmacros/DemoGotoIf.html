@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head profile="http://selenium-ide.openqa.org/profiles/test-case">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<link rel="selenium.base" href="https://a9t9.com/" />
+<title>DemoGotoIf</title>
+</head>
+<body>
+<table cellpadding="1" cellspacing="1" border="1">
+<thead>
+<tr><td rowspan="1" colspan="3">DemoGotoIf</td></tr>
+</thead><tbody>
+
+    <tr>
+      <td>open</td>
+      <td>/kantu/demo/storeeval</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>How to use gotoIf and label(s) for flow control. For a while/endWhile demo, see the DemoSaveCSV macro.</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeAttribute</td>
+      <td>//input[@id='sometext']@size</td>
+      <td>boxsize</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>input box size =${boxsize}</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>gotoIf</td>
+      <td>${boxsize} > 70</td>
+      <td>BOX-TOO-BIG</td>
+    </tr>
+    
+
+    <tr>
+      <td>type</td>
+      <td>id=sometext</td>
+      <td>This box is ${boxsize} chars wide</td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>document.title = ${boxsize};</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>gotoLabel</td>
+      <td>END</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>label</td>
+      <td>BOX-TOO-BIG</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>Input box too big. This is just a test of gotoIf</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>storeEval</td>
+      <td>document.title = "Just a gotoIf test. This line should not be reached unless you edit the macro"</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>label</td>
+      <td>END</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>test case completed</td>
+      <td></td>
+    </tr>
+    
+</tbody></table>
+</body>
+</html>
+  

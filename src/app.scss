@@ -1,3 +1,5 @@
+@import './styles/common.scss';
+
 body {
   margin: 0;
   padding: 0;
@@ -9,13 +11,18 @@ body {
 }
 
 .app {
-  margin: 0 auto;
-  width: 100%;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
 
   .content {
-    overflow: hidden;
-    width: 100%;
-    height: calc(100% - 50px);
+    @include flexcol();
+
+    flex: 3;
     background: #fff;
+    overflow-y: auto;
   }
 }

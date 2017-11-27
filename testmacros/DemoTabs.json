@@ -1,0 +1,65 @@
+{
+  "CreationDate": "2017-11-27",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/tabs",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "link=Open new web page in new browser tab",
+      "Value": ""
+    },
+    {
+      "Command": "selectWindow",
+      "Target": "tab=1",
+      "Value": ""
+    },
+    {
+      "Command": "assertTitle",
+      "Target": "*1* TAB1",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext1",
+      "Value": "this is tab 1"
+    },
+    {
+      "Command": "click",
+      "Target": "link=Open yet another web page in a new browser tab",
+      "Value": ""
+    },
+    {
+      "Command": "selectWindow",
+      "Target": "tab=2",
+      "Value": ""
+    },
+    {
+      "Command": "assertTitle",
+      "Target": "*2* TAB2",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext2",
+      "Value": "And this is tab 2!"
+    },
+    {
+      "Command": "selectWindow",
+      "Target": "tab=1",
+      "Value": ""
+    },
+    {
+      "Command": "assertTitle",
+      "Target": "*1* TAB1",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext1",
+      "Value": "Now back in tab 1 - test done!"
+    }
+  ]
+}

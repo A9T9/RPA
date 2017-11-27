@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head profile="http://selenium-ide.openqa.org/profiles/test-case">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<link rel="selenium.base" href="https://docs.google.com/" />
+<title>DemoCsvRead</title>
+</head>
+<body>
+<table cellpadding="1" cellspacing="1" border="1">
+<thead>
+<tr><td rowspan="1" colspan="3">DemoCsvRead</td></tr>
+</thead><tbody>
+
+    <tr>
+      <td>gotoIf</td>
+      <td>{${!LOOP} > 1}</td>
+      <td>TESTSTART</td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>First create some test data CSV file (3 lines)</td>
+      <td>!csvLine</td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>Donald</td>
+      <td>!csvLine</td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>Knuth</td>
+      <td>!csvLine</td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>team@a9t9.com</td>
+      <td>!csvLine</td>
+    </tr>
+    
+
+    <tr>
+      <td>csvSave</td>
+      <td>ReadCSVTestData.csv</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>Ashu</td>
+      <td>!csvLine</td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>Zarathushtra</td>
+      <td>!csvLine</td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>Zarathushtra2018@gmail.com</td>
+      <td>!csvLine</td>
+    </tr>
+    
+
+    <tr>
+      <td>csvSave</td>
+      <td>ReadCSVTestData.csv</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>Yasna</td>
+      <td>!csvLine</td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>Haptanghaiti</td>
+      <td>!csvLine</td>
+    </tr>
+    
+
+    <tr>
+      <td>store</td>
+      <td>Happy123456@unknownstartup.com</td>
+      <td>!csvLine</td>
+    </tr>
+    
+
+    <tr>
+      <td>csvSave</td>
+      <td>ReadCSVTestData.csv</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>--- Read CSV Test starts here ---</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>label</td>
+      <td>TESTSTART</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>csvRead</td>
+      <td>ReadCSVTestData.csv</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>open</td>
+      <td>/forms/d/e/1FAIpQLScGWVjexH2FNzJqPACzuzBLlTWMJHgLUHjxehtU-2cJxtu6VQ/viewform</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>type</td>
+      <td>name=entry.933434489</td>
+      <td>${!COL1}</td>
+    </tr>
+    
+
+    <tr>
+      <td>type</td>
+      <td>name=entry.2004105717</td>
+      <td>${!COL2}</td>
+    </tr>
+    
+
+    <tr>
+      <td>type</td>
+      <td>name=entry.1382578664</td>
+      <td>${!COL3}</td>
+    </tr>
+    
+
+    <tr>
+      <td>clickAndWait</td>
+      <td>//*[@id="mG61Hd"]/div/div[2]/div[3]/div[1]/div/div/content/span</td>
+      <td></td>
+    </tr>
+    
+</tbody></table>
+</body>
+</html>
+  

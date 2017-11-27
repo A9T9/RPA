@@ -22,7 +22,7 @@
           var src = tuple[1]
 
           tar[subkey] = tar[subkey] || {}
-          return [tar[subkey], src[subkey]]
+          return [tar[subkey], src && src[subkey]]
         }, [
           prev,
           src
@@ -38,16 +38,20 @@
 
     var promisify = function (method, source, target) {
       if (!source)  return
+      var reg = /The message port closed before a res?ponse was received/
 
       target[method] = (...args) => {
         return new Promise(function (resolve, reject) {
           var callback = function (result) {
+            // Note: The message port closed before a reponse was received.
+            // Ignore this message
             if (chrome.runtime.lastError &&
-                chrome.runtime.lastError.message !== 'The message port closed before a reponse was received.') {
+                !reg.test(chrome.runtime.lastError.message)) {
               return reject(chrome.runtime.lastError)
             }
             resolve(result)
           }
+
           source[method].apply(source, args.concat(callback))
         })
       }
@@ -69,15 +73,17 @@
 
   var UsedAPI = {
     toPromisify: {
-      tabs: ['create', 'sendMessage', 'get', 'update'],
-      windows: ['getCurrent', 'update'],
-      runtime: ['sendMessage'],
+      tabs: ['create', 'sendMessage', 'get', 'update', 'query', 'captureVisibleTab', 'remove'],
+      windows: ['update', 'getLastFocused', 'getCurrent'],
+      runtime: ['sendMessage', 'setUninstallURL'],
+      cookies: ['get', 'getAll', 'set', 'remove'],
       notifications: ['create'],
+      browserAction: ['getBadgeText'],
       'storage.local': ['get', 'set']
     },
     toCopy: {
       tabs: ['onActivated'],
-      runtime: ['onMessage'],
+      runtime: ['onMessage', 'onInstalled'],
       storage: ['onChanged'],
       browserAction: ['setBadgeText', 'setBadgeBackgroundColor', 'onClicked'],
       extension: ['getURL']

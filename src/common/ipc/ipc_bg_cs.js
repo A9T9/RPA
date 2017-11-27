@@ -1,5 +1,6 @@
 import ipcPromise from './ipc_promise'
 import Ext from '../web_extension'
+import log from '../log'
 
 const TIMEOUT = 1000 * 60
 
@@ -75,7 +76,7 @@ export const openBgWithCs = (cuid) => {
     return ipcPromise({
       timeout: TIMEOUT,
       ask: function (uid, cmd, args) {
-        // console.log('cs ask', uid, cmd, args)
+        // log('cs ask', uid, cmd, args)
         Ext.runtime.sendMessage({
           type: wrap('CS_ASK_BG'),
           uid,
@@ -120,13 +121,22 @@ export const openBgWithCs = (cuid) => {
 export const csInit = () => {
   const cuid = '' + Math.floor(Math.random() * 10000)
 
-  console.log('sending Connect...')
-  Ext.runtime.sendMessage({
-    type: 'CONNECT',
-    cuid: cuid
-  })
+  log('sending Connect...')
 
-  return openBgWithCs(cuid).ipcCs()
+  // Note: Ext.extension.getURL is available in content script, but not injected js
+  // We use it here to detect whether it is loaded by content script or injected
+  // Calling runtime.sendMessage in injected js will cause an uncatchable exception
+  if (!Ext.extension.getURL) return
+
+  // try this process in case we're in none-src frame
+  try {
+    Ext.runtime.sendMessage({
+      type: 'CONNECT',
+      cuid: cuid
+    })
+
+    return openBgWithCs(cuid).ipcCs()
+  } catch (e) {}
 }
 
 // Helper function to init ipc promise instance for background

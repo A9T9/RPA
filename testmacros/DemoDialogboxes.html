@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head profile="http://selenium-ide.openqa.org/profiles/test-case">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<link rel="selenium.base" href="https://a9t9.com/" />
+<title>DemoDialogboxes</title>
+</head>
+<body>
+<table cellpadding="1" cellspacing="1" border="1">
+<thead>
+<tr><td rowspan="1" colspan="3">DemoDialogboxes</td></tr>
+</thead><tbody>
+
+    <tr>
+      <td>open</td>
+      <td>/kantu/demo/storeeval</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>type</td>
+      <td>id=sometext</td>
+      <td>Start...</td>
+    </tr>
+    
+
+    <tr>
+      <td>click</td>
+      <td>//*[@id="content"]/div[2]/div/p[3]/button[1]</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>echo</td>
+      <td>Kantu IDE closes dialog boxes automatially. You need assertAlert (etc) only to verify expected texts.</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>assertAlert</td>
+      <td>Hello\nHow are you?</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>click</td>
+      <td>//*[@id="content"]/div[2]/div/p[3]/button[2]</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>assertConfirmation</td>
+      <td>Press a button!</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>answerOnNextPrompt</td>
+      <td>I am Kantu for Chrome...</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>click</td>
+      <td>//*[@id="content"]/div[2]/div/p[3]/button[3]</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>assertPrompt</td>
+      <td>Please enter your name</td>
+      <td></td>
+    </tr>
+    
+
+    <tr>
+      <td>type</td>
+      <td>id=sometext</td>
+      <td>Done!</td>
+    </tr>
+    
+</tbody></table>
+</body>
+</html>
+  

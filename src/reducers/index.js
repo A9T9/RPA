@@ -2,11 +2,11 @@ import URL from 'url-parse'
 import isEqual from 'lodash.isequal'
 import { types as T } from '../actions/action_types'
 import { setIn, updateIn, compose, pick } from '../common/utils'
+import { normalizeCommand } from '../models/test_case_model'
 import * as C from '../common/constant'
 
 const newTestCaseEditing = {
   commands: [],
-  baseUrl: '',
   meta: {
     src: null,
     hasUnsaved: true,
@@ -21,7 +21,7 @@ const newTestCaseEditing = {
 //
 // * player                 the state for player
 //    * nextCommandIndex    the current command beging executed
-//    * errorCommandIndex   the command that encounters some error
+//    * errorCommandIndices commands that encounters some error
 //    * doneCommandIndices  commands that have been executed
 //    * currentLoop         the current round
 //    * loops               how many rounds to run totally
@@ -45,7 +45,7 @@ const initialState = {
     currentLoop: 0,
     loops: 0,
     nextCommandIndex: null,
-    errorCommandIndex: null,
+    errorCommandIndices: [],
     doneCommandIndices: [],
     playInterval: 0,
     timeoutStatus: {
@@ -54,7 +54,10 @@ const initialState = {
       past: null
     }
   },
-  logs: []
+  logs: [],
+  screenshots: [],
+  csvs: [],
+  config: {}
 }
 
 // Note: for update the `hasUnsaved` status in editing.meta
@@ -80,7 +83,7 @@ export default function reducer (state = initialState, action) {
         player: {
           ...state.player,
           nextCommandIndex: null,
-          errorCommandIndex: null,
+          errorCommandIndices: [],
           doneCommandIndices: []
         }
       }
@@ -124,17 +127,41 @@ export default function reducer (state = initialState, action) {
           state
         )
       )
+
+    case T.DUPLICATE_COMMAND:
+      return updateHasUnSaved(
+        compose(
+          setIn(
+            ['editor', 'editing', 'meta', 'selectedIndex'],
+            action.data.index + 1
+          ),
+          updateIn(
+            ['editor', 'editing', 'commands'],
+            (commands) => {
+              const { index } = action.data
+              commands.splice(index + 1, 0, commands[index])
+              return [...commands]
+            }
+          )
+        )(state)
+      )
+
     case T.INSERT_COMMAND:
       return updateHasUnSaved(
-        updateIn(
-          ['editor', 'editing', 'commands'],
-          (commands) => {
-            const { index, command } = action.data
-            commands.splice(index, 0, command)
-            return [...commands]
-          },
-          state
-        )
+        compose(
+          setIn(
+            ['editor', 'editing', 'meta', 'selectedIndex'],
+            action.data.index
+          ),
+          updateIn(
+            ['editor', 'editing', 'commands'],
+            (commands) => {
+              const { index, command } = action.data
+              commands.splice(index, 0, command)
+              return [...commands]
+            }
+          )
+        )(state)
       )
     case T.UPDATE_COMMAND:
       return updateHasUnSaved(
@@ -196,6 +223,13 @@ export default function reducer (state = initialState, action) {
       )
     }
 
+    case T.NORMALIZE_COMMANDS:
+      return updateIn(
+        ['editor', 'editing', 'commands'],
+        (cmds) => cmds.map(normalizeCommand),
+        state
+      )
+
     case T.UPDATE_SELECTED_COMMAND:
       return updateHasUnSaved(
         updateIn(
@@ -203,32 +237,6 @@ export default function reducer (state = initialState, action) {
           (cmdObj) => ({...cmdObj, ...action.data}),
           state
         )
-      )
-    case T.SET_COMMAND_BASE_URL: {
-      if (state.editor.editing.baseUrl && state.editor.editing.baseUrl.length) {
-        return state
-      }
-
-      const url     = new URL(action.data)
-      const origin  = url.origin
-      const path    = url.href.replace(origin, '')
-
-      return updateHasUnSaved(
-        compose(
-          setIn(['editor', 'editing', 'baseUrl'], origin + '/'),
-          updateIn(
-            ['editor', 'editing', 'commands'],
-            (commands) => [
-              { cmd: 'open', target: path, value: null },
-              ...commands
-            ]
-          )
-        )(state)
-      )
-    }
-    case T.UPDATE_BASE_URL:
-      return updateHasUnSaved(
-        setIn(['editor', 'editing', 'baseUrl'], action.data, state)
       )
 
     case T.SAVE_EDITING_AS_EXISTED:
@@ -246,7 +254,6 @@ export default function reducer (state = initialState, action) {
       )
 
     case T.SET_TEST_CASES:
-      console.log('testcases', action.data)
       return setIn(['editor', 'testCases'], action.data, state)
 
     case T.SET_EDITING:
@@ -280,11 +287,26 @@ export default function reducer (state = initialState, action) {
             status: C.PLAYER_STATUS.STOPPED,
             stopReason: null,
             nextCommandIndex: null,
-            errorCommandIndex: null,
+            errorCommandIndices: [],
             doneCommandIndices: []
           })
         )
       )(state)
+    }
+
+    case T.UPDATE_TEST_CASE_STATUS: {
+      const { id, status } = action.data
+      if (!id)  return state
+
+      const { testCases } = state.editor
+      const index = testCases.findIndex(tc => tc.id === id)
+      if (index === -1) return state
+
+      return setIn(
+        ['editor', 'testCases', index, 'status'],
+        status,
+        state
+      )
     }
 
     case T.RENAME_TEST_CASE:
@@ -327,7 +349,7 @@ export default function reducer (state = initialState, action) {
         updateIn(['player'], (player) => ({
           ...player,
           nextCommandIndex: null,
-          errorCommandIndex: null,
+          errorCommandIndices: [],
           doneCommandIndices: []
         }))
       )(state)
@@ -335,6 +357,13 @@ export default function reducer (state = initialState, action) {
 
     case T.SET_PLAYER_STATE:
       return updateIn(['player'], (playerState) => ({...playerState, ...action.data}), state)
+
+    case T.PLAYER_ADD_ERROR_COMMAND_INDEX:
+      return updateIn(
+        ['player', 'errorCommandIndices'],
+        (indices) => [...indices, action.data],
+        state
+      )
 
     case T.ADD_LOGS:
       return {
@@ -346,6 +375,34 @@ export default function reducer (state = initialState, action) {
       return {
         ...state,
         logs: []
+      }
+
+    case T.ADD_SCREENSHOT:
+      return {
+        ...state,
+        screenshots: [
+          ...state.screenshots,
+          action.data
+        ]
+      }
+
+    case T.CLEAR_SCREENSHOTS:
+      return {
+        ...state,
+        screenshots: []
+      }
+
+    case T.UPDATE_CONFIG:
+      return updateIn(
+        ['config'],
+        (cfg) => ({...cfg, ...action.data}),
+        state
+      )
+
+    case T.SET_CSV_LIST:
+      return {
+        ...state,
+        csvs: action.data
       }
 
     default:

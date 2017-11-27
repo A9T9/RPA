@@ -1,0 +1,110 @@
+{
+  "CreationDate": "2017-11-27",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/storeeval",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Current page URL = ${!URL}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Current loop value = ${!LOOP}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "This macro shows various methods to extract and save data from a website",
+      "Value": ""
+    },
+    {
+      "Command": "storeAttribute",
+      "Target": "css=img.responsive-img@src",
+      "Value": "mylink"
+    },
+    {
+      "Command": "echo",
+      "Target": "href=${mylink}",
+      "Value": ""
+    },
+    {
+      "Command": "storeAttribute",
+      "Target": "css=img.responsive-img@alt",
+      "Value": "myalttext"
+    },
+    {
+      "Command": "echo",
+      "Target": "alt text = ${myalttext}",
+      "Value": ""
+    },
+    {
+      "Command": "storeAttribute",
+      "Target": "//input[@id='sometext']@size",
+      "Value": "boxsize"
+    },
+    {
+      "Command": "echo",
+      "Target": "input box size =${boxsize}",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext",
+      "Value": "This box is ${boxsize} chars wide"
+    },
+    {
+      "Command": "storeEval",
+      "Target": "document.title = ${boxsize};",
+      "Value": ""
+    },
+    {
+      "Command": "assertTitle",
+      "Target": "70",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//*[@id=\"content\"]/div[2]/div/h2[3]",
+      "Value": ""
+    },
+    {
+      "Command": "storeText",
+      "Target": "//*[@id=\"content\"]/div[2]/div/h2[3]",
+      "Value": "myheader"
+    },
+    {
+      "Command": "echo",
+      "Target": "header = ${myheader}",
+      "Value": ""
+    },
+    {
+      "Command": "storeTitle",
+      "Target": "",
+      "Value": "mytitle"
+    },
+    {
+      "Command": "echo",
+      "Target": "page title = ${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Last but not least, taking a screenshot is another way to extract data",
+      "Value": ""
+    },
+    {
+      "Command": "captureScreenshot",
+      "Target": "myscreenshot-${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Need to save data to CSV files? Contact us for a pre-beta of the next version ;-)",
+      "Value": ""
+    }
+  ]
+}

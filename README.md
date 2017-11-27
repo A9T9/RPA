@@ -1,6 +1,6 @@
 # Kantu-for-Chrome
 
-Kantu for Chrome - our attempt at creating a Selenium IDE Light for Chrome 
+Kantu for Chrome - a modern and light Selenium IDE Light for Chrome 
 
 - [Kantu for Chrome (Selenium IDE Light) in the Google Chrome Webstore](https://chrome.google.com/webstore/detail/kantu-browser-automation/gcbalfbdmfieckjlnblleoemohcganoc)
 
