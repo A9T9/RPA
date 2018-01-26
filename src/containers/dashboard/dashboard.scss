@@ -3,7 +3,7 @@
 .dashboard {
   @include flexcol();
   flex: 1;
-  margin: 20px 20px 0;
+  margin: 15px 15px 0;
 
   .form-group {
     margin-bottom: 15px;
@@ -33,6 +33,12 @@
 
     .ant-table-thead > tr > th {
       padding: 13px 8px;
+    }
+  }
+
+  .ant-table-body {
+    .ant-table-thead > tr > th {
+      padding: 10px 8px;
     }
   }
 
@@ -72,7 +78,6 @@
   .commands-view {
     @include flexcol();
     flex: 2;
-    margin-bottom: 15px;
 
     .ant-tabs-bar {
       margin-bottom: 0;
@@ -146,10 +151,42 @@
     }
   }
 
+  .table-footer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    line-height: 32px;
+    text-align: center;
+    font-weight: bold;
+    background: #f7f7f7;
+    cursor: pointer;
+
+    &:hover {
+      background: #e0e0e0;
+    }
+  }
+  
   .logs-screenshots {
     @include flexcol();
-    flex: 1;
     position: relative;
+    margin-top: 15px;
+
+    .resize-handler {
+      position: absolute;
+      top: -10px;
+      left: 0;
+      width: 100%;
+      height: 6px;
+      background: transparent;
+      cursor: row-resize;
+  
+      &:hover, &.focused {
+        height: 6px;
+        background: #ccc;
+      }
+    }
 
     .ant-tabs {
       @include flexcol();
@@ -163,7 +200,7 @@
     .ant-tabs-content {
       flex: 1;
       overflow-y: auto;
-      height: 160px;
+      min-height: 70px;
       border: 1px solid #d9d9d9;
       border-width: 0 1px 1px;
     }

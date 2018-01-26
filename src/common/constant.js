@@ -29,6 +29,11 @@ export const PLAYER_STATUS = mk([
   'STOPPED'
 ])
 
+export const PLAYER_MODE = mk([
+  'TEST_CASE',
+  'TEST_SUITE'
+])
+
 export const CONTENT_SCRIPT_STATUS = mk([
   'NORMAL',
   'RECORDING',

@@ -4,6 +4,7 @@ import inspector from '../common/inspector'
 import * as C from '../common/constant'
 import { setIn, updateIn, until } from '../common/utils'
 import { run, getElementByLocator } from '../common/command_runner'
+import { captureClientAPI } from '../common/capture_screenshot'
 import log from '../common/log'
 
 const MASK_CLICK_FADE_TIMEOUT = 2000
@@ -377,10 +378,16 @@ const bindIPCListener = () => {
       case 'RUN_COMMAND':
         return runCommand(args.command)
         .catch(e => {
+          // Mark that there is already at least one command run
+          window.noCommandsYet = false
+
           log.error(e.stack)
           throw e
         })
         .then(data => {
+          // Mark that there is already at least one command run
+          window.noCommandsYet = false
+
           if (state.playingFrame !== window) {
             return { data, isIFrame: true }
           }
@@ -406,6 +413,23 @@ const bindIPCListener = () => {
       case 'HACK_ALERT': {
         hackAlertConfirmPrompt()
         return true
+      }
+
+      case 'MARK_NO_COMMANDS_YET': {
+        window.noCommandsYet = true
+        return true
+      }
+
+      case 'START_CAPTURE_FULL_SCREENSHOT': {
+        return captureClientAPI.startCapture()
+      }
+
+      case 'END_CAPTURE_FULL_SCREENSHOT': {
+        return captureClientAPI.endCapture(args.pageInfo)
+      }
+
+      case 'SCROLL_PAGE': {
+        return captureClientAPI.scrollPage(args.offset)
       }
 
       default:

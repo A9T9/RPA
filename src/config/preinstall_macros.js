@@ -294,6 +294,36 @@ DemoExtract: {
     },
     {
       "Command": "echo",
+      "Target": "Now test some extraction with storeValue",
+      "Value": ""
+    },
+    {
+      "Command": "storeValue",
+      "Target": "id=sometext",
+      "Value": "mytext"
+    },
+    {
+      "Command": "select",
+      "Target": "id=tesla",
+      "Value": "label=Model Y"
+    },
+    {
+      "Command": "storeValue",
+      "Target": "id=tesla",
+      "Value": "mytesla"
+    },
+    {
+      "Command": "echo",
+      "Target": "The text box contains [${mytext}] and the select box has the value [${mytesla}] selected",
+      "Value": ""
+    },
+    {
+      "Command": "verifyValue",
+      "Target": "id=tesla",
+      "Value": "y"
+    },
+    {
+      "Command": "echo",
       "Target": "Last but not least, taking a screenshot is another way to extract data",
       "Value": ""
     },
@@ -304,9 +334,9 @@ DemoExtract: {
     },
     {
       "Command": "echo",
-      "Target": "Need to save data to CSV files? Contact us for a pre-beta of the next version ;-)",
+      "Target": "Tip: To save extracted data to CSV files use the csvSave command. See the DemoCsvSave macro for details.",
       "Value": ""
-    }
+    }	
   ]
 },
 DemoFrames: {
@@ -474,9 +504,60 @@ DemoFrames: {
     }
   ]
 },
-DemoGotoIf: {
-  "CreationDate": "2017-11-23",
+
+DemoTakeScreenshots: {
+  "CreationDate": "2018-1-25",
   "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/blog/",
+      "Value": ""
+    },
+    {
+      "Command": "captureEntirePageScreenshot",
+      "Target": "a9t9 blog",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "link=read more@POS=1",
+      "Value": ""
+    },
+    {
+      "Command": "captureEntirePageScreenshot",
+      "Target": "article1",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/blog/",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "link=read more@POS=2",
+      "Value": ""
+    },
+    {
+      "Command": "captureEntirePageScreenshot",
+      "Target": "article2",
+      "Value": ""
+    },
+    {
+      "Command": "captureScreenshot",
+      "Target": "article2-just-viewport",
+      "Value": ""
+    }	
+  ]
+},
+DemoIfElse: {
+  "CreationDate": "2018-01-12",
+  "Commands": [
+ {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
     {
       "Command": "open",
       "Target": "https://a9t9.com/kantu/demo/storeeval",
@@ -488,9 +569,84 @@ DemoGotoIf: {
       "Value": ""
     },
     {
+      "Command": "storeEval",
+      "Target": "(new Date().getHours())",
+      "Value": "mytime"
+    },
+    {
+      "Command": "echo",
+      "Target": "mytime = ${mytime}",
+      "Value": ""
+    },
+    {
+      "Command": "if",
+      "Target": "${mytime}  > 16",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Good afternoon!",
+      "Value": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Good morning!",
+      "Value": ""
+    },
+    {
+      "Command": "endif",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "true",
+      "Value": "!errorignore"
+    },
+    {
+      "Command": "storeAttribute",
+      "Target": "//input[@id='sometext-WRONG-ID-TEST']@size",
+      "Value": "boxsize"
+    },
+    {
+      "Command": "if",
+      "Target": "${!LastCommandOK}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Boxsize is ${boxsize}",
+      "Value": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": ""
+    },
+    {
       "Command": "storeAttribute",
       "Target": "//input[@id='sometext']@size",
       "Value": "boxsize"
+    },
+    {
+      "Command": "echo",
+      "Target": "Old ID not found, with new ID we have: Boxsize = ${boxsize}",
+      "Value": ""
+    },
+    {
+      "Command": "endif",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "false",
+      "Value": "!errorignore"
     },
     {
       "Command": "echo",
@@ -704,7 +860,7 @@ DemoImplicitWaiting: {
     }
   ]
 },
-DemoCsvRead: {
+DemoCsvReadWithLoop: {
   "CreationDate": "2017-11-23",
   "Commands": [
     {
@@ -819,6 +975,171 @@ DemoCsvRead: {
     }
   ]
 },
+DemoCsvReadWithWhile: {
+  "CreationDate": "2018-1-25",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "180",
+      "Value": "!timeout_macro"
+    },
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "echo",
+      "Target": "First create some test data CSV file (3 lines)",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "Donald",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "Knuth",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "team@a9t9.com",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "csvSave",
+      "Target": "ReadCSVTestData.csv",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "Ashu",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "Zarathushtra",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "Zarathushtra2018@gmail.com",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "csvSave",
+      "Target": "ReadCSVTestData.csv",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "Yasna",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "Haptanghaiti",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "Happy123456@unknownstartup.com",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "csvSave",
+      "Target": "ReadCSVTestData.csv",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "--- Read CSV Test starts here ---",
+      "Value": ""
+    },
+    {
+      "Command": "label",
+      "Target": "TESTSTART",
+      "Value": ""
+    },
+    {
+      "Command": "csvRead",
+      "Target": "ReadCSVTestData.csv",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Status = ${!csvReadStatus}, line = ${!csvReadLineNumber}",
+      "Value": ""
+    },
+    {
+      "Command": "while",
+      "Target": "\"${!csvReadStatus}\" == \"OK\"",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "status = ${!csvReadStatus}, line = ${!csvReadLineNumber}",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://docs.google.com/forms/d/e/1FAIpQLScGWVjexH2FNzJqPACzuzBLlTWMJHgLUHjxehtU-2cJxtu6VQ/viewform",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=entry.933434489",
+      "Value": "${!COL1}_${!csvReadLineNumber}"
+    },
+    {
+      "Command": "type",
+      "Target": "name=entry.2004105717",
+      "Value": "${!COL2}"
+    },
+    {
+      "Command": "type",
+      "Target": "name=entry.1382578664",
+      "Value": "${!COL3}"
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "//*[@id=\"mG61Hd\"]/div/div[2]/div[3]/div[1]/div/div/content/span",
+      "Value": ""
+    },
+    {
+      "Command": "storeEval",
+      "Target": "${!csvReadLineNumber}+1",
+      "Value": "!csvReadLineNumber"
+    },
+    {
+      "Command": "store",
+      "Target": "true",
+      "Value": "!errorIgnore"
+    },
+    {
+      "Command": "echo",
+      "Target": "Reading CSV line No.  ${!csvReadLineNumber} ",
+      "Value": "!errorIgnore"
+    },
+    {
+      "Command": "csvRead",
+      "Target": "ReadCSVTestData.csv",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "false",
+      "Value": "!errorIgnore"
+    },
+    {
+      "Command": "endWhile",
+      "Target": "",
+      "Value": ""
+    }
+  ]
+}, 
 DemoCsvSave: {
   "CreationDate": "2017-11-23",
   "Commands": [
@@ -900,8 +1221,13 @@ DemoCsvSave: {
   ]
 },
 DemoStoreEval:  {
-  "CreationDate": "2017-10-15",
+  "CreationDate": "2018-1-25",
   "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
     {
       "Command": "open",
       "Target": "https://a9t9.com/kantu/demo/storeeval",

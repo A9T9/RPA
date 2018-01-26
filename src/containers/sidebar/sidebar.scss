@@ -1,0 +1,239 @@
+
+$bgSuccess: #cfefdf;
+$bgError: #fcdbd9;
+$bgSelected: #fdffd1;
+$bgRunning: #d5d6f9;
+
+.sidebar {
+  position: relative;
+  // display: none;
+  flex: 1;
+  min-width: 260px;
+  height: 100%;
+  border-right: 2px solid #ccc;
+
+  .sidebar-inner {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    left: 0;
+    overflow-y: auto;
+  }
+
+  .sidebar-title {
+    padding: 0 10px;
+    height: 44px;
+    line-height: 44px;
+    border-bottom: 2px solid #ccc;
+    background-color: #f9f9f9;
+    font-size: 16px;
+  }
+
+  .sidebar-test-cases {
+    font-size: 14px;
+    line-height: 18px;
+
+    li {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      box-sizing: border-box;
+      padding: 5px 10px;
+      cursor: pointer;
+      user-select: none;
+
+      &.success {
+        background: $bgSuccess;
+      }
+
+      &.error {
+        background: $bgError;
+      }
+
+      &.selected {
+        background:  $bgSelected;
+
+        &.error,
+        &.success {
+          padding: 1px 10px 1px 6px;
+        }
+
+        &.error {
+          border: 4px solid $bgError;
+        }
+
+        &.success {
+          border: 4px solid $bgSuccess;
+        }
+      }
+
+      &.disabled {
+        filter: grayscale(60%);
+        cursor: not-allowed;
+      }
+
+      .test-case-name {
+        flex: 1;
+      }
+
+      .more-button {
+        display: none;
+      }
+
+      &:hover .more-button {
+        display: block;
+      }
+    }
+  }
+
+  .test-case-actions,
+  .test-suite-actions {
+    padding: 0 10px 10px;
+
+    button {
+      margin-right: 10px;
+    }
+  }
+
+  .sidebar-test-suites {
+    .test-suite-item {
+      padding: 0 0 10px 0;
+      margin-bottom: 5px;
+
+      &.playing {
+        background: $bgSelected;
+      }
+
+      &.fold {
+        margin-bottom: 0;
+        padding-bottom: 0;
+
+        .test-suite-more-actions,
+        .test-suite-cases {
+          display: none;
+        }
+      }
+
+      .test-suite-row {
+        padding: 5px 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+
+        .test-suite-title {
+          flex: 1;
+          margin-left: 10px;
+        }
+        
+        .more-button {
+          display: none;
+        }
+
+        &:hover .more-button {
+          display: block;
+        }
+      }
+
+      .test-suite-cases {
+        padding: 3px 5px;
+
+        li {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 3px 5px 3px 20px;
+          margin-bottom: 5px;
+
+          &.done-tc {
+            background: $bgSuccess;
+          }
+
+          &.error-tc {
+            background: $bgError;
+          }
+
+          &.current-tc {
+            background: $bgRunning;
+          }
+        }
+      }
+
+      .test-suite-more-actions {
+        padding-left: 27px;
+      }
+    }
+  }
+
+  .ant-tabs {
+    min-height: 100%;
+  }
+
+  .ant-tabs-bar {
+    border-bottom: 2px solid #ccc;
+  }
+
+  .ant-tabs-nav-container-scrolling {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .ant-tabs-tab-prev.ant-tabs-tab-arrow-show,
+  .ant-tabs-tab-next.ant-tabs-tab-arrow-show {
+    display: none;
+  }
+
+  .ant-tabs-nav {
+    height: 44px;
+  }
+
+  .ant-tabs-nav .ant-tabs-tab {
+    margin-right: 0;
+    line-height: 27px;
+  }
+
+  .ant-tabs-nav-scroll {
+    text-align: center;
+  }
+
+  .context-menu {
+    z-index: 10;
+    
+    .ant-menu {
+      border: '1px solid #ccc';
+      border-radius: 4px;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+
+      .ant-menu-item {
+        height: 36px;
+        line-height: 36px;
+
+        &:hover {
+          background: #ecf6fd;
+        }
+      }
+    }
+  }
+
+  .resize-handler {
+    position: absolute;
+    right: -2px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #ccc;
+    cursor: col-resize;
+
+    &:hover, &.focused {
+      right: -4px;
+      width: 6px;
+      background: #aaa;
+    }
+  }
+}
+
+.with-sidebar .sidebar {
+  display: block;
+}

@@ -1,4 +1,7 @@
 .header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
   overflow: hidden;
   padding: 0 20px;
   width: 100%;
@@ -19,27 +22,40 @@
   }
 
   .select-case {
-    display: inline-block;
-    margin-top: 7px;
+    display: flex;
+    align-items: center;
+    line-height: 44px;
+    font-size: 13px;
 
-    .unsaved {
-      color: orange;
+    .test-case-name {
+      margin-right: 15px;
+      line-height: 35px;
+      max-width: 120px;
+      overflow: hidden;
+      display: inline-block;
+      white-space: nowrap;
+      text-overflow: ellipsis;
 
-      &::after {
-        content: '*';
-        margin-left: 5px;
+      &.unsaved {
+        color: orange;
+  
+        &::after {
+          content: '*';
+          margin-left: 3px;
+        }
       }
     }
   }
 
-  .show-sidebar {
-    display: none;
-  }
+  .actions {
+    margin-top: 6px;
 
-  &.normal {
-    .show-sidebar {
-      display: inline-block;
-      margin-left: 15px;
+    .ant-btn-group > .ant-btn-group {
+      float: none;
+    }
+
+    .play-actions {
+      margin: 0 10px;
     }
   }
 }
@@ -50,5 +66,35 @@
 
   .editing {
     color: blue !important;
+  }
+}
+
+.settings-modal {
+  .ant-checkbox-wrapper + .ant-checkbox-wrapper {
+    margin-left: 0;
+  }
+
+  .backup-pane {
+    padding: 0 20px;
+
+    h4 {
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+
+    .row {
+      margin-bottom: 10px;
+      
+    }
+
+    p {
+      margin-bottom: 5px;
+    }
+
+    ul {
+      li {
+        margin-bottom: 5px;
+      }
+    }
   }
 }

@@ -1,6 +1,7 @@
 import $ from 'jquery'
 import parseJson from 'parse-json'
 import URL from 'url-parse'
+import normalizeUrl from 'normalize-url'
 import { pick } from './utils'
 
 // HTML template from test case
@@ -105,7 +106,7 @@ export function fromHtml (html) {
     }
 
     if (cmd === 'open') {
-      target = (baseUrl + '/' + target).replace(/\/+/g, '/')
+      target = normalizeUrl(baseUrl + '/' + target)
     }
 
     return { cmd, target, value }

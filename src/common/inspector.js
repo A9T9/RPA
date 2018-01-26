@@ -253,7 +253,8 @@ var selector = function (dom) {
   // Note: browser will add an extra 'tbody' when tr directly in table, which will cause an wrong selector,
   // so the hack is to remove all tbody here
   var ret = selector(dom.parentNode) + ' > ' + me
-  return ret.replace(/\s*>\s*tbody\s*>?/g, ' ')
+  return ret
+  // return ret.replace(/\s*>\s*tbody\s*>?/g, ' ')
 }
 
 var xpath = function (dom, cur, list) {

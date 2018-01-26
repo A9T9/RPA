@@ -212,6 +212,10 @@ export const run = (command, csIpc, helpers) => {
 
   switch (cmd) {
     case 'open':
+      if (window.noCommandsYet) {
+        return true
+      }
+
       return until('document.body', () => {
         return {
           pass: !!document.body,
@@ -331,6 +335,14 @@ export const run = (command, csIpc, helpers) => {
 
         if (extra.playScrollElementsIntoView) el.scrollIntoView()
         if (extra.playHighlightElements)      helpers.highlightDom(el, HIGHLIGHT_TIMEOUT)
+
+        // Note: need the help of chrome.debugger to set file path to file input
+        if (el.type && el.type.toLowerCase() === 'file') {
+          return csIpc.ask('CS_SET_FILE_INPUT_FILES', {
+            files:    value.split(';'),
+            selector: inspector.selector(el)
+          })
+        }
 
         el.value = value
         el.dispatchEvent(new Event('change'))
@@ -563,6 +575,53 @@ export const run = (command, csIpc, helpers) => {
       }
     }
 
+    case 'storeValue': {
+      return __getElementByLocator(target)
+      .then(el => {
+        const text  = el.value
+
+        if (!text) {
+          throw new Error('value not found')
+        }
+
+        return {
+          vars: {
+            [value]: text
+          }
+        }
+      })
+    }
+
+    case 'verifyValue': {
+      return __getElementByLocator(target)
+      .then(el => {
+        const text  = el.value
+
+        if (text !== value) {
+          return {
+            log: {
+              error: `value not matched, \n\texpected: "${value}", \n\tactual: "${text}"`
+            }
+          }
+        }
+
+        return true
+      })
+    }
+
+    case 'assertValue': {
+      return __getElementByLocator(target)
+      .then(el => {
+        const text  = el.value
+
+        if (text !== value) {
+          throw new Error(`value not matched, \n\texpected: "${value}", \n\tactual: "${text}"`)
+        }
+
+        return true
+      })
+    }
+
     case 'echo': {
       return {
         log: {
@@ -599,6 +658,16 @@ export const run = (command, csIpc, helpers) => {
       }))
     }
 
+    case 'captureEntirePageScreenshot': {
+      return csIpc.ask('CS_CAPTURE_FULL_SCREENSHOT', { target })
+      .then(url => ({
+        screenshot: {
+          url,
+          name: target || url.split('/').slice(-1)[0]
+        }
+      }))
+    }
+
     case 'deleteAllCookies': {
       return csIpc.ask('CS_DELETE_ALL_COOKIES', {
         url: window.location.origin
@@ -606,6 +675,7 @@ export const run = (command, csIpc, helpers) => {
       .then(() => true)
     }
 
+    case 'if':
     case 'while':
     case 'gotoIf': {
       try {

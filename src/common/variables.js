@@ -5,6 +5,7 @@ export default function varsFactory (options = {}, initial = {}) {
       return key.indexOf('!') === 0 &&
               key !== '!TIMEOUT_PAGELOAD' &&
               key !== '!TIMEOUT_WAIT' &&
+              key !== '!TIMEOUT_MACRO' &&
               key !== '!REPLAYSPEED' &&
               key !== '!LOOP' &&
               key !== '!URL' &&
@@ -14,10 +15,13 @@ export default function varsFactory (options = {}, initial = {}) {
               key !== '!CSVLINE' &&
               key !== '!LASTCOMMANDOK' &&
               key !== '!ERRORIGNORE' &&
+              key !== '!CSVREADLINENUMBER' &&
+              key !== '!CSVREADSTATUS' &&
+              key !== '!CLIPBOARD' &&
               !/^!COL\d+$/i.test(key)
     },
     readonly: [
-      '!LOOP', '!URL', '!MACRONAME', '!RUNTIME', '!LASTCOMMANDOK',
+      '!LOOP', '!URL', '!MACRONAME', '!RUNTIME', '!LASTCOMMANDOK', '!CSVREADSTATUS',
       'KEY_LEFT', 'KEY_UP', 'KEY_RIGHT', 'KEY_DOWN',
       'KEY_PGUP', 'KEY_PAGE_UP', 'KEY_PGDN', 'KEY_PAGE_DOWN',
       'KEY_BKSP', 'KEY_BACKSPACE', 'KEY_DEL', 'KEY_DELETE',

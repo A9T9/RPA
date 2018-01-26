@@ -3,8 +3,11 @@ import { pick, until, on, map, compose } from '../common/utils'
 import csIpc from '../common/ipc/ipc_cs'
 import storage from '../common/storage'
 import testCaseModel, { normalizeCommand } from '../models/test_case_model'
+import testSuiteModel from '../models/test_suite_model'
 import { getPlayer } from '../common/player'
 import { getCSVMan } from '../common/csv_man'
+import { getScreenshotMan } from '../common/screenshot_man'
+import backup from '../common/backup'
 import log from '../common/log'
 
 let recordedCount = 0
@@ -23,13 +26,11 @@ const saveConfig = (function () {
     let { config } = getState()
     config = config || {}
 
-    storage.set('config', config)
-
     const savedSize = config.size ? config.size[config.showSidebar ? 'with_sidebar' : 'standard'] : null
     const finalSize = savedSize || (
       config.showSidebar
         ? {
-          width: 720,
+          width: 850,
           height: 775
         } : {
           width: 520,
@@ -39,27 +40,18 @@ const saveConfig = (function () {
 
     if (finalSize.width !== lastSize.width ||
       finalSize.height !== lastSize.height) {
-      until('find app dom', () => {
-        const $app = document.querySelector('.app')
-        return {
-          pass: !!$app,
-          result: $app
-        }
-      }, 100)
-      .then($app => {
-        if (config.showSidebar) {
-          $app.classList.add('with-sidebar')
-        } else {
-          $app.classList.remove('with-sidebar')
+      storage.get('config')
+      .then(oldConfig => {
+        if (oldConfig.showSidebar === config.showSidebar) return
+
+        if (finalSize.width !== window.outerWidth || finalSize.height !== window.outerHeight) {
+          csIpc.ask('PANEL_RESIZE_WINDOW', { size: finalSize })
         }
       })
-
-      if (finalSize.width !== window.outerWidth || finalSize.height !== window.outerHeight) {
-        csIpc.ask('PANEL_RESIZE_WINDOW', { size: finalSize })
-      }
-
-      lastSize = finalSize
     }
+
+    storage.set('config', config)
+    lastSize = finalSize
   }
 })()
 
@@ -158,8 +150,8 @@ export function insertCommand (cmdObj, index) {
   return {
     type: T.INSERT_COMMAND,
     data: {
-      command: cmdObj,
-      index: index
+      index,
+      command: cmdObj
     },
     post: saveEditing
   }
@@ -337,25 +329,57 @@ export function addTestCases (tcs) {
   }
 }
 
-export function renameTestCase (name) {
+export function renameTestCase (name, tcId) {
   return (dispatch, getState) => {
-    const state = getState()
-    const id    = state.editor.editing.meta.src.id
-    const tc    = state.editor.testCases.find(tc => tc.id === id)
-    const sameName = state.editor.testCases.find(tc => tc.id !== id && tc.name === name)
+    const state     = getState()
+    const editingId = state.editor.editing.meta.src.id
+    const tc        = state.editor.testCases.find(tc => tc.id === tcId)
+    const sameName  = state.editor.testCases.find(tc => tc.name === name)
+
+    if (!tc) {
+      return Promise.reject(new Error(`No test case found with id '${tcId}'!`))
+    }
 
     if (sameName) {
       return Promise.reject(new Error('The test case name already exists!'))
     }
 
-    return testCaseModel.update(id, {...tc, name})
-      .then(() => {
+    return testCaseModel.update(tcId, {...tc, name})
+    .then(() => {
+      if (editingId === tcId) {
         dispatch({
           type: T.RENAME_TEST_CASE,
           data: name,
           post: saveEditing
         })
+      }
+    })
+  }
+}
+
+export function removeTestCase (tcId) {
+  return (dispatch, getState) => {
+    const state = getState()
+    const curId = state.editor.editing.meta.src.id
+    const tss   = state.editor.testSuites.filter(ts => {
+      return ts.cases.find(m => m.testCaseId === tcId)
+    })
+
+    if (tss.length > 0) {
+      return Promise.reject(new Error(`Can't delete this macro for now, it's currently used in following test suites: ${tss.map(item => item.name)}`))
+    }
+
+    return testCaseModel.remove(tcId)
+      .then(() => {
+        dispatch({
+          type: T.REMOVE_TEST_CASE,
+          data: {
+            isCurrent: curId === tcId
+          },
+          post: saveEditing
+        })
       })
+      .catch(e => log.error(e.stack))
   }
 }
 
@@ -364,21 +388,27 @@ export function removeCurrentTestCase () {
     const state = getState()
     const id    = state.editor.editing.meta.src.id
 
-    return testCaseModel.remove(id)
-      .then(() => {
-        dispatch({
-          type: T.REMOVE_CURRENT_TEST_CASE,
-          data: null,
-          post: saveEditing
-        })
-      })
-      .catch(e => log.error(e.stack))
+    return removeTestCase(id)(dispatch, getState)
   }
 }
 
 // Note: duplicate current editing and save to another
-export function duplicateTestCase (newTestCaseName) {
-  return saveEditingAsNew(newTestCaseName)
+export function duplicateTestCase (newTestCaseName, tcId) {
+  return (dispatch, getState) => {
+    const state     = getState()
+    const tc        = state.editor.testCases.find(tc => tc.id === tcId)
+    const sameName  = state.editor.testCases.find(tc => tc.name === newTestCaseName)
+
+    if (!tc) {
+      return Promise.reject(new Error(`No test case found with id '${tcId}'!`))
+    }
+
+    if (sameName) {
+      return Promise.reject(new Error('The test case name already exists!'))
+    }
+
+    return testCaseModel.insert({ ...tc, name: newTestCaseName })
+  }
 }
 
 export function setPlayerState (obj) {
@@ -463,6 +493,7 @@ export function playerPlay (options) {
       '!MACRONAME':         macroName,
       '!TIMEOUT_PAGELOAD':  parseInt(config.timeoutPageLoad, 10),
       '!TIMEOUT_WAIT':      parseInt(config.timeoutElement, 10),
+      '!TIMEOUT_MACRO':     parseInt(config.timeoutMacro, 10),
       '!REPLAYSPEED': ({
         '0':    'FAST',
         '0.3':  'MEDIUM',
@@ -496,6 +527,128 @@ export function listCSV () {
         type: T.SET_CSV_LIST,
         data: list
       })
+    })
+  }
+}
+
+export function listScreenshots () {
+  return (dispatch, getState) => {
+    const man = getScreenshotMan()
+
+    man.list().then(list => {
+      list.reverse()
+
+      return list.map(item => ({
+        name:       item.fileName,
+        url:        man.getLink(item.fileName),
+        createTime: new Date(item.lastModified)
+      }))
+    }).then(list => {
+      dispatch({
+        type: T.SET_SCREENSHOT_LIST,
+        data: list
+      })
+    })
+  }
+}
+
+export function setTestSuites (tss) {
+  return {
+    type: T.SET_TEST_SUITES,
+    data: tss
+  }
+}
+
+export function addTestSuite (ts) {
+  return (dispatch, getState) => {
+    return testSuiteModel.insert(ts)
+  }
+}
+
+export function addTestSuites (tss) {
+  return (dispatch, getState) => {
+    const state     = getState()
+    // const testCases = state.editor.testCases
+    const validTss  = tss
+    // const failTcs   = tcs.filter(tc => testCases.find(tcc => tcc.name === tc.name))
+
+    const passCount = validTss.length
+    const failCount = tss.length - passCount
+
+    if (passCount === 0) {
+      return Promise.resolve({ passCount, failCount, failTss: [] })
+    }
+
+    return testSuiteModel.bulkInsert(validTss)
+    .then(() => ({ passCount, failCount, failTss: [] }))
+  }
+}
+
+export function updateTestSuite (id, data) {
+  return (dispatch, getState) => {
+    const state = getState()
+    const ts    = state.editor.testSuites.find(ts => ts.id === id)
+
+    const revised = {
+      ...ts,
+      ...(typeof data === 'function' ? data(ts) : data)
+    }
+
+    dispatch({
+      type: T.UPDATE_TEST_SUITE,
+      data: {
+        id: id,
+        updated: revised
+      }
+    })
+
+    return testSuiteModel.update(id, revised)
+  }
+}
+
+export function removeTestSuite (id) {
+  return (dispatch, getState) => {
+    return testSuiteModel.remove(id)
+  }
+}
+
+export function setPlayerMode (mode) {
+  return {
+    type: T.SET_PLAYER_STATE,
+    data: { mode }
+  }
+}
+
+export function runBackup () {
+  return (dispatch, getState) => {
+    const { config, editor } = getState()
+    const {
+      autoBackupTestCases,
+      autoBackupTestSuites,
+      autoBackupScreenshots,
+      autoBackupCSVFiles
+    } = config
+
+    return Promise.all([
+      getCSVMan().list(),
+      getScreenshotMan().list()
+    ])
+    .then(([csvs, screenshots]) => {
+      return backup({
+        csvs,
+        screenshots,
+        testCases: editor.testCases,
+        testSuites: editor.testSuites,
+        backup: {
+          testCase: autoBackupTestCases,
+          testSuite: autoBackupTestSuites,
+          screenshot: autoBackupScreenshots,
+          csv: autoBackupCSVFiles
+        }
+      })
+    })
+    .catch(e => {
+      log.error(e.stack)
     })
   }
 }

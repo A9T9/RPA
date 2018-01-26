@@ -31,6 +31,7 @@ const initialState = {
   recorderStatus: C.RECORDER_STATUS.STOPPED,
   inspectorStatus: C.INSPECTOR_STATUS.STOPPED,
   editor: {
+    testSuites: [],
     testCases: [],
     editing: {
       ...newTestCaseEditing
@@ -40,6 +41,7 @@ const initialState = {
     }
   },
   player: {
+    mode: C.PLAYER_MODE.TEST_CASE,
     status: C.PLAYER_STATUS.STOPPED,
     stopReason: null,
     currentLoop: 0,
@@ -256,6 +258,17 @@ export default function reducer (state = initialState, action) {
     case T.SET_TEST_CASES:
       return setIn(['editor', 'testCases'], action.data, state)
 
+    case T.SET_TEST_SUITES:
+      return setIn(['editor', 'testSuites'], action.data, state)
+
+    case T.UPDATE_TEST_SUITE: {
+      const { id, updated } = action.data
+      const index = state.editor.testSuites.findIndex(ts => ts.id === id)
+
+      if (index === -1) return state
+      return setIn(['editor', 'testSuites', index], updated, state)
+    }
+
     case T.SET_EDITING:
       if (!action.data) return state
       return updateHasUnSaved(
@@ -312,7 +325,9 @@ export default function reducer (state = initialState, action) {
     case T.RENAME_TEST_CASE:
       return setIn(['editor', 'editing', 'meta', 'src', 'name'], action.data, state)
 
-    case T.REMOVE_CURRENT_TEST_CASE: {
+    case T.REMOVE_TEST_CASE: {
+      if (!action.data.isCurrent) return state
+
       const { id } = state.editor.editing.meta.src
       const { selectedIndex } = state.editor.editing.meta
       const candidates        = state.editor.testCases.filter(tc => tc.id !== id)
@@ -403,6 +418,12 @@ export default function reducer (state = initialState, action) {
       return {
         ...state,
         csvs: action.data
+      }
+
+    case T.SET_SCREENSHOT_LIST:
+      return {
+        ...state,
+        screenshots: action.data
       }
 
     default:

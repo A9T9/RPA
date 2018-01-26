@@ -136,7 +136,8 @@ export class Player {
       loopsEnd: 1,
       resources: config.resources,
       status: STATUS.PLAYING,
-      public: config.public || {}
+      public: config.public || {},
+      callback: config.callback || function () {}
     }
 
     ;['preDelay', 'postDelay'].forEach(key => {
@@ -171,7 +172,11 @@ export class Player {
         break
     }
 
-    this.emit('START', { title })
+    this.emit('START', {
+      title,
+      loopsCursor: this.state.loopsCursor,
+      extra: this.state.extra
+    })
 
     return Promise.resolve()
     .then(() => this.__prepare(this.state))
@@ -186,7 +191,7 @@ export class Player {
       status: STATUS.PAUSED
     })
 
-    this.emit('PAUSED', {})
+    this.emit('PAUSED', { extra: this.state.extra })
   }
 
   resume () {
@@ -194,12 +199,16 @@ export class Player {
       status: STATUS.PLAYING
     })
 
-    this.emit('RESUMED', {})
+    this.emit('RESUMED', { extra: this.state.extra })
     this.__go()
   }
 
-  stop () {
-    this.__end(END_REASON.MANUAL)
+  stop (opts) {
+    this.__end(END_REASON.MANUAL, opts)
+  }
+
+  stopWithError (error) {
+    this.__errLog(error)
   }
 
   jumpTo (nextIndex) {
@@ -222,7 +231,20 @@ export class Player {
     })
   }
 
-  __go () {
+  __go (token) {
+    // Note: in case it is returned from previous call
+
+    if (token === undefined) {
+      this.token = token = Math.random()
+    } else if (token !== this.token) {
+      return
+    }
+
+    const guardToken = (fn) => (...args) => {
+      if (token !== this.token) throw new Error('token expired')
+      return fn(...args)
+    }
+
     const { resources, nextIndex, preDelay } = this.state
     const pre = preDelay > 0 ? this.__delay(() => undefined, preDelay) : Promise.resolve()
 
@@ -246,42 +268,54 @@ export class Player {
         } = this.state
 
         // Note: when we're running loops
-        if (loopsCursor !== loopsStart && nextIndex === startIndex) {
-          this.emit('LOOP_RESTART', {
+        if (nextIndex === startIndex) {
+          const obj = {
+            loopsCursor,
             index: nextIndex,
             currentLoop: loopsCursor - loopsStart + 1,
             loops: loopsEnd - loopsStart + 1,
-            resource: resources[nextIndex]
-          })
+            resource: resources[nextIndex],
+            extra: this.state.extra
+          }
+
+          this.emit('LOOP_START', obj)
+
+          if (loopsCursor !== loopsStart) {
+            this.emit('LOOP_RESTART', obj)
+          }
         }
 
         this.emit('TO_PLAY', {
           index: nextIndex,
           currentLoop: loopsCursor - loopsStart + 1,
           loops: loopsEnd - loopsStart + 1,
-          resource: resources[nextIndex]
+          resource: resources[nextIndex],
+          extra: this.state.extra
         })
 
+        // Note: Check whether token expired or not after each async operations
+        // Also also in the final catch to prevent unnecessary invoke of __errLog
         return this.__run(resources[nextIndex], this.state)
-          .then(res => {
+          .then(guardToken(res => {
             const { postDelay } = this.state
 
             // Note: allow users to handle the result
             return this.__handle(res, resources[nextIndex], this.state)
-            .then(nextIndex => {
+            .then(guardToken(nextIndex => {
               // Note: __handle has the chance to return a `nextIndex`, mostly when it's
               // from a flow logic. But still, it could be undefined for normal commands
               this.__setNext(nextIndex)
               this.emit('PLAYED_LIST', {
-                indices: this.state.doneIndices
+                indices: this.state.doneIndices,
+                extra: this.state.extra
               })
-            })
+            }))
             .then(
               () => postDelay > 0 ? this.__delay(() => undefined, postDelay) : Promise.resolve()
             )
-            .then(() => this.__go())
-          })
-          .catch(err => this.__errLog(err))
+            .then(() => this.__go(token))
+          }))
+          .catch(guardToken(err => this.__errLog(err)))
       })
   }
 
@@ -304,20 +338,35 @@ export class Player {
     return Promise.resolve(ret)
   }
 
-  __end (reason) {
+  __end (reason, opts) {
+    // Note: CANNOT end the player twice
+    if (this.state.status === STATUS.STOPPED) return
+
     if (Object.keys(END_REASON).indexOf(reason) === -1) {
       throw new Error('Player - __end: invalid reason, ' + reason)
     }
 
-    this.emit('END', { reason, extra: this.state.extra })
+    if (!opts || !opts.silent) {
+      this.emit('END', { opts, reason, extra: this.state.extra })
+
+      if (reason !== END_REASON.ERROR) {
+        this.state.callback(null, reason)
+      }
+    }
+
     this.__setState(initialState)
   }
 
   __errLog (err, errorIndex) {
+    // Note: CANNOT log error if player is already stopped
+    if (this.state.status === STATUS.STOPPED) return
+
     this.emit('ERROR', {
       errorIndex: errorIndex !== undefined ? errorIndex : this.state.nextIndex,
-      msg: err && err.message
+      msg: err && err.message,
+      extra: this.state.extra
     })
+    this.state.callback(err, null)
     this.__end(END_REASON.ERROR)
   }
 
@@ -373,6 +422,7 @@ export class Player {
     const timer = setInterval(() => {
       past += 1000
       this.emit('DELAY', {
+        extra: this.state.extra,
         total: timeout,
         past
       })
@@ -388,23 +438,26 @@ export class Player {
 
 ee(Player.prototype)
 
-Player.prototype.C = {
+Player.C = Player.prototype.C = {
   MODE,
   STATUS,
   END_REASON
 }
 
-let player
+let playerPool = {}
 
 // factory function to return a player singleton
-export const getPlayer = (opts, state) => {
-  if (opts) {
-    player = new Player(opts, state)
+export const getPlayer = (opts = {}, state) => {
+  const name = opts.name || 'testCase'
+  delete opts.name
+
+  if (Object.keys(opts).length > 0) {
+    playerPool[name] = new Player(opts, state)
   }
 
-  if (!player) {
+  if (!playerPool[name]) {
     throw new Error('player not initialized')
   }
 
-  return player
+  return playerPool[name]
 }

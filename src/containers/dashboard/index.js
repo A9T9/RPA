@@ -5,7 +5,6 @@ import { bindActionCreators }  from 'redux'
 import './dashboard.scss'
 import * as actions from '../../actions'
 
-import DashboardActions from './actions'
 import DashboardEditor from './editor'
 import DashboardBottom from './bottom'
 
@@ -13,7 +12,6 @@ class Dashboard extends React.Component {
   render () {
     return (
       <div className="dashboard">
-        <DashboardActions />
         <DashboardEditor />
         <DashboardBottom />
 

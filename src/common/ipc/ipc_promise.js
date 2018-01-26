@@ -113,15 +113,18 @@ function ipcPromise (options) {
     var uid = 'ipcp_' + new Date() * 1 + '_' + Math.round(Math.random() * 1000);
     var finalTimeout = timeoutToOverride || timeout
 
-    setTimeout(function () {
-      var reject;
+    // Note: make it possible to disable timeout
+    if (finalTimeout > 0) {
+      setTimeout(function () {
+        var reject;
 
-      if (askCache && askCache[uid]) {
-        reject = askCache[uid][1];
-        askCache[uid] = TO_BE_REMOVED;
-        reject(new Error('ipcPromise: onAsk timeout ' + finalTimeout + ' for cmd "' + cmd + '", args "'  + args + '"'));
-      }
-    }, finalTimeout);
+        if (askCache && askCache[uid]) {
+          reject = askCache[uid][1];
+          askCache[uid] = TO_BE_REMOVED;
+          reject(new Error('ipcPromise: onAsk timeout ' + finalTimeout + ' for cmd "' + cmd + '", args "'  + args + '"'));
+        }
+      }, finalTimeout);
+    }
 
     ask(uid, cmd, args || []);
 

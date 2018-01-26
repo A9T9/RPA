@@ -4,7 +4,7 @@
   "name": "Kantu Browser Automation",
   "description": "Web Browser Automation plus Selenium IDE Light",
   "short_name": "Kantu Macros",
-  "version": "2.0.2",
+  "version": "2.3.0",
 
   "icons": {
     "128": "logo.png"
@@ -42,6 +42,9 @@
     "tabs",
     "notifications",
     "cookies",
+    "debugger",
+    "clipboardRead",
+    "clipboardWrite",
     "file:///*",
     "http://*/*",
     "https://*/*",

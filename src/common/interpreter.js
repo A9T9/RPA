@@ -30,7 +30,7 @@ export default class Interpreter {
 
   preprocess (commands) {
     let nextState     = { commands, tags: [] }
-    let halfTag       = null
+    let halfTags      = []
     let errorAtIndex  = (i, msg) => {
       const e = new Error(msg)
       e.errorIndex = i
@@ -40,33 +40,78 @@ export default class Interpreter {
     commands.forEach((c, i) => {
       if (this.__customPre && this.__customPre(c, i)) return
 
+      const topHalfTag = halfTags[halfTags.length - 1]
+
       switch (c.cmd) {
+        // Commands for WHILE statements
         case 'while': {
-          if (halfTag && halfTag.type === 'while') {
+          if (halfTags.find(tag => tag.type === 'while')) {
             throw errorAtIndex(i, `No nested while allowed (at command #${i + 1})`)
           }
 
-          halfTag = {
+          halfTags.push({
             type: 'while',
             start: { index: i, command: c }
-          }
+          })
 
           break
         }
 
         case 'endWhile': {
-          if (!halfTag || halfTag.type !== 'while') {
+          if (!topHalfTag || topHalfTag.type !== 'while') {
             throw errorAtIndex(i, `No matching while for this endWhile (at command #${i + 1})`)
           }
 
           nextState.tags.push({
-            ...halfTag,
+            ...topHalfTag,
             end: { index: i, command: c }
           })
 
-          halfTag = null
+          halfTags.pop()
           break
         }
+        // -----------------------------
+
+        // Commands for IF statements
+        case 'if': {
+          if (halfTags.find(tag => tag.type === 'if')) {
+            throw errorAtIndex(i, `No nested if allowed (at command #${i + 1})`)
+          }
+
+          halfTags.push({
+            type: 'if',
+            start: { index: i, command: c }
+          })
+
+          break
+        }
+
+        case 'else': {
+          if (!topHalfTag || topHalfTag.type !== 'if') {
+            throw errorAtIndex(i, `No matching if for this else (at command #${i + 1})`)
+          }
+
+          Object.assign(topHalfTag, {
+            fork: { index: i, command: c }
+          })
+
+          break
+        }
+
+        case 'endif': {
+          if (!topHalfTag || topHalfTag.type !== 'if') {
+            throw errorAtIndex(i, `No matching if for this endif (at command #${i + 1})`)
+          }
+
+          nextState.tags.push({
+            ...topHalfTag,
+            end: { index: i, command: c }
+          })
+
+          halfTags.pop()
+          break
+        }
+        // -----------------------------
 
         case 'label': {
           if (!c.target || !c.target.length) {
@@ -85,8 +130,9 @@ export default class Interpreter {
       }
     })
 
-    if (halfTag) {
-      throw errorAtIndex(halfTag.start.index, `Unclosed '${halfTag.type}' (at command #${halfTag.start.index + 1})`)
+    if (halfTags.length > 0) {
+      const topHalfTag = halfTags[halfTags.length - 1]
+      throw errorAtIndex(topHalfTag.start.index, `Unclosed '${topHalfTag.type}' (at command #${topHalfTag.start.index + 1})`)
     }
 
     this.__setState(nextState)
@@ -117,6 +163,25 @@ export default class Interpreter {
         })
       }
 
+      case 'else': {
+        // Note: 'else' command itself will be skipped if condition is false,
+        // But it will be run as the ending command of 'if-else' when condition is true
+        const tag = this.state.tags.find(tag => tag.type === 'if' && tag.fork.index === index)
+
+        if (!tag) {
+          throw new Error(`tag not found for this else (at command #${index + 1})`)
+        }
+
+        return Promise.resolve({
+          isFlowLogic: true,
+          nextIndex: tag.end.index + 1
+        })
+      }
+
+      case 'endif': {
+        return Promise.resolve({ isFlowLogic: true })
+      }
+
       case 'endWhile': {
         const tag = this.state.tags.find(tag => tag.type === 'while' && tag.end.index === index)
 
@@ -134,9 +199,10 @@ export default class Interpreter {
       case 'label':
         return Promise.resolve({ isFlowLogic: true })
 
-      // Note: both gotoIf and while needs to run eval, which is not allowed in extension scope,
+      // Note: gotoIf, if and while need to run eval, which is not allowed in extension scope,
       // so we have to run eval in content script
       case 'gotoIf':
+      case 'if':
       case 'while':
       default:
         return Promise.resolve({ isFlowLogic: false })
@@ -153,7 +219,7 @@ export default class Interpreter {
 
     switch (cmd) {
       case 'gotoIf': {
-        // short-circuit the check on value 
+        // short-circuit the check on value
         if (!result.condition)  return Promise.resolve()
 
         if (!value || !value.length) {
@@ -166,6 +232,22 @@ export default class Interpreter {
 
         return Promise.resolve({
           nextIndex: this.state.labels[value].index
+        })
+      }
+
+      case 'if': {
+        const cond = result.condition
+        const tag  = this.state.tags.find(tag => tag.type === 'if' && tag.start.index === index)
+
+        if (!tag) {
+          throw new Error(`tag not found for this if (at command #${index + 1})`)
+        }
+
+        const forkIndex = tag.fork && (tag.fork.index + 1)
+        const endIndex  = tag.end && (tag.end.index + 1)
+
+        return Promise.resolve({
+          nextIndex: cond ? (index + 1) : (forkIndex || endIndex)
         })
       }
 

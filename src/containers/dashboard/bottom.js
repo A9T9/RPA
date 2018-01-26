@@ -6,6 +6,7 @@ import {
   Form, Select, Modal, message, Row, Col, Tabs, Popconfirm
 } from 'antd'
 
+import { cn, setIn } from '../../common/utils'
 import { getCSVMan } from '../../common/csv_man'
 import * as actions from '../../actions'
 import * as C from '../../common/constant'
@@ -17,7 +18,47 @@ class DashboardBottom extends React.Component {
 
     showCSVModal: false,
     csvText: '',
-    csvFile: ''
+    csvFile: '',
+
+    drag: {
+      isDragging: false,
+      startY: 0,
+      lastHeight: 220,
+      currentMinHeight: 220
+    }
+  }
+
+  getBottomMinHeight = () => {
+    const { isDragging, lastHeight, currentMinHeight } = this.state.drag
+    return (isDragging ? currentMinHeight : lastHeight) + 'px'
+  }
+
+  onResizeDragStart = (e) => {
+    const style   = window.getComputedStyle(this.$dom)
+    const height  = parseInt(style.height)
+
+    this.setState(
+      setIn(['drag'], {
+        isDragging: true,
+        startY: e.clientY,
+        lastHeight: height,
+        currentHeight: height
+      }, this.state)
+    )
+  }
+
+  onResizeDragEnd = (e) => {
+    const diff    = e.clientY - this.state.drag.startY
+    const height  = this.state.drag.lastHeight - diff
+
+    this.setState(
+      setIn(['drag'], {
+        isDragging: false,
+        startY: 0,
+        lastHeight: height,
+        currentMinHeight: height
+      })
+    )
   }
 
   onFileChange = (e) => {
@@ -66,26 +107,7 @@ class DashboardBottom extends React.Component {
   }
 
   viewCSV = (csv) => {
-    const csvMan  = getCSVMan()
-
-    csvMan.read(csv.fileName)
-    .then(text => {
-      const win = window.open('', '', 'width=600, height=500, scrollbars=yes');
-      win.document.write(`
-        <style>
-          textarea {
-            font-size: 14px;
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            width: 100%;
-          }
-        </style>
-        <textarea>${text}</textarea>
-      `)
-    })
+    window.open(`./csv_editor.html?csv=${csv.fileName}`, '', 'width=600,height=500,scrollbars=true')
   }
 
   componentWillReceiveProps (nextProps) {
@@ -211,8 +233,20 @@ class DashboardBottom extends React.Component {
     const logs = this.props.logs.filter(filters[logFilter])
 
     return (
-      <div className="logs-screenshots">
+      <div
+        className="logs-screenshots"
+        ref={el => { this.$dom = el }}
+        style={{ height: this.getBottomMinHeight() }}
+      >
         {this.renderCSVModal()}
+
+        <div
+          className={cn('resize-handler', { focused: this.state.drag.isDragging })}
+          draggable="true"
+          onDragStart={this.onResizeDragStart}
+          onDragEnd={this.onResizeDragEnd}
+          onMouseDown={() => this.setState(setIn(['drag', 'isDragging'], true, this.state))}
+        />
 
         <Tabs
           type="card"
@@ -233,7 +267,7 @@ class DashboardBottom extends React.Component {
               {this.props.screenshots.map((ss, i) => (
                 <li key={ss.url}>
                   <span className="timestamp">
-                    {ss.createTime.toLocaleString()} - <span className="filename">{decodeURIComponent(ss.name)}</span>
+                    {ss.createTime && ss.createTime.toLocaleString()} - <span className="filename">{decodeURIComponent(ss.name)}</span>
                   </span>
                   <a download={decodeURIComponent(ss.name)} href={ss.url}>
                     <img src={ss.url} />

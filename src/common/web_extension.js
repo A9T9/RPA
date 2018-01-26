@@ -79,6 +79,7 @@
       cookies: ['get', 'getAll', 'set', 'remove'],
       notifications: ['create'],
       browserAction: ['getBadgeText'],
+      debugger: ['attach', 'detach', 'sendCommand', 'getTargets'],
       'storage.local': ['get', 'set']
     },
     toCopy: {
@@ -86,7 +87,8 @@
       runtime: ['onMessage', 'onInstalled'],
       storage: ['onChanged'],
       browserAction: ['setBadgeText', 'setBadgeBackgroundColor', 'onClicked'],
-      extension: ['getURL']
+      extension: ['getURL'],
+      debugger: ['onEvent', 'onDetach']
     }
   }
 

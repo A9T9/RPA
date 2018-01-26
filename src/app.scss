@@ -17,6 +17,33 @@ body {
   left: 0;
   right: 0;
   display: flex;
+  flex-direction: column;
+
+  .app-inner {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+  }
+
+  &.with-alert .backup-alert {
+    display: block;
+  }
+
+  .backup-alert {
+    display: none;
+    padding: 5px 0;
+    text-align: center;
+    font-size: 14px;
+    background: rgb(253, 253, 194);
+
+    .backup-actions {
+      margin-left: 20px;
+
+      button {
+        margin-right: 10px;
+      }
+    }
+  }
 
   .content {
     @include flexcol();

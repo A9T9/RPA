@@ -3,8 +3,10 @@ import { until, delay, setIn, pick, splitIntoTwo } from '../common/utils'
 import { bgInit } from '../common/ipc/ipc_bg_cs'
 import * as C from '../common/constant'
 import log from '../common/log'
-import saveScreen from '../common/capture_screenshot'
+import clipboard from '../common/clipboard'
+import { saveScreen, saveFullScreen } from '../common/capture_screenshot'
 import storage from '../common/storage'
+import { setFileInputFiles } from '../common/debugger'
 import config from '../config'
 
 const state = {
@@ -27,15 +29,19 @@ const createTab = (url) => {
   return Ext.tabs.create({ url, active: true })
 }
 
-const activateTab = (tabId) => {
+const activateTab = (tabId, focusWindow) => {
   return Ext.tabs.get(tabId)
   .then(tab => {
-    return Ext.windows.update(tab.windowId, { focused: true })
-    .then(() => {
-      return Ext.tabs.update(tab.id, { active: true })
-    })
+    const p = focusWindow ? Ext.windows.update(tab.windowId, { focused: true })
+                          : Promise.resolve()
+
+    return p.then(() => Ext.tabs.update(tab.id, { active: true }))
     .then(() => tab)
   })
+}
+
+const getTab = (tabId) => {
+  return Ext.tabs.get(tabId)
 }
 
 // Generate function to get ipc based on tabIdName and some error message
@@ -89,7 +95,7 @@ const getPlayTab  = (url) => {
     return createOne(url)
   }
 
-  return activateTab(state.tabIds.toPlay)
+  return getTab(state.tabIds.toPlay)
     .then(
       (tab) => {
         if (!url) {
@@ -183,12 +189,32 @@ const notifyRecordCommand = (command) => {
   })
 }
 
+const isTimeToBackup = () => {
+  return storage.get('config')
+  .then(config => {
+    const { enableAutoBackup, lastBackupActionTime, autoBackupInterval } = config
+
+    if (!enableAutoBackup) {
+      return {
+        timeout: false,
+        remain: -1
+      }
+    }
+
+    const diff = new Date() * 1 - (lastBackupActionTime || 0)
+    return {
+      timeout: diff > autoBackupInterval * 24 * 3600000,
+      remain: diff
+    }
+  })
+}
+
 const bindEvents = () => {
   Ext.browserAction.onClicked.addListener(() => {
     isUpgradeViewed()
     .then(isViewed => {
       if (isViewed) {
-        return activateTab(state.tabIds.panel)
+        return activateTab(state.tabIds.panel, true)
         .catch(() => {
           storage.get('config')
           .then(config => {
@@ -197,7 +223,7 @@ const bindEvents = () => {
           })
           .then(size => {
             size = size || {
-              width: 520,
+              width: 850,
               height: 775
             }
 
@@ -354,6 +380,9 @@ const onRequest = (cmd, args) => {
 
       return true
 
+    case 'PANEL_TIME_FOR_BACKUP':
+      return isTimeToBackup().then(obj => obj.timeout)
+
     case 'PANEL_START_RECORDING':
       log('Start to record...')
       state.status = C.APP_STATUS.RECORDER
@@ -391,23 +420,34 @@ const onRequest = (cmd, args) => {
 
       if (state.timer) clearInterval(state.timer)
 
-      return getPlayTab(args.url)
-        .then(tab => {
-          // Note: wait for tab to confirm it has loaded
-          return until('ipc of tab to play', () => {
-            return {
-              pass: !!state.ipcCache[tab.id],
-              result: state.ipcCache[tab.id]
-            }
-          }, 1000, 6000 * 10)
-          .then(ipc => {
-            return ipc.ask('SET_STATUS', { status: C.CONTENT_SCRIPT_STATUS.PLAYING })
-          })
+      return getPlayTab()
+      // Note: catch any error, and make it run 'getPlayTab(args.url)' instead
+      .catch(e => ({ id: -1 }))
+      .then(tab => {
+        if (!state.ipcCache[tab.id]) {
+          return getPlayTab(args.url)
+          .then(tab => ({ tab, hasOpenedUrl: true }))
+        } else {
+          return { tab, hasOpenedUrl: false }
+        }
+      })
+      .then(({ tab, hasOpenedUrl }) => {
+        // Note: wait for tab to confirm it has loaded
+        return until('ipc of tab to play', () => {
+          return {
+            pass: !!state.ipcCache[tab.id],
+            result: state.ipcCache[tab.id]
+          }
+        }, 1000, 6000 * 10)
+        .then(ipc => {
+          const p = !hasOpenedUrl ? Promise.resolve() : ipc.ask('MARK_NO_COMMANDS_YET', {})
+          return p.then(() => ipc.ask('SET_STATUS', { status: C.CONTENT_SCRIPT_STATUS.PLAYING }))
         })
-        .catch(e => {
-          togglePlayingBadge(false)
-          throw e
-        })
+      })
+      .catch(e => {
+        togglePlayingBadge(false)
+        throw e
+      })
     }
 
     case 'PANEL_RUN_COMMAND': {
@@ -495,6 +535,12 @@ const onRequest = (cmd, args) => {
             .then(() => res.data)
           }
 
+          // Note: clear timer whenever we execute a new command, and it's not a retry
+          if (state.timer && retryInfo.retryCount === 0)  clearInterval(state.timer)
+
+          // Note: -1 will disable ipc timeout for 'pause' command
+          const ipcTimeout = args.command.cmd === 'pause' ? -1 : null
+
           return ipc.ask('DOM_READY', {})
           .then(() => ipc.ask('RUN_COMMAND', {
             command: {
@@ -504,7 +550,7 @@ const onRequest = (cmd, args) => {
                 retryInfo
               }
             }
-          }))
+          }, ipcTimeout))
           .then(wait)
         })
       }
@@ -665,7 +711,7 @@ const onRequest = (cmd, args) => {
 
         const tabId = state.tabIds[item.type === 'record' ? 'lastRecord' : 'toPlay']
 
-        return activateTab(tabId)
+        return activateTab(tabId, true)
         .then(() => item.ipc.ask('HIGHLIGHT_DOM', { locator: args.locator }))
       })
     }
@@ -706,7 +752,7 @@ const onRequest = (cmd, args) => {
 
       toggleInspectingBadge(false)
       setInspectorTabId(null, true, true)
-      activateTab(state.tabIds.panel)
+      activateTab(state.tabIds.panel, true)
 
       return getPanelTabIpc()
       .then(panelIpc => {
@@ -894,8 +940,25 @@ const onRequest = (cmd, args) => {
     }
 
     case 'CS_CAPTURE_SCREENSHOT':
-      return activateTab(state.tabIds.toPlay)
+      return activateTab(state.tabIds.toPlay, true)
       .then(saveScreen)
+
+    case 'CS_CAPTURE_FULL_SCREENSHOT':
+      return activateTab(state.tabIds.toPlay, true)
+      .then(getPlayTabIpc)
+      .then(ipc => {
+        return saveFullScreen({
+          startCapture: () => {
+            return ipc.ask('START_CAPTURE_FULL_SCREENSHOT', {})
+          },
+          endCapture: (pageInfo) => {
+            return ipc.ask('END_CAPTURE_FULL_SCREENSHOT', { pageInfo })
+          },
+          scrollPage: (offset) => {
+            return ipc.ask('SCROLL_PAGE', { offset })
+          }
+        })
+      })
 
     case 'CS_TIMEOUT_STATUS':
       return getPanelTabIpc()
@@ -915,6 +978,23 @@ const onRequest = (cmd, args) => {
       })
     }
 
+    case 'CS_SET_FILE_INPUT_FILES': {
+      return setFileInputFiles({
+        tabId:    args.sender.tab.id,
+        selector: args.selector,
+        files:    args.files
+      })
+    }
+
+    case 'SET_CLIPBOARD': {
+      clipboard.set(args.value)
+      return true
+    }
+
+    case 'GET_CLIPBOARD': {
+      return clipboard.get()
+    }
+
     default:
       return 'unknown'
   }
@@ -928,23 +1008,25 @@ const initIPC = () => {
 }
 
 const initOnInstalled = () => {
-  Ext.runtime.setUninstallURL(config.urlAfterUninstall)
+  if (typeof process !== 'undefined' && process.env.NODE_ENV === 'production') {
+    Ext.runtime.setUninstallURL(config.urlAfterUninstall)
 
-  Ext.runtime.onInstalled.addListener(({ reason }) => {
-    switch (reason) {
-      case 'install':
-        return Ext.tabs.create({
-          url: config.urlAfterInstall
-        })
+    Ext.runtime.onInstalled.addListener(({ reason }) => {
+      switch (reason) {
+        case 'install':
+          return Ext.tabs.create({
+            url: config.urlAfterInstall
+          })
 
-      case 'update':
-        Ext.browserAction.setBadgeText({ text: 'NEW' })
-        Ext.browserAction.setBadgeBackgroundColor({ color: '#4444FF' })
-        return Ext.storage.local.set({
-          upgrade_not_viewed: 'not_viewed'
-        })
-    }
-  })
+        case 'update':
+          Ext.browserAction.setBadgeText({ text: 'NEW' })
+          Ext.browserAction.setBadgeBackgroundColor({ color: '#4444FF' })
+          return Ext.storage.local.set({
+            upgrade_not_viewed: 'not_viewed'
+          })
+      }
+    })
+  }
 }
 
 const initPlayTab = () => {
@@ -952,7 +1034,6 @@ const initPlayTab = () => {
   .then(window => {
     return Ext.tabs.query({ active: true, windowId: window.id })
     .then(tabs => {
-      console.log('tabs', tabs)
       if (!tabs || !tabs.length)  return false
       state.tabIds.toPlay = tabs[0].id
       return true
@@ -964,3 +1045,5 @@ bindEvents()
 initIPC()
 initOnInstalled()
 initPlayTab()
+
+window.clip = clipboard

@@ -59,7 +59,14 @@ const availableCommands = [
   'while',
   'endWhile',
   'csvRead',
-  'csvSave'
+  'csvSave',
+  'if',
+  'else',
+  'endif',
+  'storeValue',
+  'assertValue',
+  'verifyValue',
+  'captureEntirePageScreenshot'
 ]
 
 availableCommands.sort()
@@ -78,6 +85,7 @@ class DashboardEditor extends React.Component {
     sourceText: '',
     sourceTextModified: null,
     sourceErrMsg: null,
+    cursor: null,
 
     contextMenu: {
       x: null,
@@ -99,7 +107,8 @@ class DashboardEditor extends React.Component {
     return {
       sourceText: text,
       sourceTextModified: text,
-      sourceErrMsg: null
+      sourceErrMsg: null,
+      cursor: { line: 0, ch: 0 }
     }
   }
 
@@ -117,6 +126,13 @@ class DashboardEditor extends React.Component {
           activeTabForCommands: forceType
         })
 
+        if (type === 'source_view' && this.codeMirror && this.state.cursor) {
+          // Note: must delay a while so that focus will take effect
+          setTimeout(() => {
+            this.codeMirror.setCursor(this.state.cursor, true, true)
+          }, 200)
+        }
+
         break
       }
     }
@@ -124,7 +140,11 @@ class DashboardEditor extends React.Component {
 
   onSourceBlur = () => {
     try {
-      const { sourceTextModified } = this.state
+      const { sourceTextModified, sourceText } = this.state
+
+      // Note: save some effort if text is not changed
+      if (sourceText === sourceTextModified)  return
+
       const obj = fromJSONString(sourceTextModified, 'untitled')
 
       this.setState({
@@ -180,7 +200,7 @@ class DashboardEditor extends React.Component {
 
   componentWillReceiveProps (nextProps) {
     // Note: update sourceText whenever editing changed
-    if (nextProps.editing !== this.props.editing) {
+    if (nextProps.editing.meta.src !== this.props.editing.meta.src) {
       this.setState(
         this.editingToSourceText(nextProps.editing)
       )
@@ -248,6 +268,11 @@ class DashboardEditor extends React.Component {
 
     document.addEventListener('contextmenu', onContextMenu)
     document.addEventListener('click', onHideMenu)
+  }
+
+  getTestCaseName = () => {
+    const { src } = this.props.editing.meta
+    return src && src.name && src.name.length ? src.name : 'Untitled'
   }
 
   renderContextMenu () {
@@ -384,6 +409,13 @@ class DashboardEditor extends React.Component {
       dataSource,
       columns,
       pagination: false,
+      footer: () => (
+        <div className="table-footer" onClick={(e) => {
+          this.props.insertCommand(newCommand, commands.length)
+        }}>
+          Add
+        </div>
+      ),
       onRowClick: (record, index, e) => {
         this.props.selectCommand(index)
       },
@@ -523,10 +555,18 @@ class DashboardEditor extends React.Component {
                     sourceText and sourceTextModified
             */}
             <CodeMirror
+              ref={el => { this.codeMirror = el }}
               className={this.state.sourceErrMsg ? 'has-error' : 'no-error'}
               value={this.state.sourceText}
               onChange={this.onChangeEditSource}
               onBlur={this.onSourceBlur}
+              onCursor={(editor, data) => {
+                // Note: when value updated, code mirror will automatically emit onCursor with cursor at bottom
+                // It can be tell with `sticky` as null
+                if (data.sticky) {
+                  this.setState({ cursor: { line: data.line, ch: data.ch } })
+                }
+              }}
               options={{
                 mode: { name: 'javascript', json: true },
                 lineNumbers: true,

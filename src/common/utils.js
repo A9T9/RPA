@@ -155,6 +155,28 @@ export const splitIntoTwo = (pattern, str) => {
   ]
 }
 
+export const cn = (...args) => {
+  return args.reduce((prev, cur) => {
+    if (typeof cur === 'string') {
+      prev.push(cur)
+    } else {
+      Object.keys(cur).forEach(key => {
+        if (cur[key]) {
+          prev.push(key)
+        }
+      })
+    }
+
+    return prev
+  }, [])
+  .join(' ')
+}
+
+export const formatDate = (d) => {
+  const pad = (n) => n >= 10 ? ('' + n) : ('0' + n)
+  return [d.getFullYear(), d.getMonth() + 1, d.getDate()].map(pad).join('-')
+}
+
 export const splitKeep = (pattern, str) => {
   const result    = []
   let startIndex  = 0
@@ -189,4 +211,40 @@ export const splitKeep = (pattern, str) => {
   }
 
   return result
+}
+
+export const nameFactory = () => {
+  const all = {}
+
+  return (str) => {
+    if (!all[str]) {
+      all[str] = true
+      return str
+    }
+
+    let n = 2
+    while (all[str + '-' + n]) {
+      n++
+    }
+
+    all[str + '-' + n] = true
+    return str + '-' + n
+  }
+}
+
+export const composePromiseFn = (...list) => {
+  return reduceRight((cur, prev) => {
+    return x => prev(x).then(cur)
+  }, x => Promise.resolve(x), list)
+}
+
+export const parseQuery = (query) => {
+  return query.slice(1).split('&').reduce((prev, cur) => {
+    const index = cur.indexOf('=')
+    const key = cur.substring(0, index)
+    const val = cur.substring(index + 1)
+
+    prev[key] = decodeURIComponent(val)
+    return prev
+  }, {})
 }
