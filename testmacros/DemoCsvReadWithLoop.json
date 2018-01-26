@@ -1,0 +1,115 @@
+{
+  "CreationDate": "2018-1-26",
+  "Commands": [
+    {
+      "Command": "gotoIf",
+      "Target": "{${!LOOP} > 1}",
+      "Value": "TESTSTART"
+    },
+    {
+      "Command": "echo",
+      "Target": "First create some test data CSV file (3 lines)",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "Donald",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "Knuth",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "team@a9t9.com",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "csvSave",
+      "Target": "ReadCSVTestData.csv",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "Ashu",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "Zarathushtra",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "Zarathushtra2018@gmail.com",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "csvSave",
+      "Target": "ReadCSVTestData.csv",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "Yasna",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "Haptanghaiti",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "store",
+      "Target": "Happy123456@unknownstartup.com",
+      "Value": "!csvLine"
+    },
+    {
+      "Command": "csvSave",
+      "Target": "ReadCSVTestData.csv",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "--- Read CSV Test starts here ---",
+      "Value": ""
+    },
+    {
+      "Command": "label",
+      "Target": "TESTSTART",
+      "Value": ""
+    },
+    {
+      "Command": "csvRead",
+      "Target": "ReadCSVTestData.csv",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://docs.google.com/forms/d/e/1FAIpQLScGWVjexH2FNzJqPACzuzBLlTWMJHgLUHjxehtU-2cJxtu6VQ/viewform",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=entry.933434489",
+      "Value": "${!COL1}"
+    },
+    {
+      "Command": "type",
+      "Target": "name=entry.2004105717",
+      "Value": "${!COL2}"
+    },
+    {
+      "Command": "type",
+      "Target": "name=entry.1382578664",
+      "Value": "${!COL3}"
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "//*[@id=\"mG61Hd\"]/div/div[2]/div[3]/div[1]/div/div/content/span",
+      "Value": ""
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 {
-  "CreationDate": "2017-11-27",
+  "CreationDate": "2018-1-26",
   "Commands": [
     {
       "Command": "open",
@@ -93,6 +93,36 @@
     },
     {
       "Command": "echo",
+      "Target": "Now test some extraction with storeValue",
+      "Value": ""
+    },
+    {
+      "Command": "storeValue",
+      "Target": "id=sometext",
+      "Value": "mytext"
+    },
+    {
+      "Command": "select",
+      "Target": "id=tesla",
+      "Value": "label=Model Y"
+    },
+    {
+      "Command": "storeValue",
+      "Target": "id=tesla",
+      "Value": "mytesla"
+    },
+    {
+      "Command": "echo",
+      "Target": "The text box contains [${mytext}] and the select box has the value [${mytesla}] selected",
+      "Value": ""
+    },
+    {
+      "Command": "verifyValue",
+      "Target": "id=tesla",
+      "Value": "y"
+    },
+    {
+      "Command": "echo",
       "Target": "Last but not least, taking a screenshot is another way to extract data",
       "Value": ""
     },
@@ -103,7 +133,7 @@
     },
     {
       "Command": "echo",
-      "Target": "Need to save data to CSV files? Contact us for a pre-beta of the next version ;-)",
+      "Target": "Tip: To save extracted data to CSV files use the csvSave command. See the DemoCsvSave macro for details.",
       "Value": ""
     }
   ]

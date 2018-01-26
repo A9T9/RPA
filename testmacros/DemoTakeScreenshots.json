@@ -1,0 +1,45 @@
+{
+  "CreationDate": "2018-1-26",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/blog/",
+      "Value": ""
+    },
+    {
+      "Command": "captureEntirePageScreenshot",
+      "Target": "a9t9 blog",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "link=read more@POS=1",
+      "Value": ""
+    },
+    {
+      "Command": "captureEntirePageScreenshot",
+      "Target": "article1",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/blog/",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "link=read more@POS=2",
+      "Value": ""
+    },
+    {
+      "Command": "captureEntirePageScreenshot",
+      "Target": "article2",
+      "Value": ""
+    },
+    {
+      "Command": "captureScreenshot",
+      "Target": "article2-just-viewport",
+      "Value": ""
+    }
+  ]
+}
