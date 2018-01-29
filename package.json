@@ -10,7 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "antd": "^2.12.0",
+    "antd": "^2.12.2",
     "codemirror": "^5.32.0",
     "csv": "^2.0.0",
     "dexie": "^1.5.1",
