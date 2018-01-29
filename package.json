@@ -10,7 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "antd": "^2.12.2",
+    "antd": "2.7.0",
     "codemirror": "^5.32.0",
     "csv": "^2.0.0",
     "dexie": "^1.5.1",
@@ -22,6 +22,7 @@
     "lodash.isequal": "^4.5.0",
     "parse-json": "^2.2.0",
     "react": "^15.6.1",
+    "react-click-outside": "^3.0.0",
     "react-codemirror2": "^3.0.7",
     "react-dom": "^15.6.1",
     "react-redux": "^5.0.5",
