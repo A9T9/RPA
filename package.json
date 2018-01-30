@@ -1,6 +1,10 @@
 {
   "name": "chrome-extension",
   "version": "1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/A9T9/Kantu-for-Chrome.git"
+  },
   "description": "",
   "scripts": {
     "dev": "webpack-dev-server --config webpack.dev.config.js",
