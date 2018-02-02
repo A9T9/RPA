@@ -1,0 +1,14 @@
+**Copyright**
+
+The Kantu webextension is a copyrighted work whose copyright is owned by a9t9 software GmbH. 
+
+Open Source Licensing Basics
+
+Unlike many Open Source software projects, the Kantu webextension is owned and fully controlled by A9T9. All Kantu webextension development is done by A9T9. If you have further questions regarding the development and control of Kantu webextension please contact us at https://a9t9.com/contact.
+
+**We provide the Kantu webextension(s) and the source code for free under the GPLv3 open source license.**
+
+The standard version of the Kantu webextension (as found here and in the Chrome webstore) are distributed freely with a license called GPLv3, which allows gratis and commercial distribution under certain conditions, most particularly, source complete source disclosure. For more detailed and complete information on the GPLv3 license please visit the GNU web site at https://www.gnu.org/licenses/quick-guide-gplv3.html 
+
+
+If you want to use Kantu webextension code and do not want to comply with the GPLv3 license, contact us for a commercial license. 
