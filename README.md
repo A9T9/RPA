@@ -2,7 +2,7 @@
 
 As beta tester, we will email you (hidden) install links for new Kantu versions before they go live in the Chrome store. **Beta versions never overwrite a regular Kantu version**. The beta channel is technically a separate extension with its own toolbar icon. So beta-testing Kantu does not interfere with your regular Kantu projects and macros. We will notify you by email once a new version is available so you can grab it. 
 
-[If you are interested in helping out, please sign-up here](http://eepurl.com/dm0cTX)
+[If you are interested in helping out, please sign-up here](http://eepurl.com/dm0cTX).
 
 The link goes to a Mailchimp signup form. 
 
