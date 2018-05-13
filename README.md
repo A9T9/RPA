@@ -1,3 +1,10 @@
+# 📌 New: Kantu user forum launched - https://forum.a9t9.com
+
+Please post all questions and suggestions in our public user forum at https://forum.a9t9.com - the Kantu [selenium ide forum](https://forum.a9t9.com/c/kantu) is monitored by active users, tech support and the Kantu developers, so we would like to concentrate the discussion "over there".
+
+Every user benefits from the questions and answers provided in the forum, that is why we would ask you to post the question first if a public forum is appropriate for your question.
+
+
 # Are you interested in becoming a Kantu beta tester?
 
 As beta tester, we will email you (hidden) install links for new Kantu versions before they go live in the Chrome store. **Beta versions never overwrite a regular Kantu version**. The beta channel is technically a separate extension with its own toolbar icon. So beta-testing Kantu does not interfere with your regular Kantu projects and macros. We will notify you by email once a new version is available so you can grab it. 
