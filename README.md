@@ -18,12 +18,11 @@ The link goes to a Mailchimp signup form.
 
 Kantu for Chrome and Firefox - a modern Selenium IDE and Web Macro Recorder 
 
-- [Kantu for Chrome plus Selenium IDE) in the Google Chrome Webstore](https://chrome.google.com/webstore/detail/kantu-browser-automation/gcbalfbdmfieckjlnblleoemohcganoc)
+- [Kantu for Chrome plus Selenium IDE in the Google Chrome Webstore](https://chrome.google.com/webstore/detail/kantu-browser-automation/gcbalfbdmfieckjlnblleoemohcganoc)
 
-- [Kantu for Chrome plus Selenium IDE) in the Firefox Chrome Webstore](https://addons.mozilla.org/en-US/firefox/addon/kantu/)
+- [Kantu for Firefox plus Selenium IDE in the Firefox Chrome Webstore](https://addons.mozilla.org/en-US/firefox/addon/kantu/)
 
-
-- [Kantu plus Selenium IDE Homepage and d Docs](https://a9t9.com/kantu/
+- [Kantu plus Selenium IDE Homepage](https://a9t9.com/kantu/)
 
 - List of supported [Selenium IDE commands](https://a9t9.com/kantu/docs/webextensions/selenium-ide/)
 
