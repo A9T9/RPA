@@ -24,7 +24,7 @@ Kantu for Chrome and Firefox - a modern Selenium IDE and Web Macro Recorder
 
 - [Kantu plus Selenium IDE Homepage](https://a9t9.com/kantu/)
 
-- List of supported [Selenium IDE commands](https://a9t9.com/kantu/docs/webextensions/selenium-ide/)
+- List of supported [Selenium IDE commands](https://a9t9.com/kantu/docs/selenium-ide/)
 
 # Building the Chrome Extension
 
