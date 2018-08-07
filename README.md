@@ -16,21 +16,26 @@ The link goes to a Mailchimp signup form.
 
 # Kantu-for-Chrome
 
-Kantu for Chrome - a modern and light Selenium IDE Light for Chrome 
+Kantu for Chrome and Firefox - a modern Selenium IDE and Web Macro Recorder 
 
-- [Kantu for Chrome (Selenium IDE Light) in the Google Chrome Webstore](https://chrome.google.com/webstore/detail/kantu-browser-automation/gcbalfbdmfieckjlnblleoemohcganoc)
+- [Kantu for Chrome plus Selenium IDE) in the Google Chrome Webstore](https://chrome.google.com/webstore/detail/kantu-browser-automation/gcbalfbdmfieckjlnblleoemohcganoc)
 
-- [Kantu for Chrome (Selenium IDE Light) Homepage / Docs](https://a9t9.com/kantu/web-automation/chrome)
+- [Kantu for Chrome plus Selenium IDE) in the Firefox Chrome Webstore](https://addons.mozilla.org/en-US/firefox/addon/kantu/)
+
+
+- [Kantu plus Selenium IDE Homepage and d Docs](https://a9t9.com/kantu/
 
 - List of supported [Selenium IDE commands](https://a9t9.com/kantu/docs/webextensions/selenium-ide/)
 
 # Building the Chrome Extension
 
+We use Node V8.11.1 and Node V5.6.0.
+
 You can [install Kantu directly from the Chrome store](https://chrome.google.com/webstore/detail/kantu-browser-automation/gcbalfbdmfieckjlnblleoemohcganoc), which is the easiest and the recommended way of using the Kantu Selenium IDE. But of course developers can also build it directly from the source code with this command line:
 
 ```
 npm i
-npm run build
+npm run build (or build_ff for Firefox)
 ```
 
-Once done, the ready-to-use extension code appears in the /dist directory
+Once done, the ready-to-use extension code appears in the /dist directory (Chrome) or /dist_ff directory (Firefox)
