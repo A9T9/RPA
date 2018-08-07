@@ -1,0 +1,48 @@
+COPYRIGHT NOTICE
+================
+All  original code...
+
+    ...Copyright 2018 a9t9 software GmbH
+	
+	
+Kantu is dual-licensed:  Open-Source AGPLv3 or Commercial Licensing.
+
+The source code available in this repository is licensed under:
+
+1. GNU Affero General Public License v3.0. A copy of the AGPLv3 license is included in the repository, and can be obtained by visiting http://www.gnu.org/licenses/agpl.html
+
+2. Commercial License available
+
+
+*** Dual Licensing explained ***
+
+Unlike many Open Source software projects, Kantu is owned and fully controlled by a9t9 Software GmbH (a9t9). The vast majority of all Kantu development is done by a9t9, and on rare occasions, bug fixes accepted from outside contributors (under license by a9t9). If you have further questions regarding the development and control of Kantu, please contact a9t9 software GmbH.
+
+Kantu is provided under the GNU Affero General Public License (AGPL), as well as under an a9t9 commercial license. For more detailed and complete information on the AGPL please visit the GNU web site.
+
+This text is intended to provide a summary of information that developers and companies may find useful in understanding licensing options available for Kantu. It does not represent legal advice. We strongly encourage developers and/or companies to review the specific licensing text made available on the GNU web site.
+
+
+*** Commercial Licensing ***
+
+If you want to use or redistribute _modified_ versions of Kantu or want to include Kantu source code in your project, and do not want to publish the code under the AGPL license, then please contact us for a commercial license.
+
+
+*** License FAQs ***
+
+1. Of course, you do _not_ need a commercial license if you just want to use Kantu in a commercial enviroment. Everthing in this text is about the source code, not about using Kantu itself.
+
+2. You do _not_ need a commercial license to redistribute or bundle the _unmodifed_ version of Kantu with your project, as long as Kantu stays separate.
+
+Example: Some companies use Kantu to allow their users to record macros that are then run by their commercial SaaS or on-premise application monitoring backends. Such a use is compatible with the AGPLv3 license and no commercial license is required.
+
+3. Open-Source Projects: If you want to include/embed Kantu as part of a free, open source project but want to keep your existing license we can probably work something out. Please contact us.
+
+
+*** NOT INCLUDED ***
+
+For information on what is not included with the open-source license, please see the "Not_included.txt" file in this repository.
+
+
+
+
