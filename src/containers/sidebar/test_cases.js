@@ -1,13 +1,17 @@
 import React from 'react'
+import ReactDOM from 'react-dom'
 import { connect } from 'react-redux'
 import { bindActionCreators, compose }  from 'redux'
 import { Modal, Tabs, Icon, Select, Input, Button, Menu, Dropdown, Alert, message } from 'antd'
 import ClickOutside from 'react-click-outside'
-import FileSaver from 'file-saver'
 import JSZip from 'jszip'
 
+import FileSaver from '../../common/lib/file_saver'
+import SearchBox from '../../components/search_box'
+import getSaveTestCase from '../../components/save_test_case'
 import { getPlayer } from '../../common/player'
 import { setIn, updateIn, cn, formatDate, nameFactory, pick } from '../../common/utils'
+import { createBookmarkOnBar } from '../../common/bookmark'
 import * as actions from '../../actions'
 import * as C from '../../common/constant'
 import {
@@ -16,7 +20,8 @@ import {
   toHtmlDataUri,
   toHtml,
   fromHtml,
-  fromJSONString
+  fromJSONString,
+  toBookmarkData
 } from '../../common/convert_utils'
 
 const downloadTestCaseAsJSON = (tc) => {
@@ -35,6 +40,8 @@ const downloadTestCaseAsHTML = (tc) => {
 
 class SidebarTestCases extends React.Component {
   state = {
+    searchText: '',
+
     showDuplicate: false,
     duplicateName: '',
 
@@ -147,25 +154,12 @@ class SidebarTestCases extends React.Component {
       if (this.props.status !== C.APP_STATUS.NORMAL)  return resolve(false)
       if (this.props.editing.meta.src && this.props.editing.meta.src.id === id) return resolve(true)
 
-      const { hasUnsaved } = this.props.editing.meta
       const go = () => {
         this.props.editTestCase(id)
         resolve(true)
-        return Promise.resolve()
       }
 
-      if (hasUnsaved) {
-        return Modal.confirm({
-          title: 'Unsaved changes',
-          content: 'Do you want to discard the unsaved changes?',
-          okText: 'Discard',
-          cancelText: 'Cancel',
-          onOk: go,
-          onCancel: () => { resolve(false) }
-        })
-      }
-
-      go()
+      return getSaveTestCase().saveOrNot().then(go)
     })
   }
 
@@ -230,8 +224,8 @@ class SidebarTestCases extends React.Component {
         .then(({ passCount, failCount, failTcs }) => {
           message.info(
             [
-              `${passCount} test case${passCount > 1 ? 's' : ''} imported!`,
-              `${failList.length + failCount} test case${(failList.length + failCount) > 1 ? 's' : ''} failed!`
+              `${passCount} macro${passCount > 1 ? 's' : ''} imported!`,
+              `${failList.length + failCount} macro${(failList.length + failCount) > 1 ? 's' : ''} failed!`
             ].join(', '),
             3
           )
@@ -241,7 +235,7 @@ class SidebarTestCases extends React.Component {
           })
 
           failTcs.forEach(fail => {
-            this.props.addLog('error', `duplicated test case name: ${fail.name}`)
+            this.props.addLog('error', `duplicated macro name: ${fail.name}`)
           })
         })
     })
@@ -263,31 +257,20 @@ class SidebarTestCases extends React.Component {
   }
 
   addTestCase = () => {
-    const { src, hasUnsaved } = this.props.editing.meta
+    const { src } = this.props.editing.meta
     const go = () => {
       this.props.editNewTestCase()
       return Promise.resolve()
     }
 
-    if (hasUnsaved) {
-      return Modal.confirm({
-        title: 'Unsaved changes',
-        content: 'Do you want to discard the unsaved changes?',
-        okText: 'Discard',
-        cancelText: 'Cancel',
-        onOk: go,
-        onCancel: () => {}
-      })
-    }
-
-    go()
+    return getSaveTestCase().saveOrNot().then(go)
   }
 
   onClickTestCaseMore = (e, tc, tcIndex) => {
     e.stopPropagation()
     e.preventDefault()
 
-    this.setState({
+    const updated = {
       tcContextMenu: {
         x: e.clientX,
         y: e.clientY,
@@ -295,7 +278,11 @@ class SidebarTestCases extends React.Component {
         tc,
         tcIndex
       }
-    })
+    }
+
+    // Note: to make it work in Firefox, have to delay this new state a little bit
+    // Because hideTcContextMenu could be executed at the same time via clickOutside
+    setTimeout(() => this.setState(updated), 20)
   }
 
   hideTcContextMenu = () => {
@@ -358,14 +345,33 @@ class SidebarTestCases extends React.Component {
       case 'export_json': {
         return downloadTestCaseAsJSON(tc)
       }
+
+      case 'create_bookmark': {
+        const bookmarkTitle = prompt('Title for this bookmark', `#${tc.name}.kantu`)
+        if (bookmarkTitle === null) return
+
+        return createBookmarkOnBar(toBookmarkData({
+          bookmarkTitle,
+          name: tc.name
+        }))
+        .then(() => {
+          message.success('successfully created bookmark!', 1.5)
+        })
+      }
     }
   }
 
   renderTestCases () {
     const isEditingUntitled = !this.props.editing.meta.src
-    const { testCases } = this.props
+    const { testCases }     = this.props
+    const { searchText }    = this.state
+    const trimSearchText    = searchText.trim().toLowerCase()
+    const matchText         = trimSearchText.length === 0
+                                  ? x => x
+                                  : x => x.name.toLowerCase().indexOf(trimSearchText) !== -1
+    const candidates        = testCases.filter(matchText)
 
-    testCases.sort((a, b) => {
+    candidates.sort((a, b) => {
       const nameA = a.name.toLowerCase()
       const nameB = b.name.toLowerCase()
 
@@ -379,7 +385,7 @@ class SidebarTestCases extends React.Component {
         {isEditingUntitled ? (
           <li className="selected">Untitled</li>
         ) : null}
-        {testCases.map((tc, tcIndex) => (
+        {candidates.map((tc, tcIndex) => (
           <li
             key={tc.id}
             className={this.getItemKlass(tc)}
@@ -399,9 +405,20 @@ class SidebarTestCases extends React.Component {
     )
   }
 
+  getPortalContainer () {
+    const id = '__context_menu_container__'
+    const $el = document.getElementById(id)
+    if ($el)  return $el
+
+    const $new = document.createElement('div')
+    $new.id = id
+    document.body.appendChild($new)
+    return $new
+  }
+
   renderTestCaseContextMenu () {
     const contextMenu = this.state.tcContextMenu
-    const mw    = 160
+    const mw    = 230
     let x       = contextMenu.x + window.scrollX
     let y       = contextMenu.y + window.scrollY
     const $box  = document.querySelector('.sidebar-inner')
@@ -421,7 +438,7 @@ class SidebarTestCases extends React.Component {
       width: mw + 'px'
     }
 
-    return (
+    const content = (
       <div style={style} className="context-menu">
         <ClickOutside onClickOutside={this.hideTcContextMenu}>
           <Menu
@@ -434,13 +451,16 @@ class SidebarTestCases extends React.Component {
             <Menu.Item key="rename">Rename..</Menu.Item>
             <Menu.Item key="duplicate">Duplicate..</Menu.Item>
             <Menu.Item key="export_json">Export as JSON</Menu.Item>
-            <Menu.Item key="export_html">Export as HTML (old)</Menu.Item>
+            <Menu.Item key="export_html">Export as HTML (plus autorun)</Menu.Item>
+            <Menu.Item key="create_bookmark">Add shortcut to bookmarks bar</Menu.Item>
             <Menu.Divider></Menu.Divider>
             <Menu.Item key="delete">Delete</Menu.Item>
           </Menu>
         </ClickOutside>
       </div>
     )
+
+    return ReactDOM.createPortal(content, this.getPortalContainer())
   }
 
   renderTestCaseMenu () {
@@ -450,7 +470,7 @@ class SidebarTestCases extends React.Component {
           const zip = new JSZip()
 
           if (this.props.testCases.length === 0) {
-            return message.error('No saved test cases to export', 1.5)
+            return message.error('No saved macros to export', 1.5)
           }
 
           this.props.testCases.forEach(tc => {
@@ -478,19 +498,19 @@ class SidebarTestCases extends React.Component {
       <Menu onClick={onClickMenuItem} selectable={false}>
         <Menu.Item key="export_all_json">Export All (JSON)</Menu.Item>
         <Menu.Item key="import_json">
-          <label htmlFor="select_json_files">Import JSON</label>
+          <label htmlFor="select_json_files_for_macros">Import JSON</label>
           <input
             multiple
             type="file"
             accept=".json"
-            id="select_json_files"
+            id="select_json_files_for_macros"
             onChange={this.onJSONFileChange}
             ref={ref => { this.jsonFileInput = ref }}
             style={{display: 'none'}}
           />
         </Menu.Item>
         <Menu.Item key="import_html">
-          <label htmlFor="select_html_files">Import HTML (old)</label>
+          <label htmlFor="select_html_files">Import HTML</label>
           <input
             multiple
             type="file"
@@ -508,7 +528,7 @@ class SidebarTestCases extends React.Component {
   renderDuplicateModal () {
     return (
       <Modal
-        title="Duplicate Test Case.."
+        title="Duplicate Macro.."
         okText="Save"
         cancelText="Cancel"
         visible={this.state.showDuplicate}
@@ -521,7 +541,7 @@ class SidebarTestCases extends React.Component {
           value={this.state.duplicateName}
           onKeyDown={e => { if (e.keyCode === 13) this.onClickDuplicate() }}
           onChange={this.onChangeDuplicate}
-          placeholder="test case name"
+          placeholder="macro name"
           ref={el => { this.inputDuplicateTestCase = el }}
         />
       </Modal>
@@ -531,7 +551,7 @@ class SidebarTestCases extends React.Component {
   renderRenameModal () {
     return (
       <Modal
-        title="Rename the test case as.."
+        title="Rename the macro as.."
         okText="Save"
         cancelText="Cancel"
         visible={this.state.showRename}
@@ -544,7 +564,7 @@ class SidebarTestCases extends React.Component {
           value={this.state.rename}
           onKeyDown={e => { if (e.keyCode === 13) this.onClickRename() }}
           onChange={this.onChangeRename}
-          placeholder="test case name"
+          placeholder="macro name"
           ref={el => { this.inputRenameTestCase = el }}
         />
       </Modal>
@@ -555,12 +575,20 @@ class SidebarTestCases extends React.Component {
     return (
       <div>
         <div className="test-case-actions">
-          <Button type="primary" onClick={this.addTestCase}>+ Test Case</Button>
+          <Button type="primary" onClick={this.addTestCase}>+ Macro</Button>
           <Dropdown overlay={this.renderTestCaseMenu()} trigger={['click']}>
             <Button shape="circle">
               <Icon type="setting" />
             </Button>
           </Dropdown>
+          <SearchBox
+            style={{ flex: 1 }}
+            inputProps={{
+              placeholder: 'search macro',
+              value: this.state.searchText,
+              onChange: e => this.setState({ searchText: e.target.value })
+            }}
+          />
         </div>
 
         {this.renderTestCases()}

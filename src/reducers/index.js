@@ -1,9 +1,11 @@
 import URL from 'url-parse'
 import isEqual from 'lodash.isequal'
 import { types as T } from '../actions/action_types'
-import { setIn, updateIn, compose, pick } from '../common/utils'
-import { normalizeCommand } from '../models/test_case_model'
+import { setIn, updateIn, compose, pick, partial } from '../common/utils'
+import { normalizeCommand, normalizeTestCase } from '../models/test_case_model'
+import { toJSONString } from '../common/convert_utils'
 import * as C from '../common/constant'
+import log from '../common/log';
 
 const newTestCaseEditing = {
   commands: [],
@@ -36,9 +38,19 @@ const initialState = {
     editing: {
       ...newTestCaseEditing
     },
+    editingSource: {
+      // Saved version
+      original: null,
+      // Version before editing
+      pure:     null,
+      // Version keeping track of any editing
+      current:  null,
+      error:    null
+    },
     clipboard: {
       commands: []
-    }
+    },
+    activeTab: 'table_view'
   },
   player: {
     mode: C.PLAYER_MODE.TEST_CASE,
@@ -49,6 +61,7 @@ const initialState = {
     nextCommandIndex: null,
     errorCommandIndices: [],
     doneCommandIndices: [],
+    breakpointIndices: [],
     playInterval: 0,
     timeoutStatus: {
       type: null,
@@ -56,10 +69,13 @@ const initialState = {
       past: null
     }
   },
+  variables: [],
   logs: [],
   screenshots: [],
   csvs: [],
-  config: {}
+  visions: [],
+  config: {},
+  ui: {}
 }
 
 // Note: for update the `hasUnsaved` status in editing.meta
@@ -71,8 +87,96 @@ const updateHasUnSaved = (state) => {
   const tc = state.editor.testCases.find(tc => tc.id === id)
   if (!tc)  return state
 
-  const hasUnsaved = !isEqual(tc.data, data)
+  const normalizedEditing = normalizeTestCase({ data })
+  const hasUnsaved = !isEqual(tc.data, normalizedEditing.data)
   return setIn(['editor', 'editing', 'meta', 'hasUnsaved'], hasUnsaved, state)
+}
+
+const updateBreakpointIndices = (indices, action, actionIndex) => {
+  const handleSingleAction = (indices, action, actionIndex) => {
+    switch (action) {
+      case 'add': {
+        let result = indices.slice()
+
+        for (let i = 0, len = indices.length; i < len; i++) {
+          if (result[i] >= actionIndex) {
+            result[i] += 1
+          }
+        }
+
+        return result
+      }
+
+      case 'delete': {
+        let result = indices.slice()
+
+        for (let i = indices.length - 1; i >= 0; i--) {
+          if (result[i] > actionIndex) {
+            result[i] -= 1
+          } else if (result[i] === actionIndex) {
+            result.splice(i, 1)
+          }
+        }
+
+        return result
+      }
+
+      default:
+        throw new Error(`updateBreakpointIndices: unknown action, '${action}'`)
+    }
+  }
+
+  if (typeof actionIndex === 'number') {
+    return handleSingleAction(indices, action, actionIndex)
+  }
+
+  if (Array.isArray(actionIndex)) {
+    // Note: sort action indices as desc.  Bigger indice will be handled earlier, so that it won't affect others
+    const actionIndices = actionIndex.slice()
+    actionIndices.sort((a, b) => b - a)
+
+    return actionIndices.reduce((indices, actionIndex) => {
+      return handleSingleAction(indices, action, actionIndex)
+    }, indices)
+  }
+
+  throw new Error('updateBreakpointIndices: actionIndex should be either number or an array of number')
+}
+
+const resetEditingSource = partial((macro, state) => {
+  log('resetEditingSource', macro)
+  const str = toJSONString(macro)
+  return setIn(
+    ['editor', 'editingSource'],
+    {
+      original: str,
+      pure:     str,
+      current:  str,
+      error:    null
+    },
+    state
+  )
+})
+
+const setEditingSourceCurrent = (state) => {
+  const macro = {
+    name:     state.editor.editing.meta.src ? state.editor.editing.meta.src.name : 'Untitled',
+    commands: state.editor.editing.commands
+  }
+  log('setEditingSourceCurrent', macro)
+
+  const str = toJSONString(macro)
+  return updateIn(['editor', 'editingSource'], editingSource => ({ ...editingSource, pure: str, current: str }), state)
+}
+
+const saveEditingSourceCurrent = (state) => {
+  const { current } = state.editor.editingSource
+  return updateIn(['editor', 'editingSource'], editingSource => ({ ...editingSource, pure: current, original: current }), state)
+}
+
+const setEditingSourceOriginalAndPure = (macro, state) => {
+  const str = toJSONString(macro)
+  return updateIn(['editor', 'editingSource'], editingSource => ({ ...editingSource, pure: str, original: str }), state)
 }
 
 export default function reducer (state = initialState, action) {
@@ -122,87 +226,125 @@ export default function reducer (state = initialState, action) {
       }
 
     case T.APPEND_COMMAND:
-      return updateHasUnSaved(
+      return compose(
+        setEditingSourceCurrent,
+        updateHasUnSaved,
         updateIn(
           ['editor', 'editing', 'commands'],
-          (commands) => [...commands, action.data.command],
-          state
+          (commands) => [...commands, action.data.command]
         )
-      )
+      )(state)
 
     case T.DUPLICATE_COMMAND:
-      return updateHasUnSaved(
-        compose(
-          setIn(
-            ['editor', 'editing', 'meta', 'selectedIndex'],
-            action.data.index + 1
-          ),
-          updateIn(
-            ['editor', 'editing', 'commands'],
-            (commands) => {
-              const { index } = action.data
-              commands.splice(index + 1, 0, commands[index])
-              return [...commands]
-            }
-          )
-        )(state)
-      )
+      return compose(
+        setEditingSourceCurrent,
+        updateHasUnSaved,
+        setIn(
+          ['editor', 'editing', 'meta', 'selectedIndex'],
+          action.data.index + 1
+        ),
+        updateIn(
+          ['editor', 'editing', 'commands'],
+          (commands) => {
+            const { index }   = action.data
+            const newCommands = commands.slice()
+            newCommands.splice(index + 1, 0, commands[index])
+            return newCommands
+          }
+        ),
+        updateIn(
+          ['player', 'breakpointIndices'],
+          (indices) => updateBreakpointIndices(indices, 'add', action.data.index + 1)
+        )
+      )(state)
 
     case T.INSERT_COMMAND:
-      return updateHasUnSaved(
-        compose(
-          setIn(
-            ['editor', 'editing', 'meta', 'selectedIndex'],
-            action.data.index
-          ),
-          updateIn(
-            ['editor', 'editing', 'commands'],
-            (commands) => {
-              const { index, command } = action.data
-              commands.splice(index, 0, command)
-              return [...commands]
-            }
-          )
-        )(state)
-      )
-    case T.UPDATE_COMMAND:
-      return updateHasUnSaved(
+      return compose(
+        setEditingSourceCurrent,
+        updateHasUnSaved,
         setIn(
-          ['editor', 'editing', 'commands', action.data.index],
-          action.data.command,
-          state
-        )
-      )
-    case T.REMOVE_COMMAND:
-      return updateHasUnSaved(
+          ['editor', 'editing', 'meta', 'selectedIndex'],
+          action.data.index
+        ),
         updateIn(
           ['editor', 'editing', 'commands'],
           (commands) => {
             const { index, command } = action.data
-            commands.splice(index, 1)
-            return [...commands]
-          },
-          state
+            const newCommands = commands.slice()
+            newCommands.splice(index, 0, command)
+            return newCommands
+          }
+        ),
+        updateIn(
+          ['player', 'breakpointIndices'],
+          (indices) => updateBreakpointIndices(indices, 'add', action.data.index)
         )
-      )
+      )(state)
+
+    case T.UPDATE_COMMAND:
+      return compose(
+        setEditingSourceCurrent,
+        updateHasUnSaved,
+        setIn(
+          ['editor', 'editing', 'commands', action.data.index],
+          action.data.command
+        )
+      )(state)
+
+    case T.REMOVE_COMMAND:
+      return compose(
+        setEditingSourceCurrent,
+        updateHasUnSaved,
+        updateIn(
+          ['editor', 'editing', 'commands'],
+          (commands) => {
+            const { index } = action.data
+            const newCommands = commands.slice()
+            newCommands.splice(index, 1)
+            return newCommands
+          }
+        ),
+        updateIn(
+          ['player', 'breakpointIndices'],
+          (indices) => updateBreakpointIndices(indices, 'delete', action.data.index)
+        )
+      )(state)
+
     case T.SELECT_COMMAND:
-      return setIn(
-        ['editor', 'editing', 'meta', 'selectedIndex'],
-        (action.data.forceClick ||
-          state.editor.editing.meta.selectedIndex !== action.data.index)
-              ? action.data.index
-              : -1,
-        state
-      )
+      return compose(
+        setIn(
+          ['editor', 'editing', 'meta', 'selectedIndex'],
+          (action.data.forceClick ||
+            state.editor.editing.meta.selectedIndex !== action.data.index)
+                ? action.data.index
+                : -1
+        ),
+        // Note: normalize commands whenever switching between commands in normal mode
+        state.status === C.APP_STATUS.NORMAL
+          ? updateIn(
+            ['editor', 'editing', 'commands'],
+            (cmds) => cmds.map(normalizeCommand)
+          )
+          : x => x
+      )(state)
 
     case T.CUT_COMMAND: {
       const commands = action.data.indices.map(i => state.editor.editing.commands[i])
 
       return compose(
+        setEditingSourceCurrent,
+        updateHasUnSaved,
         setIn(['editor', 'clipboard', 'commands'], commands),
         updateIn(
           ['editor', 'editing', 'commands'],
-          (commands) => commands.filter((c, i) => action.data.indices.indexOf(i) === -1)
+          (commands) => {
+            const newCommands = commands.slice()
+            return newCommands.filter((c, i) => action.data.indices.indexOf(i) === -1)
+          }
+        ),
+        updateIn(
+          ['player', 'breakpointIndices'],
+          (indices) => updateBreakpointIndices(indices, 'delete', action.data.indices)
         )
       )(state)
     }
@@ -215,14 +357,22 @@ export default function reducer (state = initialState, action) {
     case T.PASTE_COMMAND: {
       const { commands } = state.editor.clipboard
 
-      return updateIn(
-        ['editor', 'editing', 'commands'],
-        (cmds) => {
-          cmds.splice(action.data.index + 1, 0, ...commands)
-          return [...cmds]
-        },
-        state
-      )
+      return compose(
+        setEditingSourceCurrent,
+        updateHasUnSaved,
+        updateIn(
+          ['editor', 'editing', 'commands'],
+          (cmds) => {
+            const newCmds = cmds.slice()
+            newCmds.splice(action.data.index + 1, 0, ...commands)
+            return newCmds
+          }
+        ),
+        updateIn(
+          ['player', 'breakpointIndices'],
+          (indices) => updateBreakpointIndices(indices, 'add', commands.map(_ => action.data.index + 1))
+        )
+      )(state)
     }
 
     case T.NORMALIZE_COMMANDS:
@@ -233,30 +383,55 @@ export default function reducer (state = initialState, action) {
       )
 
     case T.UPDATE_SELECTED_COMMAND:
-      return updateHasUnSaved(
+      if (state.editor.editing.meta.selectedIndex === -1) {
+        return state
+      }
+
+      return compose(
+        setEditingSourceCurrent,
+        updateHasUnSaved,
         updateIn(
           ['editor', 'editing', 'commands', state.editor.editing.meta.selectedIndex],
-          (cmdObj) => ({...cmdObj, ...action.data}),
-          state
+          (cmdObj) => ({...cmdObj, ...action.data})
         )
-      )
+      )(state)
 
     case T.SAVE_EDITING_AS_EXISTED:
-      return setIn(['editor', 'editing', 'meta', 'hasUnsaved'], false, state)
+      return compose(
+        setIn(['editor', 'editing', 'meta', 'hasUnsaved'], false),
+        saveEditingSourceCurrent
+      )(state)
 
     case T.SAVE_EDITING_AS_NEW:
-      return updateIn(
-        ['editor', 'editing', 'meta'],
-        (meta) => ({
-          ...meta,
-          hasUnsaved: false,
-          src: pick(['id', 'name'], action.data)
-        }),
-        state
-      )
+      return compose(
+        updateIn(
+          ['editor', 'editing', 'meta'],
+          (meta) => ({
+            ...meta,
+            hasUnsaved: false,
+            src: pick(['id', 'name'], action.data)
+          })
+        ),
+        saveEditingSourceCurrent
+      )(state)
 
-    case T.SET_TEST_CASES:
-      return setIn(['editor', 'testCases'], action.data, state)
+    case T.SET_TEST_CASES: {
+      return compose(
+        (state) => {
+          const { src } = state.editor.editing.meta
+          if (!src) return state
+
+          const tc = state.editor.testCases.find(tc => tc.id === src.id)
+          if (!tc)  return state
+
+          return setEditingSourceOriginalAndPure({
+            name: tc.name,
+            commands: tc.data.commands
+          }, state)
+        },
+        setIn(['editor', 'testCases'], action.data)
+      )(state)
+    }
 
     case T.SET_TEST_SUITES:
       return setIn(['editor', 'testSuites'], action.data, state)
@@ -270,10 +445,14 @@ export default function reducer (state = initialState, action) {
     }
 
     case T.SET_EDITING:
+      log('REDUCER SET_EDITING', action.data)
+
       if (!action.data) return state
-      return updateHasUnSaved(
-        setIn(['editor', 'editing'], action.data, state)
-      )
+      return compose(
+        setEditingSourceCurrent,
+        updateHasUnSaved,
+        setIn(['editor', 'editing'], action.data)
+      )(state)
 
     case T.EDIT_TEST_CASE: {
       const { testCases } = state.editor
@@ -301,9 +480,14 @@ export default function reducer (state = initialState, action) {
             stopReason: null,
             nextCommandIndex: null,
             errorCommandIndices: [],
-            doneCommandIndices: []
+            doneCommandIndices: [],
+            breakpointIndices: []
           })
-        )
+        ),
+        resetEditingSource({
+          name:     tc.name,
+          commands: tc.data.commands
+        })
       )(state)
     }
 
@@ -365,8 +549,13 @@ export default function reducer (state = initialState, action) {
           ...player,
           nextCommandIndex: null,
           errorCommandIndices: [],
-          doneCommandIndices: []
-        }))
+          doneCommandIndices: [],
+          breakpointIndices: []
+        })),
+        resetEditingSource({
+          name:     'Untitled',
+          commands: []
+        })
       )(state)
     }
 
@@ -380,10 +569,24 @@ export default function reducer (state = initialState, action) {
         state
       )
 
+    case T.ADD_BREAKPOINT:
+      return updateIn(
+        ['player', 'breakpointIndices'],
+        (indices) => indices.indexOf(action.data) === -1 ? [...indices, action.data] : indices,
+        state
+      )
+
+    case T.REMOVE_BREAKPOINT:
+      return updateIn(
+        ['player', 'breakpointIndices'],
+        (indices) => indices.filter(index => index !== action.data),
+        state
+      )
+
     case T.ADD_LOGS:
       return {
         ...state,
-        logs: [...state.logs, ...action.data]
+        logs: [...state.logs, ...action.data].slice(-500)
       }
 
     case T.CLEAR_LOGS:
@@ -425,6 +628,34 @@ export default function reducer (state = initialState, action) {
         ...state,
         screenshots: action.data
       }
+
+    case T.SET_VISION_LIST:
+      return {
+        ...state,
+        visions: action.data
+      }
+
+    case T.SET_VARIABLE_LIST:
+      return {
+        ...state,
+        variables: action.data
+      }
+
+    case T.UPDATE_UI: {
+      return updateIn(['ui'], ui => ({...ui, ...action.data}), state)
+    }
+
+    case T.SET_EDITOR_ACTIVE_TAB: {
+      return setIn(['editor', 'activeTab'], action.data, state)
+    }
+
+    case T.SET_SOURCE_ERROR: {
+      return setIn(['editor', 'editingSource', 'error'], action.data, state)
+    }
+
+    case T.SET_SOURCE_CURRENT: {
+      return setIn(['editor', 'editingSource', 'current'], action.data, state)
+    }
 
     default:
       return state

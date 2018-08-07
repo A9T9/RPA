@@ -1,5 +1,6 @@
 import fs from './filesystem'
 import Ext from './web_extension'
+import { validateStandardName, withFileExtension } from './utils'
 
 const readableSize = (size) => {
   const kb = 1024
@@ -28,6 +29,17 @@ export default class FileMan {
 
     // Note: create the folder in which we will store csv files
     fs.getDirectory(baseDir, true)
+  }
+
+  checkFileName (fileName) {
+    withFileExtension(fileName, (baseName) => {
+      try {
+        validateStandardName(baseName, true)
+      } catch (e) {
+        throw new Error(`Invalid file name '${fileName}'. File name ` + e.message)
+      }
+      return baseName
+    })
   }
 
   getLink (fileName) {
@@ -60,7 +72,7 @@ export default class FileMan {
   }
 
   write (fileName, text) {
-    return fs.writeFile(this.__filePath(fileName), new Blob([text]))
+    return fs.writeFile(this.__filePath(fileName, true), new Blob([text]))
   }
 
   // Note: when you try to write on an existing file with file system api,
@@ -70,15 +82,34 @@ export default class FileMan {
     .then(() => this.write(fileName, text))
   }
 
+  clear () {
+    return this.list()
+    .then(list => {
+      const ps = list.map(file => {
+        return this.remove(file.fileName)
+      })
+
+      return Promise.all(ps)
+    })
+  }
+
   remove (fileName) {
     return fs.removeFile(this.__filePath(fileName))
+  }
+
+  rename (fileName, newName) {
+    return fs.moveFile(this.__filePath(fileName), this.__filePath(newName, true))
   }
 
   metadata (fileName) {
     return fs.getMetadata(this.__filePath(fileName))
   }
 
-  __filePath (fileName) {
-    return this.baseDir + '/' + fileName
+  __filePath (fileName, forceCheck) {
+    if (forceCheck) {
+      this.checkFileName(fileName)
+    }
+
+    return this.baseDir + '/' + fileName.toLowerCase()
   }
 }

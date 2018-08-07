@@ -1,13 +1,29 @@
 import Ext from '../common/web_extension'
-import { until, delay, setIn, pick, splitIntoTwo } from '../common/utils'
+import {
+  until, delay, setIn, pick, splitIntoTwo, retry, uid,
+  randomName, dataURItoBlob, getScreenDpi, dpiFromFileName, ensureExtName
+} from '../common/utils'
 import { bgInit } from '../common/ipc/ipc_bg_cs'
 import * as C from '../common/constant'
 import log from '../common/log'
 import clipboard from '../common/clipboard'
-import { saveScreen, saveFullScreen } from '../common/capture_screenshot'
+import {
+  saveScreen, saveFullScreen, captureScreenInSelection, scaleDataURI,
+  captureFullScreen, captureScreen, captureScreenInSelectionSimple
+} from '../common/capture_screenshot'
 import storage from '../common/storage'
 import { setFileInputFiles } from '../common/debugger'
+import { getDownloadMan } from '../common/download_man'
 import config from '../config'
+import { getScreenshotMan } from '../common/screenshot_man';
+import { searchImage } from '../common/imagesearch/adaptor.ts'
+import { getVisionMan } from '../common/vision_man';
+import { resizeViewportOfTab } from '../common/resize_window';
+
+// Note: in Ubuntu, you have to take some delay after activating some tab, otherwise there are chances
+// Chrome still think the panel is the window you want to take screenshot, and weird enough in Ubuntu,
+// You can't take screenshot of tabs with 'chrome-extension://' schema, even if it's your own extension
+const SCREENSHOT_DELAY = /Linux/i.test(window.navigator.userAgent) ? 200 : 0
 
 const state = {
   status: C.APP_STATUS.NORMAL,
@@ -17,6 +33,7 @@ const state = {
     toInspect: null,
     firstRecord: null,
     toRecord: null,
+    lastPlay: null,
     firstPlay: null,
     toPlay: null,
     panel: null
@@ -76,12 +93,18 @@ const getPanelTabIpc  = genGetTabIpc('panel', 'dashboard')
 
 // Get the current tab for play, if url provided, it will be loaded in the tab
 const getPlayTab  = (url) => {
-  const theError  = new Error('Either a played tab or a url must be provided to start playing')
+  // Note: update error message to be more user friendly. But the original message is kept as comment
+  // const theError  = new Error('Either a played tab or a url must be provided to start playing')
+  const theError  = new Error('No connection to browser tab')
+
+  log('getPlayTab', url, state.tabIds.toPlay)
+
   const createOne = (url) => {
     if (!url) throw theError
 
     return createTab(url)
       .then(tab => {
+        state.tabIds.lastPlay = state.tabIds.toPlay
         state.tabIds.toPlay = state.tabIds.firstPlay = tab.id
         return tab
       })
@@ -109,6 +132,52 @@ const getPlayTab  = (url) => {
       },
       ()  => createOne(url)
     )
+}
+
+const showPanelWindow = () => {
+  return activateTab(state.tabIds.panel, true)
+  .catch(() => {
+    storage.get('config')
+    .then(config => {
+      config = config || {}
+      return (config.size || {})[config.showSidebar ? 'with_sidebar' : 'standard']
+    })
+    .then(size => {
+      size = size || {
+        width: 850,
+        height: 775
+      }
+
+      Ext.windows.create({
+        type:   'popup',
+        url:    Ext.extension.getURL('popup.html'),
+        width:  size.width,
+        height: size.height
+      })
+      .then(win => {
+        if (!Ext.isFirefox()) return
+
+        // Refer to https://bugzilla.mozilla.org/show_bug.cgi?id=1425829
+        // Firefox New popup window appears blank until right-click
+        return delay(() => {
+          return Ext.windows.update(win.id, {
+            width: size.width + 1,
+            height: size.height + 1
+          })
+        }, 1000)
+      })
+
+      return true
+    })
+  })
+}
+
+const withPanelIpc = () => {
+  return showPanelWindow()
+  .then(() => until('panel ipc', () => ({
+    pass: state.tabIds.panel && state.ipcCache[state.tabIds.panel]
+  })))
+  .then(() => delay(getPanelTabIpc, 2000))
 }
 
 const showBadge = (options) => {
@@ -173,7 +242,9 @@ const isUpgradeViewed = () => {
 }
 
 const notifyRecordCommand = (command) => {
-  Ext.notifications.create({
+  const notifId = uid()
+
+  Ext.notifications.create(notifId, {
     type: 'basic',
     iconUrl: './logo.png',
     title: 'Record command!',
@@ -186,6 +257,46 @@ const notifyRecordCommand = (command) => {
 
       return list.join('\n')
     })()
+  })
+
+  // Note: close record notifications right away, so that notifications won't be stacked
+  setTimeout(() => {
+    Ext.notifications.clear(notifId)
+    .catch(e => log.error(e))
+  }, 2000)
+}
+
+const notifyAutoPause = () => {
+  Ext.notifications.create({
+    type: 'basic',
+    iconUrl: './logo.png',
+    title: 'Replay paused!',
+    message: 'Auto paused by command'
+  })
+}
+
+const notifyBreakpoint = () => {
+  Ext.notifications.create({
+    type: 'basic',
+    iconUrl: './logo.png',
+    title: 'Replay paused!',
+    message: 'Auto paused by breakpoint'
+  })
+}
+
+const notifyEcho = (text) => {
+  Ext.notifications.create({
+    type: 'basic',
+    iconUrl: './logo.png',
+    title: 'Echo',
+    message: text
+  })
+}
+
+const closeAllWindows = () => {
+  return Ext.windows.getAll()
+  .then(wins => {
+    return Promise.all(wins.map(win => Ext.windows.remove(win.id)))
   })
 }
 
@@ -209,33 +320,55 @@ const isTimeToBackup = () => {
   })
 }
 
+const notifyPanelAboutActiveTab = (activeTabId) => {
+  Promise.all([
+    Ext.tabs.get(activeTabId),
+    getPanelTabIpc()
+  ])
+  .then(tuple => {
+    const [tab, panelIpc] = tuple
+    if (tab.url.indexOf(Ext.extension.getURL('')) !== -1) return
+
+    if (!tab.title || tab.title.trim().length === 0) {
+      return delay(() => notifyPanelAboutActiveTab(activeTabId), 200)
+    }
+
+    return panelIpc.ask('UPDATE_ACTIVE_TAB', {
+      url: tab.url,
+      title: tab.title
+    })
+  })
+}
+
+const isTabActiveAndFocused = (tabId) => {
+  return Ext.tabs.get(tabId)
+  .then(tab => {
+    if (!tab.active)  return false
+
+    switch (state.status) {
+      case C.APP_STATUS.NORMAL:
+        return Ext.windows.get(tab.windowId)
+        .then(win => win.focused)
+
+      case C.APP_STATUS.PLAYER:
+        return tabId === state.tabIds.toPlay
+
+      case C.APP_STATUS.RECORDER:
+        return tabId === state.tabIds.toRecord
+
+      default:
+        throw new Error(`isTabActiveAndFocused: unknown app status, '${state.status}'`)
+    }
+  })
+  .catch(e => false)
+}
+
 const bindEvents = () => {
   Ext.browserAction.onClicked.addListener(() => {
     isUpgradeViewed()
     .then(isViewed => {
       if (isViewed) {
-        return activateTab(state.tabIds.panel, true)
-        .catch(() => {
-          storage.get('config')
-          .then(config => {
-            config = config || {}
-            return (config.size || {})[config.showSidebar ? 'with_sidebar' : 'standard']
-          })
-          .then(size => {
-            size = size || {
-              width: 850,
-              height: 775
-            }
-
-            window.open(
-              Ext.extension.getURL('popup.html')
-              , 'idePanel'
-              , `width=${size.width},height=${size.height},toolbar=no,resizable=no,scrollbars=no`
-            )
-
-            return true
-          })
-        })
+        return showPanelWindow()
       } else {
         Ext.browserAction.setBadgeText({ text: '' })
         Ext.storage.local.set({
@@ -248,18 +381,54 @@ const bindEvents = () => {
     })
   })
 
+  Ext.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (!tab.active)  return
+
+    isTabActiveAndFocused(tabId)
+    .then(isFocused => {
+      if (!isFocused) return
+      return notifyPanelAboutActiveTab(tabId)
+    })
+  })
+
+  Ext.windows.onFocusChanged.addListener((windowId) => {
+    Ext.tabs.query({ windowId, active: true })
+    .then(tabs => {
+      if (tabs.length === 0) return
+
+      const ipc = state.ipcCache[tabs[0].id]
+      if (ipc) {
+        ipc.ask('TAB_ACTIVATED', {})
+      }
+    })
+  })
+
   // Note: set the activated tab as the one to play
   Ext.tabs.onActivated.addListener((activeInfo) => {
     if (activeInfo.tabId === state.tabIds.panel)  return
 
+    const ipc = state.ipcCache[activeInfo.tabId]
+    if (ipc) {
+      ipc.ask('TAB_ACTIVATED', {})
+    }
+
+    notifyPanelAboutActiveTab(activeInfo.tabId)
+
     switch (state.status) {
       case C.APP_STATUS.NORMAL:
-        Ext.tabs.get(activeInfo.tabId)
-        .then(tab => {
-          if (tab.url.indexOf(Ext.extension.getURL('')) === -1) {
+        // Note: In Firefox, without this delay of 100ms, `tab.url` will still be 'about:config'
+        // so have to wait for the url to take effect
+        setTimeout(() => {
+          Ext.tabs.get(activeInfo.tabId)
+          .then(tab => {
+            if (tab.url.indexOf(Ext.extension.getURL('')) !== -1) return
+
+            log('in tab activated, set toPlay to ', activeInfo)
+            state.tabIds.lastPlay = state.tabIds.toPlay
             state.tabIds.toPlay = state.tabIds.firstPlay = activeInfo.tabId
-          }
-        })
+          })
+        }, 100)
+
         break
 
       case C.APP_STATUS.RECORDER: {
@@ -361,11 +530,36 @@ const setInspectorTabId = (tabId, shouldRemove, noNotify) => {
   }
 }
 
+const startSendingTimeoutStatus = (timeout, type = 'wait') => {
+  let past = 0
+
+  if (state.timer)  clearInterval(state.timer)
+  state.timer = setInterval(() => {
+    past += 1000
+
+    getPanelTabIpc().then(panelIpc => {
+      panelIpc.ask('TIMEOUT_STATUS', {
+        type,
+        past,
+        total: timeout
+      })
+    })
+
+    if (past >= timeout) {
+      clearInterval(state.timer)
+    }
+  }, 1000)
+
+  return () => clearInterval(state.timer)
+}
+
 // Processor for all message background could receive
 // All messages from panel starts with 'PANEL_'
 // All messages from content script starts with 'CS_'
 const onRequest = (cmd, args) => {
-  log('onAsk', cmd, args)
+  if (cmd !== 'CS_ACTIVATE_ME') {
+    log('onAsk', cmd, args)
+  }
 
   switch (cmd) {
     // Mark the tab as panel.
@@ -375,7 +569,8 @@ const onRequest = (cmd, args) => {
       // Note: when the panel first open first, it could be marked as the tab to play
       // That's something we don't want to happen
       if (state.tabIds.toPlay === args.sender.tab.id) {
-        state.tabIds.toPlay = state.tabIds.firstPlay = null
+        log('I am panel, set toPlay to null')
+        state.tabIds.toPlay = state.tabIds.firstPlay = state.tabIds.lastPlay
       }
 
       return true
@@ -391,6 +586,14 @@ const onRequest = (cmd, args) => {
 
     case 'PANEL_STOP_RECORDING':
       log('Stop recording...')
+
+      getRecordTabIpc()
+      .then(ipc => {
+        ipc.ask('SET_STATUS', {
+          status: C.CONTENT_SCRIPT_STATUS.NORMAL
+        })
+      })
+
       state.status = C.APP_STATUS.NORMAL
       state.tabIds.lastRecord   = state.tabIds.toRecord
       state.tabIds.toRecord     = null
@@ -398,6 +601,37 @@ const onRequest = (cmd, args) => {
 
       toggleRecordingBadge(false)
       return true
+
+    case 'PANEL_TRY_TO_RECORD_OPEN_COMMAND': {
+      if (state.status !== C.APP_STATUS.RECORDER) {
+        throw new Error('Not in recorder mode')
+      }
+
+      // Well, `getPlayTab` is actually 'get current active tab'
+      return getPlayTab()
+      .then(tab => {
+        log('PANEL_TRY_TO_RECORD_OPEN_COMMAND', tab)
+
+        if (!/^(https?:|file:)/.test(tab.url)) {
+          throw new Error('Not a valid url to record as open command')
+        }
+
+        state.tabIds.toRecord = state.tabIds.firstRecord = tab.id
+
+        getPanelTabIpc()
+        .then(panelIpc => {
+          const command = {
+            cmd: 'open',
+            target: tab.url
+          }
+
+          panelIpc.ask('RECORD_ADD_COMMAND', command)
+          notifyRecordCommand(command)
+        })
+
+        return true
+      })
+    }
 
     case 'PANEL_START_INSPECTING':
       log('start to inspect...')
@@ -417,6 +651,8 @@ const onRequest = (cmd, args) => {
       state.status = C.APP_STATUS.PLAYER
 
       togglePlayingBadge(true)
+      // Note: reset download manager to clear any previous downloads
+      getDownloadMan().reset()
 
       if (state.timer) clearInterval(state.timer)
 
@@ -424,21 +660,34 @@ const onRequest = (cmd, args) => {
       // Note: catch any error, and make it run 'getPlayTab(args.url)' instead
       .catch(e => ({ id: -1 }))
       .then(tab => {
-        if (!state.ipcCache[tab.id]) {
+        log('after first getPlayTab', tab)
+        const openUrlInTab = () => {
           return getPlayTab(args.url)
           .then(tab => ({ tab, hasOpenedUrl: true }))
+        }
+
+        if (!state.ipcCache[tab.id]) {
+          return openUrlInTab()
         } else {
-          return { tab, hasOpenedUrl: false }
+          // Note: test if the ipc is still active,
+          // if it's not, try to open url as if that ipc doesn't exist at all
+          return state.ipcCache[tab.id].ask('HEART_BEAT', {}, 500)
+          .then(() => ({ tab, hasOpenedUrl: false }))
+          .catch(openUrlInTab)
         }
       })
       .then(({ tab, hasOpenedUrl }) => {
+        const p = args.shouldNotActivateTab ? Promise.resolve() : activateTab(tab.id, true)
+
         // Note: wait for tab to confirm it has loaded
-        return until('ipc of tab to play', () => {
-          return {
-            pass: !!state.ipcCache[tab.id],
-            result: state.ipcCache[tab.id]
-          }
-        }, 1000, 6000 * 10)
+        return p.then(() => {
+          return until('ipc of tab to play', () => {
+            return {
+              pass: !!state.ipcCache[tab.id],
+              result: state.ipcCache[tab.id]
+            }
+          }, 1000, 6000 * 10)
+        })
         .then(ipc => {
           const p = !hasOpenedUrl ? Promise.resolve() : ipc.ask('MARK_NO_COMMANDS_YET', {})
           return p.then(() => ipc.ask('SET_STATUS', { status: C.CONTENT_SCRIPT_STATUS.PLAYING }))
@@ -451,6 +700,13 @@ const onRequest = (cmd, args) => {
     }
 
     case 'PANEL_RUN_COMMAND': {
+      if (state.timer)  clearInterval(state.timer)
+
+      const shouldWaitForDownloadAfterRun = (command) => {
+        log('shouldWaitForDownloadAfterRun', command)
+        if (command.cmd === 'click') return true
+        return false
+      }
       const runCommand = (args, retryInfo) => {
         return getPlayTabIpc()
         .then(ipc => {
@@ -466,23 +722,7 @@ const onRequest = (cmd, args) => {
                 () => { return null }
               )
           }
-          const startSendingTimeoutStatus = (timeout) => {
-            let past = 0
 
-            state.timer = setInterval(() => {
-              past += 1000
-
-              getPanelTabIpc().then(panelIpc => {
-                panelIpc.ask('TIMEOUT_STATUS', {
-                  type: 'wait',
-                  total: timeout,
-                  past
-                })
-              })
-            }, 1000)
-
-            return () => clearInterval(state.timer)
-          }
           // res format: { data, isIFrame }
           const wait = (res) => {
             const shouldWait      = /wait/i.test(args.command.cmd) || args.command.cmd === 'open'
@@ -491,7 +731,8 @@ const onRequest = (cmd, args) => {
             if (!shouldWait) return Promise.resolve(res.data)
 
             log('wait!!!!', res)
-            const timeoutPageLoad = ((res.data && res.data.extra && res.data.extra.timeoutPageLoad) || 60) * 1000
+            const timeoutPageLoad   = ((res.data && res.data.extra && res.data.extra.timeoutPageLoad) || 60) * 1000
+            const timeoutHeartbeat  = ((res.data && res.data.extra && res.data.extra.timeoutElement) || 10) * 1000
 
             // Note: for clickAndWait etc.,  must reset ipc to avoid
             // any further message (like heart beat) to be sent to the original ipc
@@ -500,7 +741,7 @@ const onRequest = (cmd, args) => {
             // Note: put some delay here because there are cases when next command's
             // heart beat request is answered by previous page
             return delay(() => {}, 2000)
-            // A standlone `checkHeartBeat to make sure we don't have to wait until's 
+            // A standlone `checkHeartBeat to make sure we don't have to wait until's
             // first interval to pass the check
             .then(() => checkHeartBeat())
             .then(() => {
@@ -511,7 +752,18 @@ const onRequest = (cmd, args) => {
                   pass: gotHeartBeat,
                   result: true
                 }
-              }, 100, 1000 * 10)
+              }, 100, timeoutHeartbeat)
+              .catch(e => {
+                const { cmd }   = args.command
+                const isAndWait = /AndWait/.test(cmd)
+
+                if (isAndWait) {
+                  const instead = cmd.replace('AndWait', '')
+                  throw new Error(`'${cmd}' failed. No page load event detected after ${timeoutHeartbeat / 1000} seconds. Try '${instead}' instead.`)
+                } else {
+                  throw new Error(`${cmd}' failed. No page load event detected after ${timeoutHeartbeat / 1000} seconds.`)
+                }
+              })
             })
             // Note: must get the new ipc here.
             // The previous ipc is useless after a new page load
@@ -555,85 +807,23 @@ const onRequest = (cmd, args) => {
         })
       }
 
-      const retry = (fn, options) => (...args) => {
-        const { timeout, onFirstFail, onFinal, shouldRetry, retryInterval } = {
-          timeout: 5000,
-          retryInterval: 1000,
-          onFirstFail:  () => {},
-          onFinal:      () => {},
-          shouldRetry:  () => false,
-          ...options
-        }
-        const wrappedOnFinal = (...args) => {
-          if (timerToClear) {
-            clearTimeout(timerToClear)
-          }
-
-          return onFinal(...args)
-        }
-
-        let retryCount    = 0
-        let lastError     = null
-        let timerToClear  = null
-
-        const onError = e => {
-          if (!shouldRetry(e)) {
-            wrappedOnFinal(e)
-            throw e
-          }
-          lastError = e
-
-          return new Promise((resolve, reject) => {
-            if (retryCount++ === 0) {
-              onFirstFail(...args)
-              timerToClear = setTimeout(() => {
-                wrappedOnFinal(lastError)
-                reject(lastError)
-              }, timeout)
-            }
-
-            delay(run, retryInterval)
-            .then(resolve, onError)
-          })
-        }
-
-        const run = () => {
-          return fn(...args, { retryCount, retryInterval }).catch(onError)
-        }
-
-        return run()
-        .then((result) => {
-          wrappedOnFinal(null, result)
-          return result
-        })
-      }
-
       let timer     = null
       const timeout = args.command.extra.timeoutElement * 1000
 
       const runCommandWithRetry = retry(runCommand, {
         timeout,
         shouldRetry: (e) => {
-          return e.message && e.message.indexOf('time out when looking for') !== -1
+          return e.message &&
+                  (e.message.indexOf('timeout reached when looking for') !== -1 ||
+                   e.message.indexOf('element is found but not visible yet') !== -1 ||
+                   e.message.indexOf('IPC Promise has been destroyed') !== -1)
         },
-        onFirstFail: () => {
-          let past  = 0
-          state.timer = setInterval(() => {
-            past += 1000
+        onFirstFail: (e) => {
+          const title = e.message.indexOf('element is found but not visible yet') !== -1
+                            ? 'Tag waiting' // All use Tag Waiting for now  // 'Visible waiting'
+                            : 'Tag waiting'
 
-            getPanelTabIpc()
-            .then(ipc => {
-              ipc.ask('TIMEOUT_STATUS', {
-                type: 'Tag waiting',
-                total: timeout,
-                past
-              })
-
-              if (past >= timeout) {
-                clearInterval(state.timer)
-              }
-            })
-          }, 1000)
+          startSendingTimeoutStatus(timeout, title)
         },
         onFinal: (err, data) => {
           log('onFinal', err, data)
@@ -655,11 +845,32 @@ const onRequest = (cmd, args) => {
 
         throw e
       })
+      .then(data => {
+        if (shouldWaitForDownloadAfterRun(args.command)) {
+          // Note: wait for download to either be create or completed
+          return getDownloadMan().waitForDownloadIfAny()
+          .then(() => data)
+        }
+
+        return data
+      })
+      .then(data => {
+        // Note: use bg to set pageUrl, so that we can be sure that this `pageUrl` is 100% correct
+        return Ext.tabs.get(state.tabIds.toPlay)
+        .then(tab => ({ ...data, pageUrl: tab.url }))
+        .catch(e => {
+          log.error('Error in fetching play tab url')
+          return data
+        })
+      })
     }
 
     case 'PANEL_STOP_PLAYING': {
       togglePlayingBadge(false)
       state.status = C.APP_STATUS.NORMAL
+
+      // Note: reset download manager to clear any previous downloads
+      getDownloadMan().reset()
 
       // Note: reset firstPlay to current toPlay when stopped playing
       // userful for playing loop (reset firstPlay after each loop)
@@ -716,6 +927,16 @@ const onRequest = (cmd, args) => {
       })
     }
 
+    case 'PANEL_HIGHLIGHT_RECT': {
+      return getPlayTabIpc()
+      .then(ipc => ipc.ask('HIGHLIGHT_RECT', args))
+    }
+
+    case 'PANEL_HIGHLIGHT_RECTS': {
+      return getPlayTabIpc()
+      .then(ipc => ipc.ask('HIGHLIGHT_RECTS', args))
+    }
+
     case 'PANEL_RESIZE_WINDOW': {
       if (!state.tabIds.panel) {
         throw new Error('Panel not available')
@@ -746,6 +967,259 @@ const onRequest = (cmd, args) => {
       return fn(!args.clear, args)
     }
 
+    case 'PANEL_NOTIFY_AUTO_PAUSE': {
+      notifyAutoPause()
+      return true
+    }
+
+    case 'PANEL_NOTIFY_BREAKPOINT': {
+      notifyBreakpoint()
+      return true
+    }
+
+    case 'PANEL_NOTIFY_ECHO': {
+      notifyEcho(args.text)
+      return true
+    }
+
+    case 'PANEL_CLOSE_ALL_WINDOWS': {
+      closeAllWindows()
+      return true
+    }
+
+    case 'PANEL_CURRENT_PLAY_TAB_INFO': {
+      return getPlayTab()
+      .then(tab => {
+        return {
+          url: tab.url,
+          title: tab.title
+        }
+      })
+    }
+
+    case 'PANEL_BRING_PLAYING_WINDOW_TO_FOREGROUND': {
+      return getPlayTab()
+      .then(tab => activateTab(tab.id, true))
+      .catch(e => showPanelWindow())
+      .then(() => true)
+    }
+
+    case 'PANEL_RESIZE_PLAY_TAB': {
+      return getPlayTab()
+      .then(tab => resizeViewportOfTab(tab.id, args))
+    }
+
+    case 'PANEL_SELECT_AREA_ON_CURRENT_PAGE': {
+      return getPlayTabIpc()
+      .then(ipc => {
+        activateTab(state.tabIds.toPlay, true)
+        return ipc.ask('SELECT_SCREEN_AREA')
+      })
+      .catch(e => {
+        log.error(e.stack)
+        throw new Error('Not able to take screenshot on the current tab')
+      })
+    }
+
+    case 'PANEL_CLEAR_VISION_RECTS_ON_PLAYING_PAGE': {
+      return getPlayTabIpc()
+      .then(ipc => ipc.ask('CLEAR_VISION_RECTS'))
+    }
+
+    case 'PANEL_SEARCH_VISION_ON_PLAYING_PAGE': {
+      const { visionFileName, minSimilarity, searchArea = 'full', storedImageRect, command } = args
+      const patternDpi      = dpiFromFileName(visionFileName) || 96
+      const screenDpi       = getScreenDpi()
+      const dpiScale        = patternDpi / screenDpi
+      const man             = getVisionMan()
+      const getPatternImage = (fileName) => {
+        return man.exists(fileName)
+        .then(existed => {
+          if (!existed) throw new Error(`${command}: No input image found for file name '${fileName}'`)
+          return man.readAsDataURL(fileName)
+        })
+      }
+      const saveDataUrlToLastScreenshot = (dataUrl) => {
+        return getScreenshotMan().overwrite(
+          ensureExtName('.png', C.LAST_SCREENSHOT_FILE_NAME),
+          dataURItoBlob(dataUrl)
+        )
+        .then(() => {
+          getPanelTabIpc()
+          .then(panelIpc => {
+            return panelIpc.ask('RESTORE_SCREENSHOTS')
+          })
+        })
+      }
+      const getTargetImage  = () => {
+        const capture = (ipc, tabId) => {
+          switch (searchArea) {
+            case 'viewport':
+              return Promise.all([
+                ipc.ask('SCREENSHOT_PAGE_INFO'),
+                captureScreen(tabId)
+              ])
+              .then(([pageInfo, dataUrl]) => {
+                saveDataUrlToLastScreenshot(dataUrl)
+
+                return {
+                  offset: {
+                    x: pageInfo.originalX,
+                    y: pageInfo.originalY
+                  },
+                  dataUrl
+                }
+              })
+
+            case 'full': {
+              return captureFullScreen(tabId, {
+                startCapture: () => {
+                  return ipc.ask('START_CAPTURE_FULL_SCREENSHOT', {})
+                },
+                endCapture: (pageInfo) => {
+                  return ipc.ask('END_CAPTURE_FULL_SCREENSHOT', { pageInfo })
+                },
+                scrollPage: (offset) => {
+                  return ipc.ask('SCROLL_PAGE', { offset })
+                }
+              })
+              .then(dataUrl => {
+                saveDataUrlToLastScreenshot(dataUrl)
+                return { dataUrl, offset: { x: 0, y: 0 } }
+              })
+            }
+
+            default: {
+              if (/^element:/i.test(searchArea)) {
+                if (!storedImageRect) {
+                  throw new Error('!storedImageRect should not be empty')
+                }
+
+                const man = getScreenshotMan()
+                const fileName = ensureExtName('.png', C.LAST_SCREENSHOT_FILE_NAME)
+
+                return man.readAsDataURL(fileName)
+                .then(dataUrl => ({
+                  dataUrl,
+                  offset: {
+                    x: storedImageRect.x,
+                    y: storedImageRect.y
+                  }
+                }))
+              }
+
+              throw new Error(`Unsupported searchArea '${searchArea}'`)
+            }
+          }
+        }
+
+        return getPlayTabIpc()
+        .then(ipc => {
+          const toPlayTabId = state.tabIds.toPlay
+
+          log('getTargetImage tabIds', state.tabIds, toPlayTabId)
+
+          return activateTab(toPlayTabId, true)
+          .then(() => delay(() => {}, SCREENSHOT_DELAY))
+          .then(() => capture(ipc, toPlayTabId))
+          .then(obj => {
+            return scaleDataURI(obj.dataUrl, dpiScale)
+            .then(dataUrl => ({
+              dataUrl,
+              offset: obj.offset
+            }))
+          })
+        })
+      }
+
+      if (minSimilarity < 0.1 || minSimilarity > 1.0) {
+        throw new Error('confidence should be between 0.1 and 1.0')
+      }
+
+      return Promise.all([
+        getPatternImage(visionFileName),
+        getTargetImage()
+      ])
+      .then(([patternImageUrl, targetImageInfo]) => {
+        const targetImageUrl  = targetImageInfo.dataUrl
+        const offset          = targetImageInfo.offset
+
+        return searchImage({
+          patternImageUrl,
+          targetImageUrl,
+          minSimilarity,
+          allowSizeVariation: true,
+          scaleDownRatio:     dpiScale * window.devicePixelRatio,
+          offsetX:            offset.x || 0,
+          offsetY:            offset.y || 0
+        })
+      })
+    }
+
+    case 'PANEL_TIMEOUT_STATUS': {
+      startSendingTimeoutStatus(args.timeout, args.type)
+      return true
+    }
+
+    case 'PANEL_CLEAR_TIMEOUT_STATUS': {
+      clearInterval(state.timer)
+      return true
+    }
+
+    case 'CS_STORE_SCREENSHOT_IN_SELECTION': {
+      const { rect, devicePixelRatio, fileName } = args
+      const tabId = args.sender.tab.id
+      const ipc   = state.ipcCache[tabId]
+
+      return activateTab(state.tabIds.toPlay, true)
+      .then(() => delay(() => {}, SCREENSHOT_DELAY))
+      .then(() => captureScreenInSelection(state.tabIds.toPlay, { rect, devicePixelRatio }, {
+        startCapture: () => {
+          return ipc.ask('START_CAPTURE_FULL_SCREENSHOT', { hideScrollbar: false })
+        },
+        endCapture: (pageInfo) => {
+          return ipc.ask('END_CAPTURE_FULL_SCREENSHOT', { pageInfo })
+        },
+        scrollPage: (offset) => {
+          return ipc.ask('SCROLL_PAGE', { offset })
+        }
+      }))
+      .then(dataUrl => {
+        const man = getScreenshotMan()
+
+        return man.overwrite(fileName, dataURItoBlob(dataUrl))
+        .then(() => {
+          getPanelTabIpc()
+          .then(panelIpc => {
+            return panelIpc.ask('RESTORE_SCREENSHOTS')
+          })
+
+          return fileName
+        })
+      })
+    }
+
+    case 'CS_SCREEN_AREA_SELECTED': {
+      const { rect, devicePixelRatio } = args
+      const tabId = args.sender.tab.id
+      const ipc   = state.ipcCache[tabId]
+
+      log('CS_SCREEN_AREA_SELECTED', rect, devicePixelRatio, tabId)
+
+      return captureScreenInSelectionSimple(args.sender.tab.id, { rect, devicePixelRatio })
+      .then(dataUrl => {
+        log('CS_SCREEN_AREA_SELECTED', 'got reuslt', dataUrl.length)
+        return withPanelIpc()
+        .then(panelIpc => {
+          return panelIpc.ask('ADD_VISION_IMAGE', { dataUrl })
+        })
+      })
+      .catch(e => {
+        log.error(e.stack)
+        throw e
+      })
+    }
+
     case 'CS_DONE_INSPECTING':
       log('done inspecting...')
       state.status              = C.APP_STATUS.NORMAL
@@ -756,15 +1230,13 @@ const onRequest = (cmd, args) => {
 
       return getPanelTabIpc()
       .then(panelIpc => {
-        return panelIpc.ask('INSPECT_RESULT', {
-          xpath: args.xpath
-        })
+        return panelIpc.ask('INSPECT_RESULT', args)
       })
 
     // It's used for inspecting. The first tab which sends a CS_ACTIVATE_ME event
     // on mouse over event will be the one for us to inspect
     case 'CS_ACTIVATE_ME':
-      log('CS_ACTIVATE_ME state.status', state.status)
+      // log('CS_ACTIVATE_ME state.status', state.status)
 
       switch (state.status) {
         case C.APP_STATUS.INSPECTOR:
@@ -836,7 +1308,7 @@ const onRequest = (cmd, args) => {
       })
       .then(() => storage.get('config'))
       .then(config => {
-        if (config.recordNotification) {
+        if (config.recordNotification && state.status === C.APP_STATUS.RECORDER) {
           notifyRecordCommand(args)
         }
       })
@@ -863,25 +1335,30 @@ const onRequest = (cmd, args) => {
         throw new Error(`invalid window locator, '${args.target}'`)
       }
 
-      let pQueryObj
+      let pGetTabs
 
       switch (type.toLowerCase()) {
         case 'title':
-          pQueryObj = Promise.resolve({ title: locator })
+          pGetTabs = Ext.tabs.query({ title: locator })
           break
 
         case 'tab': {
-          const offset = parseInt(locator, 10)
+          if (/^\s*open\s*$/i.test(locator)) {
+            pGetTabs = Ext.tabs.create({ url: args.value })
+            .then(tab => [tab])
+          } else {
+            const offset = parseInt(locator, 10)
 
-          if (isNaN(offset)) {
-            throw new Error(`invalid tab offset, '${locator}'`)
-          }
+            if (isNaN(offset)) {
+              throw new Error(`invalid tab offset, '${locator}'`)
+            }
 
-          pQueryObj = Ext.tabs.get(state.tabIds.firstPlay)
-            .then(tab => ({
+            pGetTabs = Ext.tabs.get(state.tabIds.firstPlay)
+            .then(tab => Ext.tabs.query({
               windowId: tab.windowId,
               index: tab.index + offset
             }))
+          }
 
           break
         }
@@ -890,8 +1367,7 @@ const onRequest = (cmd, args) => {
           throw new Error(`window locator type '${type}' not supported`)
       }
 
-      return pQueryObj
-      .then(queryObj => Ext.tabs.query(queryObj))
+      return pGetTabs
       .then(tabs => {
         if (tabs.length === 0) {
           throw new Error(`failed to find the tab with locator '${args.target}'`)
@@ -906,6 +1382,12 @@ const onRequest = (cmd, args) => {
             pass: state.ipcCache[tab.id],
             result: state.ipcCache[tab.id]
           }
+        })
+        .catch(e => {
+          if (/tab=\s*open\s*/i.test(args.target)) {
+            throw new Error('To open a new tab, a valid URL is needed')
+          }
+          throw e
         })
         .then(ipc => {
           log('selectWindow, got ipc', ipc)
@@ -929,6 +1411,7 @@ const onRequest = (cmd, args) => {
           })
         })
         .then(() => {
+          state.tabIds.lastPlay = state.tabIds.toPlay
           state.tabIds.toPlay = tab.id
           return activateTab(tab.id)
         })
@@ -941,13 +1424,15 @@ const onRequest = (cmd, args) => {
 
     case 'CS_CAPTURE_SCREENSHOT':
       return activateTab(state.tabIds.toPlay, true)
-      .then(saveScreen)
+      .then(() => delay(() => {}, SCREENSHOT_DELAY))
+      .then(() => saveScreen(state.tabIds.toPlay, args.fileName))
 
     case 'CS_CAPTURE_FULL_SCREENSHOT':
       return activateTab(state.tabIds.toPlay, true)
+      .then(() => delay(() => {}, SCREENSHOT_DELAY))
       .then(getPlayTabIpc)
       .then(ipc => {
-        return saveFullScreen({
+        return saveFullScreen(state.tabIds.toPlay, args.fileName, {
           startCapture: () => {
             return ipc.ask('START_CAPTURE_FULL_SCREENSHOT', {})
           },
@@ -983,6 +1468,95 @@ const onRequest = (cmd, args) => {
         tabId:    args.sender.tab.id,
         selector: args.selector,
         files:    args.files
+      })
+    }
+
+    case 'CS_ON_DOWNLOAD': {
+      const p = getDownloadMan().prepareDownload(args.fileName, {
+        wait:             !!args.wait,
+        timeout:          args.timeout,
+        timeoutForStart:  args.timeoutForStart
+      })
+      return true
+    }
+
+    case 'CS_INVOKE': {
+      return storage.get('config')
+      .then(config => {
+        const isTestCase  = !!args.testCase
+        const isTestSuite = !!args.testSuite
+        const from        = (args.testCase && args.testCase.from) || (args.testSuite && args.testSuite.from)
+
+        switch (from) {
+          case 'bookmark': {
+            if (!config.allowRunFromBookmark) {
+              throw new Error('To run macro / test suite from bookmarks, enable it in kantu settings first')
+            }
+            break
+          }
+
+          case 'html': {
+            if (!isTestSuite) {
+              throw new Error('not allowed to run from local file')
+            }
+
+            const isFileSchema = /^file:\/\//.test(args.sender.url)
+            const isHttpSchema = /^https?:\/\//.test(args.sender.url)
+
+            if (isFileSchema && !config.allowRunFromFileSchema) {
+              throw new Error('To run test suite from local file, enable it in kantu settings first')
+            }
+
+            if (isHttpSchema && !config.allowRunFromHttpSchema) {
+              throw new Error('To run test suite from public website, enable it in kantu settings first')
+            }
+
+            break
+          }
+
+          default:
+            throw new Error('unknown source not allowed')
+        }
+
+        return withPanelIpc()
+        .then(panelIpc => {
+          if (args.testCase) {
+            return panelIpc.ask('RUN_TEST_CASE', {
+              testCase: args.testCase,
+              options:  args.options
+            })
+          }
+
+          if (args.testSuite) {
+            return panelIpc.ask('RUN_TEST_SUITE', {
+              testSuite:  args.testSuite,
+              options:    args.options
+            })
+          }
+
+          return true
+        })
+      })
+    }
+
+    case 'CS_IMPORT_HTML_AND_INVOKE': {
+      return storage.get('config')
+      .then(config => {
+        const isFileSchema = /^file:\/\//.test(args.sender.url)
+        const isHttpSchema = /^https?:\/\//.test(args.sender.url)
+
+        if (isFileSchema && !config.allowRunFromFileSchema) {
+          throw new Error('To run macro from local file, enable it in kantu settings first')
+        }
+
+        if (isHttpSchema && !config.allowRunFromHttpSchema) {
+          throw new Error('To run macro from public website, enable it in kantu settings first')
+        }
+
+        return withPanelIpc()
+        .then(panelIpc => {
+          return panelIpc.ask('IMPORT_HTML_AND_RUN', args)
+        })
       })
     }
 
@@ -1035,8 +1609,21 @@ const initPlayTab = () => {
     return Ext.tabs.query({ active: true, windowId: window.id })
     .then(tabs => {
       if (!tabs || !tabs.length)  return false
+      log('in initPlayTab, set toPlay to', tabs[0])
+      state.tabIds.lastPlay = state.tabIds.toPlay
       state.tabIds.toPlay = tabs[0].id
       return true
+    })
+  })
+}
+
+const initDownloadMan = () => {
+  getDownloadMan().onCountDown(data => {
+    getPanelTabIpc().then(panelIpc => {
+      panelIpc.ask('TIMEOUT_STATUS', {
+        ...data,
+        type: 'download'
+      })
     })
   })
 }
@@ -1045,5 +1632,6 @@ bindEvents()
 initIPC()
 initOnInstalled()
 initPlayTab()
+initDownloadMan()
 
 window.clip = clipboard

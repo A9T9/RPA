@@ -1,3 +1,5 @@
+const { retry } = require('../utils')
+
 var TO_BE_REMOVED = false;
 
 var log = function (msg) {
@@ -46,6 +48,7 @@ function ipcPromise (options) {
   var onAnswer    = options.onAnswer
   var onAsk       = options.onAsk
   var userDestroy = options.destroy
+  var checkReady  = options.checkReady || function () { return Promise.resolve(true) }
 
   var askCache = {}
   var unhandledAsk = []
@@ -54,8 +57,25 @@ function ipcPromise (options) {
   }
   var handler = markUnhandled
 
+  var runHandlers = (handlers, cmd, args, resolve, reject) => {
+    for (let i = 0, len = handlers.length; i < len; i++) {
+      var res
+
+      try {
+        res = handlers[i](cmd, args)
+      } catch (e) {
+        return reject(e)
+      }
+
+      if (res !== undefined) {
+        return resolve(res)
+      }
+    }
+    // Note: DO NOT resolve anything if all handlers return undefined
+  }
+
   // both for ask and unhandledAsk
-  timeout = timeout || 5000;
+  timeout = timeout || -1;
 
   onAnswer(function (uid, err, data) {
     if (uid && askCache[uid] === TO_BE_REMOVED) {
@@ -81,15 +101,17 @@ function ipcPromise (options) {
   });
 
   onAsk(function (uid, cmd, args) {
-    setTimeout(function () {
-      var found = unhandledAsk && unhandledAsk.find(function (item) {
-        return item.uid === uid;
-      });
+    if (timeout > 0) {
+      setTimeout(function () {
+        var found = unhandledAsk && unhandledAsk.find(function (item) {
+          return item.uid === uid;
+        });
 
-      if (!found) return;
+        if (!found) return;
 
-      answer(uid, new Error('ipcPromise: answer timeout ' + timeout + ' for cmd "' + cmd + '", args "'  + args + '"'));
-    }, timeout);
+        answer(uid, new Error('ipcPromise: answer timeout ' + timeout + ' for cmd "' + cmd + '", args "'  + args + '"'));
+      }, timeout);
+    }
 
     if (handler === markUnhandled) {
       markUnhandled(uid, cmd, args);
@@ -97,7 +119,7 @@ function ipcPromise (options) {
     }
 
     return new Promise((resolve, reject) => {
-      resolve(handler(cmd, args))
+      runHandlers(handler, cmd, args, resolve, reject)
     })
     .then(
       function (data) {
@@ -134,11 +156,15 @@ function ipcPromise (options) {
   }
 
   var wrapOnAsk = function (fn) {
-    handler = fn;
+    if (Array.isArray(handler)) {
+      handler.push(fn)
+    } else {
+      handler = [fn]
+    }
 
     var ps = unhandledAsk.map(function (task) {
       return new Promise((resolve, reject) => {
-        resolve(handler(task.cmd, task.args))
+        runHandlers(handler, task.cmd, task.args, resolve, reject)
       })
       .then(
         function (data) {
@@ -167,7 +193,7 @@ function ipcPromise (options) {
     });
   };
 
-  var destroy = function () {
+  var destroy = function (noReject) {
     userDestroy && userDestroy();
 
     ask = null;
@@ -176,17 +202,30 @@ function ipcPromise (options) {
     onAsk = null;
     unhandledAsk = null;
 
-    Object.keys(askCache).forEach(function (uid) {
-      var tuple = askCache[uid];
-      var reject = tuple[1];
-      reject && reject(new Error('IPC Promise has been Destroyed.'));
-      delete askCache[uid];
-    });
+    if (!noReject) {
+      Object.keys(askCache).forEach(function (uid) {
+        var tuple = askCache[uid];
+        var reject = tuple[1];
+        reject && reject(new Error('IPC Promise has been Destroyed.'));
+        delete askCache[uid];
+      });
+    }
   };
 
+  var waitForReady = function (checkReady, fn) {
+    return (...args) => {
+      const makeSureReady = retry(checkReady, {
+        shouldRetry: () => true,
+        retryInterval: 100,
+        timeout: 5000
+      })
+
+      return makeSureReady().then(() => fn(...args))
+    }
+  }
+
   return {
-    ask: wrapAsk,
-    send: wrapAsk,
+    ask: waitForReady(checkReady, wrapAsk),
     onAsk: wrapOnAsk,
     destroy: destroy
   };
@@ -196,10 +235,6 @@ ipcPromise.serialize = function (obj) {
   return {
     ask: function (cmd, args, timeout) {
       return obj.ask(cmd, JSON.stringify(args), timeout);
-    },
-
-    send: function (cmd, args, timeout) {
-      return obj.send(cmd, JSON.stringify(args), timeout);
     },
 
     onAsk: function (fn) {

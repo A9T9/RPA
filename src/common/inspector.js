@@ -1,5 +1,6 @@
 
 import log from './log'
+import { getElementByLocator } from './command_runner'
 
 /*
  * Basic tool function
@@ -212,15 +213,31 @@ var parentWithTag = function (tag, $el) {
   return null
 }
 
+var parentWithClass = function (className, $el) {
+  var $dom = $el
+
+  while ($dom) {
+    // Note: In Firefox, HTML Document object doesn't have `classList` property
+    if ($dom.classList !== undefined && $dom.classList.contains(className)) {
+      return $dom
+    }
+
+    $dom = $dom.parentNode
+  }
+
+  return null
+}
+
 var selector = function (dom) {
   if (dom.nodeType !== 1) return ''
   if (dom.tagName === 'BODY') return 'body'
   if (dom.id) return '#' + dom.id
 
-  var classes = dom.className.split(/\s+/g)
-                             .filter(function (item) {
-                               return item && item.length
-                             })
+  var classes = (dom.getAttribute('class') || '')
+                              .split(/\s+/g)
+                              .filter(function (item) {
+                                return item && item.length
+                              })
 
   var children = Array.from(dom.parentNode.childNodes).filter(function ($el) {
     return $el.nodeType === 1
@@ -231,7 +248,7 @@ var selector = function (dom) {
   })
 
   var sameClass = children.filter(function ($el) {
-    var cs = $el.className.split(/\s+/g)
+    var cs = ($el.getAttribute('class') || '').split(/\s+/g)
 
     return and(classes.map(function (c) {
       return cs.indexOf(c) !== -1
@@ -333,11 +350,21 @@ var atXPath = function (xpath, document) {
 }
 
 var domText = ($dom) => {
-  const it  = $dom.innerText
+  const it  = $dom.innerText && $dom.innerText.trim()
   const tc  = $dom.textContent
   const pos = tc.toUpperCase().indexOf(it.toUpperCase())
 
   return tc.substr(pos, it.length)
+}
+
+var getFirstWorkingLocator = (locators, $el) => {
+  for (let i = 0, len = locators.length; i < len; i++) {
+    if ($el === getElementByLocator(locators[i])) {
+      return locators[i]
+    }
+  }
+
+  return null
 }
 
 // Note: get the locator of a DOM
@@ -349,14 +376,7 @@ var getLocator = ($dom, withAllOptions) => {
   const classes = Array.from($dom.classList)
   const candidates = []
 
-  if (id && id.length) {
-    candidates.push(`id=${id}`)
-  }
-
-  if (name && name.length) {
-    candidates.push(`name=${name}`)
-  }
-
+  // link
   if (isLink && text && text.length) {
     const links   = [].slice.call(document.getElementsByTagName('a'))
     const matches = links.filter($el => domText($el) === text)
@@ -369,27 +389,52 @@ var getLocator = ($dom, withAllOptions) => {
     }
   }
 
-  if (classes.length > 0) {
-    const selector = $dom.tagName.toLowerCase() + classes.map(c => '.' + c).join('')
-    log('selector', selector)
-    const $doms = document.querySelectorAll(selector)
+  // id
+  if (id && id.length) {
+    candidates.push(`id=${id}`)
+  }
 
-    // Note: to use css selector, we need to make sure that selecor is unique
-    if ($doms[0] === $dom) {
-      candidates.push(`css=${selector}`)
+  // name
+  if (name && name.length) {
+    candidates.push(`name=${name}`)
+  }
+
+  // xpath
+  candidates.push(xpath($dom))
+
+  // css
+  // Try with simple css selector first. If not unqiue, use full css selector
+  /**
+   * Below is the old logic with a shorter css selector
+   *
+
+  let sel = null
+
+  if (classes.length > 0) {
+    sel = $dom.tagName.toLowerCase() + classes.map(c => '.' + c).join('')
+
+    if ($dom !== document.querySelectorAll(sel)[0]) {
+      sel = null
     }
   }
 
-  candidates.push(xpath($dom))
+  if (!sel) {
+    sel = selector($dom)
+  }
+  */
+  candidates.push(`css=${selector($dom)}`)
+
+  // Get the first one working
+  const chosen = getFirstWorkingLocator(candidates, $dom)
 
   if (withAllOptions) {
     return {
-      target: candidates[0],
+      target: chosen,
       targetOptions: candidates
     }
   }
 
-  return candidates[0]
+  return chosen
 }
 
 var checkIframe = (iframeWin) => {
@@ -437,7 +482,7 @@ var maskFactory = function () {
     display: 'none',
     boxSizing: 'border-box',
     backgroundColor: 'red',
-    opacity: 0.3,
+    opacity: 0.5,
     pointerEvents: 'none'
   }
 
@@ -485,7 +530,18 @@ var showMaskOver = function (mask, el) {
   }))
 }
 
+var isVisible = function (el) {
+  if (el === window.document) return true
+  if (!el)  return true
+
+  const style = window.getComputedStyle(el)
+  if (style.display === 'none' || style.opacity === '0' || style.visibility === 'hidden')  return false
+
+  return isVisible(el.parentNode)
+}
+
 export default {
+  offset,
   setStyle,
   selector,
   xpath,
@@ -496,5 +552,7 @@ export default {
   maskFactory,
   showMaskOver,
   inDom,
-  parentWithTag
+  isVisible,
+  parentWithTag,
+  parentWithClass
 }

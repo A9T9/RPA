@@ -45,4 +45,15 @@ DataTransfer.prototype.setDragImage = function() {
   // don't do anything (the stub just makes sure there is no error thrown if someone tries to call the method)
 };
 
-module.exports = window.DataTransfer || DataTransfer;
+module.exports = (function () {
+  // Note: in Firefox, window.DataTransfer exists, but it can't be used as constructor
+  // In Firefox, `new window.DataTransfer()` throws errors like 'TypeError: Illegal constructor'
+  if (window.DataTransfer) {
+    try {
+      const tmp = new window.DataTransfer()
+      return window.DataTransfer
+    } catch (e) {}
+  }
+
+  return DataTransfer
+})()

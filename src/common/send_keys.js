@@ -1,4 +1,4 @@
-import * as Keysim from 'keysim'
+import * as Keysim from './lib/keysim'
 import { splitKeep } from './utils'
 import log from './log'
 
@@ -87,7 +87,7 @@ const getKeyStrokeAction = (str) => {
 const isEditable = (el) => {
   if (el.getAttribute('readonly') !== null) return false
   const tag   = el.tagName.toUpperCase()
-  const type  = (el.getAttribute('type') || '').toLowerCase()
+  const type  = (el.type || '').toLowerCase()
   const editableTypes = [
     'text',
     'search',
@@ -107,31 +107,43 @@ const isEditable = (el) => {
 const maybeEditText = (target, c) => {
   if (!isEditable(target))  return
   if (c.length === 1) {
-    const lastStart = target.selectionStart
-    target.value    = target.value.substring(0, target.selectionStart) + c +
-                      target.value.substring(target.selectionEnd)
+    if (!isNil(target.selectionStart)) {
+      const lastStart = target.selectionStart
+      target.value    = target.value.substring(0, target.selectionStart) + c +
+                        target.value.substring(target.selectionEnd)
 
-    target.selectionStart = target.selectionEnd = lastStart + 1
+      setSelection(target, lastStart + 1)
+    } else {
+      target.value    = target.value + c
+    }
   } else {
     switch (c) {
+      case 'ENTER':
+        target.value = target.value + '\n'
+        setSelection(target, target.value.length)
+        break
+      case 'TAB':
+        target.value = target.value + '\t'
+        setSelection(target, target.value.length)
+        break
       case 'LEFT':
-        target.selectionStart = target.selectionEnd = target.selectionStart - 1
+        setSelection(target, target.selectionStart - 1)
         break
       case 'RIGHT':
-        target.selectionStart = target.selectionEnd = target.selectionEnd + 1
+        setSelection(target, target.selectionEnd + 1)
         break
       case 'BACKSPACE': {
         const pos    =  target.selectionStart
         target.value =  target.value.substring(0, target.selectionStart - 1) +
                         target.value.substring(target.selectionEnd)
-        target.selectionStart = target.selectionEnd = pos - 1
+        setSelection(target, pos - 1)
         break
       }
       case 'DELETE': {
         const pos    =  target.selectionEnd
         target.value =  target.value.substring(0, target.selectionStart) +
                         target.value.substring(target.selectionEnd + 1)
-        target.selectionStart = target.selectionEnd = pos
+        setSelection(target, pos)
         break
       }
     }
@@ -148,20 +160,56 @@ const maybeSubmitForm = (target, key) => {
   form.submit()
 }
 
-export default function sendKeys (target, str) {
-  const chars = splitStringToChars(str)
+const isNil = (val) => val === null || val === undefined
+
+const setSelection = ($el, start, end) => {
+  // Note: Inputs like number and email, doesn't support selectionEnd
+  // for safety, make sure those values are not null or undefined (infers that it's available)
+  if (!isNil($el.selectionStart)) {
+    $el.selectionStart = start
+  }
+
+  if (!isNil($el.selectionEnd)) {
+    $el.selectionEnd = (end !== undefined ? end : start)
+  }
+}
+
+const replaceActionKey = (function () {
+  const mapping = {
+    0:  null,    // the NULL character
+    8:  'BACKSPACE',
+    9:  'TAB',
+    10: 'ENTER', // \n  new line
+    11:  null,   // \v  vertical tab
+    12:  null,   // \f  form feed
+    13:  null    // \r  carriage return
+  }
+
+  return (c) => {
+    // Note: it means it's already key stroke action
+    if (c.length > 1) return c
+    return mapping[c.charCodeAt(0)] || c
+  }
+})()
+
+export default function sendKeys (target, str, noSpecialKeys) {
+  const rawChars  = noSpecialKeys ? str.split('') : splitStringToChars(str)
+  const chars     = rawChars.map(replaceActionKey).filter(x => x && x.length)
 
   target.focus()
   if (target.value) {
-    target.selectionStart = target.selectionEnd = target.value.length;
+    setSelection(target, target.value.length)
   }
 
   chars.forEach(c => {
     const action = getKeyStrokeAction(c)
 
+    maybeEditText(target, action)
     // Note: This line will take care of KEYDOWN KEYPRESS KEYUP and TEXTINPUT
     keyboard.dispatchEventsForAction(action, target)
-    maybeEditText(target, action)
-    maybeSubmitForm(target, action)
+
+    if (!noSpecialKeys) {
+      maybeSubmitForm(target, action)
+    }
   })
 }

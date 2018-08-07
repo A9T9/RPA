@@ -172,6 +172,13 @@ export const cn = (...args) => {
   .join(' ')
 }
 
+export const objMap = (fn, obj) => {
+  return Object.keys(obj).reduce((prev, key, i) => {
+    prev[key] = fn(obj[key], key, i)
+    return prev
+  }, {})
+}
+
 export const formatDate = (d) => {
   const pad = (n) => n >= 10 ? ('' + n) : ('0' + n)
   return [d.getFullYear(), d.getMonth() + 1, d.getDate()].map(pad).join('-')
@@ -247,4 +254,293 @@ export const parseQuery = (query) => {
     prev[key] = decodeURIComponent(val)
     return prev
   }, {})
+}
+
+export const toRegExp = (str, { needEncode = false, flag = '' } = {}) => {
+  return new RegExp(
+    needEncode ? str.replace(/[[\](){}^$.*+?|]/g, '\\$&') : str,
+    flag
+  )
+}
+
+export const insertScript = (file) => {
+  const s = document.constructor.prototype.createElement.call(document, 'script')
+
+  s.setAttribute('type', 'text/javascript')
+  s.setAttribute('src', file)
+
+  document.documentElement.appendChild(s)
+  s.parentNode.removeChild(s)
+}
+
+export const withTimeout = (timeout, fn) => {
+  return new Promise((resolve, reject) => {
+    const cancel  = () => clearTimeout(timer)
+    const timer   = setTimeout(() => {
+      reject(new Error('withTimeout: timeout'))
+    }, timeout)
+
+    fn(cancel).then(resolve, reject)
+  })
+}
+
+export const retry = (fn, options) => (...args) => {
+  const { timeout, onFirstFail, onFinal, shouldRetry, retryInterval } = {
+    timeout: 5000,
+    retryInterval: 1000,
+    onFirstFail:  () => {},
+    onFinal:      () => {},
+    shouldRetry:  () => false,
+    ...options
+  }
+
+  let retryCount    = 0
+  let lastError     = null
+  let timerToClear  = null
+  let done          = false
+
+  const wrappedOnFinal = (...args) => {
+    done = true
+
+    if (timerToClear) {
+      clearTimeout(timerToClear)
+    }
+
+    return onFinal(...args)
+  }
+
+  const intervalMan = (function () {
+    let lastInterval      = null
+    const intervalFactory = (function () {
+      switch (typeof retryInterval) {
+        case 'function':
+          return retryInterval
+
+        case 'number':
+          return () => retryInterval
+
+        default:
+          throw new Error('retryInterval must be either a number or a function')
+      }
+    })()
+
+    return {
+      getLastInterval: () => lastInterval,
+      getInterval: () => {
+        const interval = intervalFactory(retryCount, lastInterval)
+        lastInterval = interval
+        return interval
+      }
+    }
+  })()
+
+  const onError = e => {
+    if (!shouldRetry(e)) {
+      wrappedOnFinal(e)
+      throw e
+    }
+    lastError = e
+
+    return new Promise((resolve, reject) => {
+      if (retryCount++ === 0) {
+        onFirstFail(e)
+        timerToClear = setTimeout(() => {
+          wrappedOnFinal(lastError)
+          reject(lastError)
+        }, timeout)
+      }
+
+      if (done) return
+
+      delay(run, intervalMan.getInterval())
+      .then(resolve, onError)
+    })
+  }
+
+  const run = () => {
+    return fn(...args, {
+      retryCount,
+      retryInterval: intervalMan.getLastInterval()
+    })
+    .catch(onError)
+  }
+
+  return run()
+  .then((result) => {
+    wrappedOnFinal(null, result)
+    return result
+  })
+}
+
+// refer to https://stackoverflow.com/questions/12168909/blob-from-dataurl
+export function dataURItoBlob (dataURI) {
+  // convert base64 to raw binary data held in a string
+  // doesn't handle URLEncoded DataURIs - see SO answer #6850276 for code that does this
+  var byteString = atob(dataURI.split(',')[1]);
+
+  // separate out the mime component
+  var mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0]
+
+  // write the bytes of the string to an ArrayBuffer
+  var ab = new ArrayBuffer(byteString.length);
+
+  // create a view into the buffer
+  var ia = new Uint8Array(ab);
+
+  // set the bytes of the buffer to the correct values
+  for (var i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+  }
+
+  // write the ArrayBuffer to a blob, and you're done
+  var blob = new Blob([ab], {type: mimeString});
+  return blob;
+}
+
+export const randomName = (length = 6) => {
+  if (length <= 0 || length > 100)  throw new Error('randomName, length must be between 1 and 100')
+
+  const randomChar = () => {
+    const n = Math.floor(62 * Math.random())
+    let code
+
+    if (n <= 9) {
+      code = 48 + n
+    } else if (n <= 35) {
+      code = 65 + n - 10
+    } else {
+      code = 97 + n - 36
+    }
+
+    return String.fromCharCode(code)
+  }
+
+  return range(0, length).map(randomChar).join('')
+}
+
+export const withFileExtension = (origName, fn) => {
+  const reg = /\.\w+$/
+  const m   = origName.match(reg)
+
+  const extName   = m ? m[0] : ''
+  const baseName  = m ? origName.replace(reg, '') : origName
+  const result    = fn(baseName, (name) => name + extName)
+
+  if (!result) {
+    throw new Error('withFileExtension: should not return null/undefined')
+  }
+
+  if (typeof result.then === 'function') {
+    return result.then(name => name + extName)
+  }
+
+  return result + extName
+}
+
+export const uniqueName = (name, options) => {
+  const opts = {
+    generate: (old, step = 1) => {
+      const reg = /_\((\d+)\)$/
+      const m   = old.match(reg)
+
+      if (!m) return `${old}_(${step})`
+      return old.replace(reg, (_, n) => `_(${parseInt(n, 10) + step})`)
+    },
+    check: () => Promise.resolve(true),
+    ...options
+  }
+  const { generate, check } = opts
+
+  return withFileExtension(name, (baseName, getFullName) => {
+    const go = (fileName, step) => {
+      return check(getFullName(fileName))
+      .then(pass => {
+        if (pass) return fileName
+        return go(generate(fileName, step), step)
+      })
+    }
+
+    return go(baseName, 1)
+  })
+}
+
+export const and = (...list) => list.reduce((prev, cur) => prev && cur, true)
+
+export const loadCsv = (url) => {
+  return fetch(url)
+  .then(res => {
+    if (!res.ok)  throw new Error(`failed to load csv - ${url}`)
+    return res.text()
+  })
+}
+
+export const loadImage = (url) => {
+  return fetch(url)
+  .then(res => {
+    if (!res.ok)  throw new Error(`failed to load image - ${url}`)
+    return res.blob()
+  })
+}
+
+export const ensureExtName = (ext, name) => {
+  const extName = ext.indexOf('.') === 0 ? ext : ('.' + ext)
+  if (name.lastIndexOf(extName) + extName.length === name.length) return name
+  return name + extName
+}
+
+export const validateStandardName = (name, isFileName) => {
+  if (!isFileName && !/^_|[a-zA-Z]/.test(name)) {
+    throw new Error(`must start with a letter or the underscore character.`)
+  }
+
+  if (isFileName && !/^_|[a-zA-Z0-9]/.test(name)) {
+    throw new Error(`must start with alpha-numeric or the underscore character.`)
+  }
+
+  if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+    throw new Error(`can only contain alpha-numeric characters and underscores (A-z, 0-9, and _ )`)
+  }
+}
+
+export const sanitizeFileName = (fileName) => {
+  return withFileExtension(fileName, (baseName) => baseName.replace(/[^a-zA-Z0-9_]/g, '_'))
+}
+
+export const getScreenDpi = () => {
+  const DEFAULT_DPI = 96
+  const matchDpi = (dpi) => {
+    return window.matchMedia(`(max-resolution: ${dpi}dpi)`).matches === true
+  }
+
+  // We iteratively scan all possible media query matches.
+  // We can't use binary search, because there are "many" correct answer in
+  // problem space and we need the very first match.
+  // To speed up computation we divide problem space into buckets.
+  // We test each bucket's first element and if we found a match,
+  // we make a full scan for previous bucket with including first match.
+  // Still, we could use "divide-and-conquer" for such problems.
+  // Due to common DPI values, it's not worth to implement such algorithm.
+
+  const bucketSize = 24 // common divisor for 72, 96, 120, 144 etc.
+
+  for (let i = bucketSize; i < 3000; i += bucketSize) {
+    if (matchDpi(i)) {
+      const start = i - bucketSize
+      const end   = i
+
+      for (let k = start; k <= end; ++k) {
+        if (matchDpi(k)) {
+          return k
+        }
+      }
+    }
+  }
+
+  return DEFAULT_DPI; // default fallback
+}
+
+export const dpiFromFileName = (fileName) => {
+  const reg = /_dpi_(\d+)/i
+  const m = fileName.match(reg)
+  return m ? parseInt(m[1], 10) : 0
 }

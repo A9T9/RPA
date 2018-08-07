@@ -18,6 +18,7 @@ const promiseTypes = [
 
 const simpleTypes = [
   'SET_ROUTE',
+  'SET_EDITOR_ACTIVE_TAB',
   'DONE_INSPECTING',
   'UPDATE_BASE_URL',
   'APPEND_COMMAND',
@@ -26,6 +27,11 @@ const simpleTypes = [
   'UPDATE_COMMAND',
   'REMOVE_COMMAND',
   'SELECT_COMMAND',
+
+  'CUT_COMMAND',
+  'COPY_COMMAND',
+  'PASTE_COMMAND',
+
   'NORMALIZE_COMMANDS',
   'UPDATE_SELECTED_COMMAND',
   'SAVE_EDITING_AS_EXISTED',
@@ -46,9 +52,8 @@ const simpleTypes = [
   'SET_TEST_SUITES',
   'UPDATE_TEST_SUITE',
 
-  'CUT_COMMAND',
-  'COPY_COMMAND',
-  'PASTE_COMMAND',
+  'ADD_BREAKPOINT',
+  'REMOVE_BREAKPOINT',
 
   'ADD_LOGS',
   'CLEAR_LOGS',
@@ -56,13 +61,21 @@ const simpleTypes = [
   'ADD_SCREENSHOT',
   'CLEAR_SCREENSHOTS',
 
+  'ADD_VISION',
+  'CLEAR_VISIONS',
+
   'START_PLAYING',
   'STOP_PLAYING',
 
   'SET_CSV_LIST',
   'SET_SCREENSHOT_LIST',
+  'SET_VISION_LIST',
+  'SET_VARIABLE_LIST',
+  'SET_SOURCE_ERROR',
+  'SET_SOURCE_CURRENT',
 
-  'UPDATE_CONFIG'
+  'UPDATE_CONFIG',
+  'UPDATE_UI'
 ].reduce((prev, cur) => {
   prev[cur] = cur
   return prev

@@ -16,7 +16,7 @@ export const postMessage = (targetWin, myWin, payload, target = '*', timeout = 6
 
     // Note: create a listener with a corresponding secret every time
     const onMsg   = (e) => {
-      if (e.data && e.data.type === TYPE && e.data.secret === secret) {
+      if (e.data && e.data.type === TYPE && !e.data.isRequest && e.data.secret === secret) {
         myWin.removeEventListener('message', onMsg)
         const { payload, error } = e.data
 
@@ -72,7 +72,11 @@ export const onMessage = (win, fn) => {
           reject(err)
         }
 
-        resolve(ret)
+        // Note: only resolve if returned value is not undefined. With this, we can have multiple
+        // listeners added to onMessage, and each one takes care of what it really cares
+        if (ret !== undefined) {
+          resolve(ret)
+        }
       })
       .then(
         (res) => {

@@ -74,6 +74,11 @@
     margin-left: 0;
   }
 
+  .tip {
+    margin-left: 15px;
+    color: #aaa;
+  }
+
   .backup-pane {
     padding: 0 20px;
 
@@ -96,5 +101,29 @@
         margin-bottom: 5px;
       }
     }
+  }
+
+  .security-pane {
+    padding: 0 20px 20px;
+    
+    h4 {
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+
+    p {
+      margin-bottom: 10px;
+    }
+
+    label {
+      margin-right: 10px;
+    }
+
+    .ant-radio-wrapper {
+      display: block;
+      height: 30px;
+      line-height: 30px;
+    }
+
   }
 }

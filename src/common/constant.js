@@ -46,3 +46,5 @@ export const TEST_CASE_STATUS = mk([
   'SUCCESS',
   'ERROR'
 ])
+
+export const LAST_SCREENSHOT_FILE_NAME = '__lastscreenshot'

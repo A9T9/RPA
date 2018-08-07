@@ -2,12 +2,15 @@ import React from 'react'
 import { connect } from 'react-redux'
 import { bindActionCreators } from 'redux'
 import { withRouter, Link } from 'react-router-dom'
-import { Button, Checkbox, Dropdown, Menu, Icon, Modal, Row, Col, Form, Input, Select, Tabs, message } from 'antd'
+import { Button, Checkbox, Dropdown, Menu, Icon, Modal, Row, Col, Form, Radio, Input, Select, Tabs, message } from 'antd'
 
 import './header.scss'
 import { getPlayer, Player } from '../common/player'
+import { hasUnsavedMacro } from '../recomputed'
+import getSaveTestCase from './save_test_case'
 import * as actions from '../actions'
 import * as C from '../common/constant'
+import { range } from '../common/utils';
 
 class Header extends React.Component {
   state = {
@@ -15,13 +18,12 @@ class Header extends React.Component {
     loopsStart: 1,
     loopsEnd: 3,
 
-    showEnterFileName: false,
-    saveAsName: '',
-
     showReplaySettings: false
   }
 
-  getPlayer = () => {
+  getPlayer = (name) => {
+    if (name) return getPlayer({ name })
+
     switch (this.props.player.mode) {
       case C.PLAYER_MODE.TEST_CASE:
         return getPlayer({ name: 'testCase' })
@@ -29,27 +31,6 @@ class Header extends React.Component {
       case C.PLAYER_MODE.TEST_SUITE:
         return getPlayer({ name: 'testSuite' })
     }
-  }
-
-  changeTestCase = ({ key }) => {
-    const { src, hasUnsaved } = this.props.editing.meta
-    const go = () => {
-      this.props.editTestCase(key)
-      return Promise.resolve()
-    }
-
-    if (hasUnsaved) {
-      return Modal.confirm({
-        title: 'Unsaved changes',
-        content: 'Do you want to discard the unsaved changes?',
-        okText: 'Discard',
-        cancelText: 'Cancel',
-        onOk: go,
-        onCancel: () => {}
-      })
-    }
-
-    go()
   }
 
   getTestCaseName = () => {
@@ -123,62 +104,11 @@ class Header extends React.Component {
     })
   }
 
-  // Save as relative
-  onClickSaveAs = () => {
-    this.props.saveEditingAsNew(this.state.saveAsName)
-      .then(() => {
-        message.success('successfully saved!', 1.5)
-        this.toggleSaveAsModal(false)
-      })
-      .catch((e) => {
-        message.error(e.message, 1.5)
-      })
-  }
-
-  onCancelSaveAs = () => {
-    this.toggleSaveAsModal(false)
-    this.setState({
-      saveAsName: null
-    })
-  }
-
-  onChangeSaveAsName = (e) => {
-    this.setState({
-      saveAsName: e.target.value
-    })
-  }
-
   onClickSave = () => {
-    const meta = this.props.editing.meta
-    const { src, hasUnsaved } = meta
-
-    if (!hasUnsaved)  return
-
-    if (src) {
-      this.props.saveEditingAsExisted()
-      .then(() => {
-        message.success('successfully saved!', 1.5)
-      })
-    } else {
-      this.toggleSaveAsModal(true)
-    }
+    return getSaveTestCase().save()
   }
 
-  toggleSaveAsModal = (toShow) => {
-    this.setState({
-      showEnterFileName: toShow
-    })
-
-    if (toShow) {
-      setTimeout(() => {
-        const input = this.inputSaveTestCase.refs.input
-        input.focus()
-        input.selectionStart = input.selectionEnd = input.value.length;
-      }, 100)
-    }
-  }
-
-  playCurrentMacro = () => {
+  playCurrentMacro = (isStep) => {
     const { commands } = this.props.editing
     const { src } = this.props.editing.meta
     const openTc  = commands.find(tc => tc.cmd.toLowerCase() === 'open')
@@ -194,7 +124,8 @@ class Header extends React.Component {
       startIndex: 0,
       startUrl: openTc ? openTc.target : null,
       resources: commands,
-      postDelay: this.props.config.playCommandInterval * 1000
+      postDelay: this.props.config.playCommandInterval * 1000,
+      isStep: isStep
     })
   }
 
@@ -276,28 +207,6 @@ class Header extends React.Component {
     )
   }
 
-  renderSaveAsModal () {
-    return (
-      <Modal
-        title="Save test case as.."
-        okText="Save"
-        cancelText="Cancel"
-        visible={this.state.showEnterFileName}
-        onOk={this.onClickSaveAs}
-        onCancel={this.onCancelSaveAs}
-        className="save-modal"
-      >
-        <Input
-          style={{ width: '100%' }}
-          onKeyDown={e => { if (e.keyCode === 13) this.onClickSaveAs() }}
-          onChange={this.onChangeSaveAsName}
-          placeholder="test case name"
-          ref={el => { this.inputSaveTestCase = el }}
-        />
-      </Modal>
-    )
-  }
-
   renderSettingModal () {
     const onConfigChange = (key, val) => {
       this.props.updateConfig({ [key]: val })
@@ -312,13 +221,13 @@ class Header extends React.Component {
       <Modal
         title="Settings"
         className="settings-modal"
-        width={500}
+        width={650}
         footer={null}
         visible={this.state.showReplaySettings}
         onCancel={() => this.setState({ showReplaySettings: false })}
       >
         <Tabs>
-          <Tabs.TabPane tab="Replay / Record" key="replay">
+          <Tabs.TabPane tab="Replay" key="replay">
             <Form>
               <Form.Item label="Replay Helper" {...displayConfig}>
                 <Checkbox
@@ -336,7 +245,10 @@ class Header extends React.Component {
                 </Checkbox>
               </Form.Item>
 
-              <Form.Item label="Command Interval" {...displayConfig}>
+              <Form.Item
+                label={<a target="_blank" href="https://a9t9.com/x/idehelp?help=command_interval">Command Interval</a>}
+                {...displayConfig}
+              >
                 <Select
                   style={{ width: '200px' }}
                   placeholder="interval"
@@ -355,50 +267,144 @@ class Header extends React.Component {
                 </Select>
               </Form.Item>
 
-              <Form.Item label="!TIMEOUT_PAGELOAD" {...displayConfig}>
+              <Form.Item
+                label={<a target="_blank" href="https://a9t9.com/x/idehelp?help=timeout_pageload">!TIMEOUT_PAGELOAD</a>}
+                {...displayConfig}
+              >
                 <Input
                   type="number"
                   min="0"
-                  style={{ width: '200px' }}
+                  style={{ width: '70px' }}
                   value={this.props.config.timeoutPageLoad}
                   onChange={(e) => onConfigChange('timeoutPageLoad', e.target.value)}
                   placeholder="in seconds"
                 />
+                <span className="tip">
+                  Max. time for new page load
+                </span>
               </Form.Item>
 
-              <Form.Item label="!TIMEOUT_WAIT" {...displayConfig}>
+              <Form.Item
+                label={<a target="_blank" href="https://a9t9.com/x/idehelp?help=timeout_wait">!TIMEOUT_WAIT</a>}
+                {...displayConfig}
+              >
                 <Input
                   type="number"
                   min="0"
-                  style={{ width: '200px' }}
+                  style={{ width: '70px' }}
                   value={this.props.config.timeoutElement}
                   onChange={(e) => onConfigChange('timeoutElement', e.target.value)}
                   placeholder="in seconds"
                 />
+                <span className="tip">
+                  Max. time per step
+                </span>
               </Form.Item>
 
-              <Form.Item label="!TIMEOUT_MACRO" {...displayConfig}>
+              <Form.Item
+                label={<a target="_blank" href="https://a9t9.com/x/idehelp?help=timeout_macro">!TIMEOUT_MACRO</a>}
+                {...displayConfig}
+              >
                 <Input
                   type="number"
                   min="0"
-                  style={{ width: '200px' }}
+                  style={{ width: '70px' }}
                   value={this.props.config.timeoutMacro}
                   onChange={(e) => onConfigChange('timeoutMacro', e.target.value)}
                   placeholder="in seconds"
                 />
+                <span className="tip">
+                  Max. overall macro runtime
+                </span>
               </Form.Item>
 
-              <Form.Item label="Record Settings" {...displayConfig}>
+              <Form.Item
+                label={<a target="_blank" href="https://a9t9.com/x/idehelp?help=timeout_download">!TIMEOUT_DOWNLOAD</a>}
+                {...displayConfig}
+              >
+                <Input
+                  type="number"
+                  min="0"
+                  style={{ width: '70px' }}
+                  value={this.props.config.timeoutDownload}
+                  onChange={(e) => onConfigChange('timeoutDownload', e.target.value)}
+                  placeholder="in seconds"
+                />
+                <span className="tip">
+                  Max. allowed time for file
+                </span>
+              </Form.Item>
+
+              <Form.Item label="If error happens in loop" {...displayConfig}>
+                <Radio.Group
+                  onChange={(e) => onConfigChange('onErrorInLoop', e.target.value)}
+                  value={this.props.config.onErrorInLoop}
+                >
+                  <Radio value="continue_next_loop">Continue next loop</Radio>
+                  <Radio value="stop">Stop</Radio>
+                </Radio.Group>
+              </Form.Item>
+
+              <Form.Item label="Default Vision Search Confidence" {...displayConfig}>
+                <Select
+                  style={{ width: '200px' }}
+                  placeholder="interval"
+                  value={'' + this.props.config.defaultVisionSearchConfidence}
+                  onChange={val => onConfigChange('defaultVisionSearchConfidence', parseFloat(val))}
+                >
+                  {range(1, 11, 1).map(n => (
+                    <Select.Option key={n} value={'' + (0.1 * n).toFixed(1)}>
+                      {(0.1 * n).toFixed(1)}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+
+              <Form.Item label={<a target="_blank" href="https://a9t9.com/x/idehelp?help=cmdline">Allow Command Line</a>} {...displayConfig}>
+                <Checkbox
+                  onChange={(e) => onConfigChange('allowRunFromBookmark', e.target.checked)}
+                  checked={this.props.config.allowRunFromBookmark}
+                >
+                  Run macro and test suite shortcuts from Javascript Bookmarklets
+                </Checkbox>
+                <Checkbox
+                  onChange={(e) => onConfigChange('allowRunFromFileSchema', e.target.checked)}
+                  checked={this.props.config.allowRunFromFileSchema}
+                >
+                  Run embedded macros from local files
+                </Checkbox>
+                <Checkbox
+                  onChange={(e) => onConfigChange('allowRunFromHttpSchema', e.target.checked)}
+                  checked={this.props.config.allowRunFromHttpSchema}
+                >
+                  Run embedded macros from public websites
+                </Checkbox>
+
+              </Form.Item>
+            </Form>
+          </Tabs.TabPane>
+          <Tabs.TabPane tab="Record" key="record" className="record-pane">
+            <Form>
+              <Form.Item label="Notification" {...displayConfig}>
                 <Checkbox
                   onChange={(e) => onConfigChange('recordNotification', e.target.checked)}
                   checked={this.props.config.recordNotification}
                 >
-                  Record notifications
+                  Show notifications when recording
                 </Checkbox>
+              </Form.Item>
+              <Form.Item label="click / clickAt" {...displayConfig}>
+                <Radio.Group
+                  onChange={(e) => onConfigChange('recordClickType', e.target.value)}
+                  value={this.props.config.recordClickType}
+                >
+                  <Radio value="click">Record click</Radio>
+                  <Radio value="clickAt">Record clickAt</Radio>
+                </Radio.Group>
               </Form.Item>
             </Form>
           </Tabs.TabPane>
-          <Tabs.TabPane tab="General" key="backup" className="backup-pane">
+          <Tabs.TabPane tab="Backup" key="backup" className="backup-pane">
             <h4>Automatic Backup</h4>
             <div className="row">
               <Checkbox
@@ -424,7 +430,7 @@ class Header extends React.Component {
                       onChange={(e) => onConfigChange('autoBackupTestCases', e.target.checked)}
                       checked={this.props.config.autoBackupTestCases}
                     />
-                    <span>Test cases</span>
+                    <span>Macros</span>
                   </li>
                   <li>
                     <Checkbox
@@ -447,6 +453,13 @@ class Header extends React.Component {
                     />
                     <span>CSV files</span>
                   </li>
+                  <li>
+                    <Checkbox
+                      onChange={(e) => onConfigChange('autoBackupVisionImages', e.target.checked)}
+                      checked={this.props.config.autoBackupVisionImages}
+                    />
+                    <span>Visual UI Test images</span>
+                  </li>
                 </ul>
             </div>
             <div className="row">
@@ -457,6 +470,35 @@ class Header extends React.Component {
               >
                 Run backup now
               </Button>
+            </div>
+          </Tabs.TabPane>
+
+          <Tabs.TabPane tab="Security" key="security" className="security-pane">
+            <h4>Master password for Password Encryption</h4>
+            <p>
+              A master password is used to encrypt and decrypt all stored website passwords. The websites passwords are encrypted using strong encryption.&nbsp;&nbsp;
+              <a target="_blank" href="https://a9t9.com/x/idehelp?help=encryption">More info &gt;&gt;</a>
+            </p>
+            <div>
+              <Radio.Group
+                onChange={(e) => onConfigChange('shouldEncryptPassword', e.target.value)}
+                value={this.props.config.shouldEncryptPassword}
+              >
+                <Radio value="no">Do not encrypt passwords</Radio>
+                <Radio value="master_password">Enter master password here to store it</Radio>
+              </Radio.Group>
+
+              {this.props.config.shouldEncryptPassword === 'master_password' ? (
+                <div>
+                  <label>Master password:</label>
+                  <Input
+                    type="password"
+                    style={{ width: '200px' }}
+                    value={this.props.config.masterPassword}
+                    onChange={(e) => onConfigChange('masterPassword', e.target.value)}
+                  />
+                </div>
+              ) : null}
             </div>
           </Tabs.TabPane>
         </Tabs>
@@ -577,7 +619,7 @@ class Header extends React.Component {
               <Button onClick={() => this.getPlayer().stop()}>
                 <span>Stop</span>
               </Button>
-              <Button onClick={() => this.getPlayer().pause()}>
+              <Button onClick={() => this.getPlayer('testCase').pause()}>
                 <span>Pause</span>
               </Button>
             </Button.Group>
@@ -589,12 +631,11 @@ class Header extends React.Component {
         return (
           <div className="actions">
             <Button.Group>
-              <Button onClick={() => this.getPlayer().stop()}>
-                <span>Stop</span>
-              </Button>
-              <Button onClick={() => this.getPlayer().resume()}>
-                <span>Resume</span>
-              </Button>
+              {this.props.player.mode === C.PLAYER_MODE.TEST_CASE ? (
+                <Button onClick={() => this.getPlayer('testCase').resume(true)}>Step</Button>
+              ) : null}
+              <Button onClick={() => this.getPlayer().stop()}>Stop</Button>
+              <Button onClick={() => this.getPlayer('testCase').resume()}>Resume</Button>
             </Button.Group>
           </div>
         )
@@ -610,8 +651,8 @@ class Header extends React.Component {
             </Button>
 
             <Button.Group className="play-actions">
-              <Button onClick={this.playCurrentLine}>Step</Button>
-              <Dropdown.Button onClick={this.playCurrentMacro} overlay={playMenu}>
+              <Button onClick={() => this.playCurrentMacro(true)}>Step</Button>
+              <Dropdown.Button onClick={() => this.playCurrentMacro(false)} overlay={playMenu}>
                 <span>Play Macro</span>
               </Dropdown.Button>
             </Button.Group>
@@ -626,8 +667,8 @@ class Header extends React.Component {
   }
 
   renderMacro () {
-    const { testCases, editing, player } = this.props
-    const { src, hasUnsaved } = editing.meta
+    const { testCases, editing, player, hasUnsaved } = this.props
+    const { src } = editing.meta
     const isPlayerStopped = player.status === C.PLAYER_STATUS.STOPPED
     const klass = hasUnsaved ? 'unsaved' : ''
 
@@ -650,13 +691,8 @@ class Header extends React.Component {
   }
 
   render () {
-    const { testCases, editing, player } = this.props
-    const { src, hasUnsaved } = editing.meta
+    const { testCases, player } = this.props
     const isPlayerStopped = player.status === C.PLAYER_STATUS.STOPPED
-    const klass = hasUnsaved ? 'unsaved' : ''
-    const getMenuKlass = (tc) => {
-      return src && (src.id === tc.id) ? 'editing' : ''
-    }
 
     testCases.sort((a, b) => {
       const nameA = a.name.toLowerCase()
@@ -667,27 +703,12 @@ class Header extends React.Component {
       return 1
     })
 
-    const menu = (
-      <Menu onClick={this.changeTestCase} selectable={false}>
-        {testCases.map(tc => (
-          <Menu.Item
-            key={tc.id}
-            disabled={!isPlayerStopped}
-            className={getMenuKlass(tc)}
-          >
-            {tc.name}
-          </Menu.Item>
-        ))}
-      </Menu>
-    )
-
     return (
       <div className={'header ' + this.props.status.toLowerCase()}>
         {this.renderMacro()}
         {this.renderStatus()}
         {this.renderActions()}
         {this.renderPlayLoopModal()}
-        {this.renderSaveAsModal()}
         {this.renderSettingModal()}
       </div>
     )
@@ -696,6 +717,7 @@ class Header extends React.Component {
 
 export default connect(
   state => ({
+    hasUnsaved: hasUnsavedMacro(state),
     route: state.route,
     testCases: [...state.editor.testCases],
     editing: state.editor.editing,

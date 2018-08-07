@@ -135,9 +135,11 @@ export class Player {
       loopsStart: 1,
       loopsEnd: 1,
       resources: config.resources,
+      breakpoints: config.breakpoints || [],
       status: STATUS.PLAYING,
       public: config.public || {},
-      callback: config.callback || function () {}
+      callback: config.callback || function () {},
+      lastPlayConfig: config
     }
 
     ;['preDelay', 'postDelay'].forEach(key => {
@@ -181,7 +183,7 @@ export class Player {
     return Promise.resolve()
     .then(() => this.__prepare(this.state))
     .then(
-      ()  => this.__go(),
+      ()  => this.__go(null, config.isStep),
       e   => this.__errLog(e, e.errorIndex)
     )
   }
@@ -194,13 +196,13 @@ export class Player {
     this.emit('PAUSED', { extra: this.state.extra })
   }
 
-  resume () {
+  resume (isStep) {
     this.__setState({
       status: STATUS.PLAYING
     })
 
     this.emit('RESUMED', { extra: this.state.extra })
-    this.__go()
+    this.__go(null, isStep)
   }
 
   stop (opts) {
@@ -231,10 +233,20 @@ export class Player {
     })
   }
 
-  __go (token) {
+  getStatus () {
+    return this.state.status
+  }
+
+  replayLastConfig () {
+    const config = this.state.lastPlayConfig
+    if (!config)  throw new Error('No last play config available')
+    return this.play(config)
+  }
+
+  __go (token, isStep) {
     // Note: in case it is returned from previous call
 
-    if (token === undefined) {
+    if (token === undefined || token === null) {
       this.token = token = Math.random()
     } else if (token !== this.token) {
       return
@@ -293,12 +305,26 @@ export class Player {
           extra: this.state.extra
         })
 
+        // Note: there will never be two breakpoints in straight. Use `lastBreakpoint` to tell whether we just hit a breakpoint
+        // Also note that, 'TO_PLAY' events need to be fired before we pause.
+        if (this.state.lastBreakpoint === undefined && this.state.breakpoints.indexOf(nextIndex) !== -1) {
+          this.__setState({ lastBreakpoint: nextIndex })
+          this.emit('BREAKPOINT', {
+            index: nextIndex,
+            currentLoop: loopsCursor - loopsStart + 1,
+            loops: loopsEnd - loopsStart + 1,
+            resource: resources[nextIndex],
+            extra: this.state.extra
+          })
+          return this.pause()
+        } else {
+          this.__setState({ lastBreakpoint: undefined })
+        }
+
         // Note: Check whether token expired or not after each async operations
         // Also also in the final catch to prevent unnecessary invoke of __errLog
         return this.__run(resources[nextIndex], this.state)
           .then(guardToken(res => {
-            const { postDelay } = this.state
-
             // Note: allow users to handle the result
             return this.__handle(res, resources[nextIndex], this.state)
             .then(guardToken(nextIndex => {
@@ -310,10 +336,15 @@ export class Player {
                 extra: this.state.extra
               })
             }))
-            .then(
-              () => postDelay > 0 ? this.__delay(() => undefined, postDelay) : Promise.resolve()
-            )
-            .then(() => this.__go(token))
+            .then(() => {
+              // __handle may change postDelay
+              const { postDelay } = this.state
+              return postDelay > 0 ? this.__delay(() => undefined, postDelay) : Promise.resolve()
+            })
+            .then(() => {
+              if (isStep) return this.pause()
+              return this.__go(token)
+            })
           }))
           .catch(guardToken(err => this.__errLog(err)))
       })
@@ -362,9 +393,10 @@ export class Player {
     if (this.state.status === STATUS.STOPPED) return
 
     this.emit('ERROR', {
-      errorIndex: errorIndex !== undefined ? errorIndex : this.state.nextIndex,
-      msg: err && err.message,
-      extra: this.state.extra
+      errorIndex:   errorIndex !== undefined ? errorIndex : this.state.nextIndex,
+      msg:          err && err.message,
+      extra:        this.state.extra,
+      restart:      !!err.restart
     })
     this.state.callback(err, null)
     this.__end(END_REASON.ERROR)
@@ -385,7 +417,7 @@ export class Player {
 
     const nextIndexToSet = nextIndexPassed !== undefined ? nextIndexPassed : (nextIndex + 1)
 
-    let done = [...doneIndices, nextIndex]
+    let done = doneIndices.indexOf(nextIndex) === -1 ? [...doneIndices, nextIndex] : doneIndices
     let lcur = loopsCursor
     let next = null
 

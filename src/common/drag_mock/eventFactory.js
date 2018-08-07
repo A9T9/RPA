@@ -14,6 +14,9 @@ function mergeInto(destObj, srcObj) {
   return destObj;
 }
 
+function isFirefox () {
+  return /Firefox/.test(window.navigator.userAgent)
+}
 
 function createModernEvent(eventName, eventType, eventProperties) {
   // if (eventType === 'DragEvent') { eventType = 'CustomEvent'; }     // Firefox fix (since FF does not allow us to override dataTransfer)
@@ -55,6 +58,10 @@ function createLegacyEvent(eventName, eventType, eventProperties) {
 
 
 function createEvent(eventName, eventType, eventProperties) {
+  if (isFirefox()) {
+    return createLegacyEvent(eventName, eventType, eventProperties);
+  }
+
   try {
     return createModernEvent(eventName, eventType, eventProperties);
   } catch (error) {

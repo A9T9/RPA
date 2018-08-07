@@ -1,0 +1,14 @@
+{
+  "name": {
+    "message": "Kantu Browser Automation",
+    "description": "extension name"
+  },
+  "description": {
+    "message": "Modern Open-Source Web Macro Recorder and Selenium IDE. Use it for general web automation, web testing, form filling & web scraping.",
+    "description": "extension description"
+  },
+  "short_name": {
+    "message": "Kantu Macros",
+    "description": "extension short_name"
+  }
+}

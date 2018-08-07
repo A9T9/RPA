@@ -1,0 +1,14 @@
+{
+  "name": {
+    "message": "Kantu 浏览器自动化工具",
+    "description": "extension name"
+  },
+  "description": {
+    "message": "开源的 Selenium IDE, 现代的网页自动化工具 （支持行为录制和回放）。适用于网页自动化测试，表单填写以及网页内容抓取。",
+    "description": "extension description"
+  },
+  "short_name": {
+    "message": "Kantu 自动化",
+    "description": "extension short_name"
+  }
+}

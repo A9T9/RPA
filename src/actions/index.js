@@ -1,5 +1,6 @@
+import { message } from 'antd'
 import { type3, types as T } from './action_types'
-import { pick, until, on, map, compose } from '../common/utils'
+import { pick, until, on, map, compose, uid } from '../common/utils'
 import csIpc from '../common/ipc/ipc_cs'
 import storage from '../common/storage'
 import testCaseModel, { normalizeCommand } from '../models/test_case_model'
@@ -7,8 +8,10 @@ import testSuiteModel from '../models/test_suite_model'
 import { getPlayer } from '../common/player'
 import { getCSVMan } from '../common/csv_man'
 import { getScreenshotMan } from '../common/screenshot_man'
+import { getVisionMan } from '../common/vision_man'
 import backup from '../common/backup'
 import log from '../common/log'
+import { fromJSONString } from '../common/convert_utils'
 
 let recordedCount = 0
 
@@ -68,6 +71,10 @@ export function startRecording () {
   return {
     types: type3('START_RECORDING'),
     promise: () => {
+      setTimeout(() => {
+        csIpc.ask('PANEL_TRY_TO_RECORD_OPEN_COMMAND')
+      })
+
       return csIpc.ask('PANEL_START_RECORDING', {})
     }
   }
@@ -223,6 +230,43 @@ export function updateSelectedCommand (obj) {
   }
 }
 
+export function setSourceError (error) {
+  return {
+    type: T.SET_SOURCE_ERROR,
+    data: error
+  }
+}
+
+export function setSourceCurrent (str) {
+  return {
+    type: T.SET_SOURCE_CURRENT,
+    data: str
+  }
+}
+
+export function saveSourceCodeToEditing (str) {
+  return (dispatch, getState) => {
+    const { editing, editingSource } = getState().editor
+    if (editingSource.pure === editing.current) return
+
+    log('ACTION, saveSourceCodeToEditing', str)
+
+    try {
+      const obj = fromJSONString(str, 'untitled')
+
+      dispatch(setEditing({
+        ...obj.data,
+        meta: editing.meta
+      }))
+
+      dispatch(setSourceError(null))
+    } catch (e) {
+      message.error('There are errors in the source')
+      dispatch(setSourceError(e.message))
+    }
+  }
+}
+
 // In the form of redux-thunnk, it saves current editing test case to local storage
 export function saveEditingAsExisted () {
   return (dispatch, getState) => {
@@ -253,7 +297,7 @@ export function saveEditingAsNew (name) {
     const sameName = state.editor.testCases.find(tc => tc.name === name)
 
     if (sameName) {
-      return Promise.reject(new Error('The test case name already exists!'))
+      return Promise.reject(new Error('The macro name already exists!'))
     }
 
     return testCaseModel.insert({name, data})
@@ -310,6 +354,18 @@ export function editNewTestCase () {
   }
 }
 
+export function upsertTestCase (tc) {
+  return (dispatch, getState) => {
+    const state     = getState()
+    const testCases = state.editor.testCases
+    const existedTc = testCases.find(item => item.name === tc.name)
+
+    log('upsertTestCase', tc)
+    if (!existedTc) return testCaseModel.insert(tc)
+    return testCaseModel.update(existedTc.id, tc)
+  }
+}
+
 export function addTestCases (tcs) {
   return (dispatch, getState) => {
     const state     = getState()
@@ -337,11 +393,11 @@ export function renameTestCase (name, tcId) {
     const sameName  = state.editor.testCases.find(tc => tc.name === name)
 
     if (!tc) {
-      return Promise.reject(new Error(`No test case found with id '${tcId}'!`))
+      return Promise.reject(new Error(`No macro found with id '${tcId}'!`))
     }
 
     if (sameName) {
-      return Promise.reject(new Error('The test case name already exists!'))
+      return Promise.reject(new Error('The macro name already exists!'))
     }
 
     return testCaseModel.update(tcId, {...tc, name})
@@ -400,11 +456,11 @@ export function duplicateTestCase (newTestCaseName, tcId) {
     const sameName  = state.editor.testCases.find(tc => tc.name === newTestCaseName)
 
     if (!tc) {
-      return Promise.reject(new Error(`No test case found with id '${tcId}'!`))
+      return Promise.reject(new Error(`No macro found with id '${tcId}'!`))
     }
 
     if (sameName) {
-      return Promise.reject(new Error('The test case name already exists!'))
+      return Promise.reject(new Error('The macro name already exists!'))
     }
 
     return testCaseModel.insert({ ...tc, name: newTestCaseName })
@@ -425,12 +481,14 @@ export function addPlayerErrorCommandIndex (index) {
   }
 }
 
-export function addLog (type, text) {
+export function addLog (type, text, options = {}) {
   return {
     type: T.ADD_LOGS,
     data: [{
       type,
       text,
+      options,
+      id: uid(),
       createTime: new Date()
     }]
   }
@@ -456,7 +514,30 @@ export function addScreenshot (screenshot) {
 export function clearScreenshots () {
   return {
     type: T.CLEAR_SCREENSHOTS,
-    data: null
+    data: null,
+    post: () => {
+      return getScreenshotMan().clear()
+    }
+  }
+}
+
+export function addVision (vision) {
+  return {
+    type: T.ADD_VISION,
+    data: {
+      ...vision,
+      createTime: new Date()
+    }
+  }
+}
+
+export function clearVisions () {
+  return {
+    type: T.CLEAR_VISIONS,
+    data: null,
+    post: () => {
+      return getVisionMan().clear()
+    }
   }
 }
 
@@ -485,21 +566,24 @@ export function updateTestCasePlayStatus (id, status) {
 
 export function playerPlay (options) {
   return (dispatch, getState) => {
-    const state     = getState()
-    const { config } = state
-    const cfg        = pick(['playHighlightElements', 'playScrollElementsIntoView'], config)
-    const macroName  = state.editor.editing.meta.src ? state.editor.editing.meta.src.name : 'Untitled'
-    const scope      = {
+    const state       = getState()
+    const { config }  = state
+    const cfg         = pick(['playHighlightElements', 'playScrollElementsIntoView'], config)
+    const macroName   = state.editor.editing.meta.src ? state.editor.editing.meta.src.name : 'Untitled'
+    const scope       = {
       '!MACRONAME':         macroName,
       '!TIMEOUT_PAGELOAD':  parseInt(config.timeoutPageLoad, 10),
       '!TIMEOUT_WAIT':      parseInt(config.timeoutElement, 10),
       '!TIMEOUT_MACRO':     parseInt(config.timeoutMacro, 10),
+      '!TIMEOUT_DOWNLOAD':  parseInt(config.timeoutDownload, 10),
       '!REPLAYSPEED': ({
         '0':    'FAST',
         '0.3':  'MEDIUM',
         '2':    'SLOW'
-      })[options.postDelay]
+      })[options.postDelay / 1000] || 'MEDIUM',
+      ...(options.overrideScope || {})
     }
+    const breakpoints = state.player.breakpointIndices || []
 
     const opts = compose(
       on('resources'),
@@ -507,10 +591,12 @@ export function playerPlay (options) {
       on('extra')
     )((extra = {}) => ({
       ...extra,
-      ...cfg
+      ...cfg,
+      ...(options.commandExtra || {})
     }))(options)
 
     getPlayer().play({
+      breakpoints,
       ...opts,
       public: {
         ...(opts.public || {}),
@@ -538,14 +624,41 @@ export function listScreenshots () {
     man.list().then(list => {
       list.reverse()
 
-      return list.map(item => ({
-        name:       item.fileName,
-        url:        man.getLink(item.fileName),
-        createTime: new Date(item.lastModified)
+      return Promise.all(list.map(item => {
+        return man.getLink(item.fileName)
+        .then(url => ({
+          url,
+          name:       item.fileName,
+          createTime: new Date(item.lastModified)
+        }))
       }))
     }).then(list => {
       dispatch({
         type: T.SET_SCREENSHOT_LIST,
+        data: list
+      })
+    })
+  }
+}
+
+export function listVisions () {
+  return (dispatch, getState) => {
+    const man = getVisionMan()
+
+    man.list().then(list => {
+      list.reverse()
+
+      return Promise.all(list.map(item => {
+        return man.getLink(item.fileName)
+        .then(url => ({
+          url,
+          name:       item.fileName,
+          createTime: new Date(item.lastModified)
+        }))
+      }))
+    }).then(list => {
+      dispatch({
+        type: T.SET_VISION_LIST,
         data: list
       })
     })
@@ -626,29 +739,74 @@ export function runBackup () {
       autoBackupTestCases,
       autoBackupTestSuites,
       autoBackupScreenshots,
-      autoBackupCSVFiles
+      autoBackupCSVFiles,
+      autoBackupVisionImages
     } = config
 
     return Promise.all([
       getCSVMan().list(),
-      getScreenshotMan().list()
+      getScreenshotMan().list(),
+      getVisionMan().list()
     ])
-    .then(([csvs, screenshots]) => {
+    .then(([csvs, screenshots, visions]) => {
       return backup({
         csvs,
         screenshots,
+        visions,
         testCases: editor.testCases,
         testSuites: editor.testSuites,
         backup: {
           testCase: autoBackupTestCases,
           testSuite: autoBackupTestSuites,
           screenshot: autoBackupScreenshots,
-          csv: autoBackupCSVFiles
+          csv: autoBackupCSVFiles,
+          vision: autoBackupVisionImages
         }
       })
     })
     .catch(e => {
       log.error(e.stack)
     })
+  }
+}
+
+export function setVariables (variables) {
+  variables.sort((a, b) => {
+    if (a.key < b.key)  return -1
+    if (a.key > b.key)  return 1
+    return 0
+  })
+
+  return {
+    type: T.SET_VARIABLE_LIST,
+    data: variables
+  }
+}
+
+export function updateUI (data) {
+  return {
+    type: T.UPDATE_UI,
+    data
+  }
+}
+
+export function addBreakpoint (commandIndex) {
+  return {
+    type: T.ADD_BREAKPOINT,
+    data: commandIndex
+  }
+}
+
+export function removeBreakpoint (commandIndex) {
+  return {
+    type: T.REMOVE_BREAKPOINT,
+    data: commandIndex
+  }
+}
+
+export function setEditorActiveTab (tab) {
+  return {
+    type: T.SET_EDITOR_ACTIVE_TAB,
+    data: tab
   }
 }

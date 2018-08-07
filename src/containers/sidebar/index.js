@@ -15,6 +15,7 @@ class Sidebar extends React.Component {
     drag: {
       isDragging: false,
       startX: 0,
+      movingX: 0,
       lastWidth: 260,
       currentMinWidth: 260
     }
@@ -26,14 +27,18 @@ class Sidebar extends React.Component {
   }
 
   onResizeDragStart = (e) => {
-    // e.dataTransfer.setDragImage(new Image(), 10, 10)
+    // Note: Firefox requires us to set something to DataTransfer, otherwise drag and dragEnd won't be triggered
+    // refer to https://stackoverflow.com/questions/33434275/firefox-on-drag-end-is-not-called-in-a-react-component
+    e.dataTransfer.setData('text', '')
+
     const style = window.getComputedStyle(this.$dom)
     const width = parseInt(style.width)
 
     this.setState(
       setIn(['drag'], {
         isDragging: true,
-        startX: e.clientX,
+        // Check out the note on `screenX` in `onResizeDragEnd` event
+        startX: e.screenX,
         lastWidth: width,
         currentWidth: width
       }, this.state)
@@ -41,7 +46,14 @@ class Sidebar extends React.Component {
   }
 
   onResizeDragEnd = (e) => {
-    const diff  = e.clientX - this.state.drag.startX
+    // Note: use `screenX` instead of `clientX`, because `clientX` of dragEnd events in Firefox
+    // is always set to 0, while `screenX` is luckily still available. And since we only make use of
+    // difference of X coordinate. `screenX` and `clientX` both work for us.
+    //
+    // reference:
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=505521
+    // https://developer.mozilla.org/en-US/docs/Web/Events/dragend
+    const diff  = e.screenX - this.state.drag.startX
     const width = diff + this.state.drag.lastWidth
 
     this.setState(
@@ -62,8 +74,12 @@ class Sidebar extends React.Component {
         style={{ minWidth: this.getSideBarMinWidth() }}
       >
         <div className="sidebar-inner">
-          <Tabs defaultActiveKey="test_cases">
-            <Tabs.TabPane tab="Test Cases" key="test_cases">
+          <Tabs
+            defaultActiveKey="macros"
+            activeKey={this.props.ui.sidebarTab || 'macros'}
+            onChange={activeKey => this.props.updateUI({ sidebarTab: activeKey })}
+          >
+            <Tabs.TabPane tab="Macros" key="macros">
               <SidebarTestCases />
             </Tabs.TabPane>
             <Tabs.TabPane tab="Test Suites" key="test_suites">
@@ -91,7 +107,8 @@ export default connect(
     testSuites: state.editor.testSuites,
     editing: state.editor.editing,
     player: state.player,
-    config: state.config
+    config: state.config,
+    ui: state.ui
   }),
   dispatch => bindActionCreators({...actions}, dispatch)
 )(Sidebar)

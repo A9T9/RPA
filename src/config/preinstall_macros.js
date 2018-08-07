@@ -1,7 +1,22 @@
 export default {
 DemoAutofill: {
-  "CreationDate": "2017-10-18",
+  "CreationDate": "2018-02-18",
   "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "store",
+      "Target": "15",
+      "Value": "!TIMEOUT_WAIT"
+    },
+    {
+      "Command": "store",
+      "Target": "60",
+      "Value": "!TIMEOUT_PAGELOAD"
+    },
     {
       "Command": "open",
       "Target": "https://docs.google.com/forms/d/e/1FAIpQLScPXRMtYI_KYL8J6fivHUV0hQKB7j1RtqTrBBUtEr8VMmyCqw/viewform",
@@ -91,11 +106,284 @@ DemoAutofill: {
       "Command": "captureScreenshot",
       "Target": "AutoFill3rdPage${!LOOP}",
       "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "DemoAutofill macro completed (shown as notifcation because of #shownotification in the 3rd column)",
+      "Value": "#shownotification"
+    }
+  ]
+},
+DemoCanvas:
+{
+  "CreationDate": "2018-6-26",
+  "Commands":  [
+     {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    }, 
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/canvas",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "link=LiterallyCanvas",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "First a simple clickAt demo (3 dots)",
+      "Value": ""
+    },
+    {
+      "Command": "clickAt",
+      "Target": "//*[@id=\"literally-canvas\"]/div[1]/div[1]/canvas[2]",
+      "Value": "28,28"
+    },
+    {
+      "Command": "clickAt",
+      "Target": "//*[@id=\"literally-canvas\"]/div[1]/div[1]/canvas[2]",
+      "Value": "58,28"
+    },
+    {
+      "Command": "clickAt",
+      "Target": "//*[@id=\"literally-canvas\"]/div[1]/div[1]/canvas[2]",
+      "Value": "88,28"
+    },
+    {
+      "Command": "comment",
+      "Target": "Just image search the canvas!",
+      "Value": "88,28"
+    },
+    {
+      "Command": "visionLimitSearchArea",
+      "Target": "element://*[@id=\"literally-canvas\"]/div[1]/div[1]/canvas[2]",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "canvas_3dots_verify_dpi_96.png",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/canvas",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "link=Mapbox",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Test: Embedded map (Mapbox)",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "id=demo",
+      "Value": ""
+    },
+    {
+      "Command": "visionLimitSearchArea",
+      "Target": "viewport",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "canvas_wyoming_dpi_96.png@0.60",
+      "Value": ""
+    },
+    {
+      "Command": "clickAt",
+      "Target": "#efp",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Now verify that the click (= the map) works as expected",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "canvas_wyoming_verify_dpi_96.png@0.5",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Test Google Maps: Find & click Hyde park, and check that its info bubble shows.",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/canvas#maps",
+      "Value": ""
+    },
+
+    {
+      "Command": "visionLimitSearchArea",
+      "Target": "viewport",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "canvas_hydepark_dpi_96.png@0.70",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=0",
+      "Value": ""
+    },
+    {
+      "Command": "clickAt",
+      "Target": "#efp",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Now verify that the click (= the map) works as expected",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "canvas_hydepark_verify_dpi_96.png@0.70",
+      "Value": ""
+    }	
+  ]
+},
+DemoComputerVision: 
+{
+  "CreationDate": "2018-5-31",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://ocr.space/",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "OCR.space is our own OCR API service, this demo is a test that our QA uses internally, too :-)",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Verify the 3rd party \"Share\" banner shows",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "true",
+      "Value": "!errorignore"
+    },
+    {
+      "Command": "visualSearch",
+      "Target": "democv_share.png@0.50",
+      "Value": "matches"
+    },
+    {
+      "Command": "if",
+      "Target": "${matches} == 0",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Browser width too small for \"share\" banner to show",
+      "Value": "blue"
+    },
+    {
+      "Command": "endif",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "false",
+      "Value": "!errorignore"
+    },
+    {
+      "Command": "type",
+      "Target": "id=imageUrl",
+      "Value": "https://a9t9.com/Content/Images/kantu-chrome-loop.png"
+    },
+    {
+      "Command": "select",
+      "Target": "id=ocrLanguage",
+      "Value": "label=English"
+    },
+    {
+      "Command": "comment",
+      "Target": "viewport is default, but we add it here for test. Try \"full\" to see the differenc",
+      "Value": "label=English"
+    },
+    {
+      "Command": "visionLimitSearchArea",
+      "Target": "viewport",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "we could use \"click link=Start OCR!\" but we use the image of the button instead",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "democv_startocr.png@0.60",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "#efp is short for \"#ElementFromPoint (${imageX},(${imageY})",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "#efp",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Wait for OCR to be completed",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "30",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "democv_ocrdone.png",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "10",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "click",
+      "Target": "link=Show Overlay",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Visually verify that the overlay is correct",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "democv_checkoverlay.png@0.60",
+      "Value": ""
     }
   ]
 },
 DemoDialogboxes: {
-  "CreationDate": "2017-10-15",
+  "CreationDate": "2018-02-15",
   "Commands": [
     {
       "Command": "open",
@@ -199,9 +487,104 @@ DemoDragDrop: {
     }
   ]
 },
-DemoExtract: {
-  "CreationDate": "2017-10-18",
+DemoDownload: {
+  "CreationDate": "2018-2-25",
   "Commands": [
+    {
+      "Command": "store",
+      "Target": "200",
+      "Value": "!timeout_download"
+    },
+    {
+      "Command": "store",
+      "Target": "10",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "storeEval",
+      "Target": "var d=new Date(); d.getFullYear() + '-' +((d.getMonth()+1))+'-' +d.getDate();",
+      "Value": "todaydate"
+    },
+    {
+      "Command": "echo",
+      "Target": "Today is ${todaydate}",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/filedownload",
+      "Value": ""
+    },
+    {
+      "Command": "onDownload",
+      "Target": "KantuTest1_${todaydate}.exe",
+      "Value": "true"
+    },
+    {
+      "Command": "store",
+      "Target": "${!runtime}",
+      "Value": "starttime"
+    },
+    {
+      "Command": "click",
+      "Target": "link=USA (East coast)*",
+      "Value": ""
+    },
+    {
+      "Command": "storeEval",
+      "Target": "parseFloat(\"${!runtime}\")-parseFloat(\"${starttime}\")",
+      "Value": "downloadtime"
+    },
+    {
+      "Command": "echo",
+      "Target": "Download1 (USA) took ${downloadtime} seconds",
+      "Value": "blue"
+    },
+    {
+      "Command": "onDownload",
+      "Target": "KantuTest2_${todaydate}.exe",
+      "Value": "true"
+    },
+    {
+      "Command": "store",
+      "Target": "${!runtime}",
+      "Value": "starttime"
+    },
+    {
+      "Command": "click",
+      "Target": "link=*Asia*",
+      "Value": ""
+    },
+    {
+      "Command": "storeEval",
+      "Target": "parseFloat(\"${!runtime}\")-parseFloat(\"${starttime}\")",
+      "Value": "downloadtime"
+    },
+    {
+      "Command": "echo",
+      "Target": "Download2 (Asia) took ${downloadtime} seconds",
+      "Value": "green"
+    },
+    {
+      "Command": "echo",
+      "Target": "All done...",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "link=OnDownload command",
+      "Value": ""
+    }
+  ]
+ }, 
+DemoExtract: {
+  "CreationDate": "2018-05-28",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
     {
       "Command": "open",
       "Target": "https://a9t9.com/kantu/demo/storeeval",
@@ -294,6 +677,21 @@ DemoExtract: {
     },
     {
       "Command": "echo",
+      "Target": "page title = ${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "page title = ${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "page title = ${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
       "Target": "Now test some extraction with storeValue",
       "Value": ""
     },
@@ -323,18 +721,148 @@ DemoExtract: {
       "Value": "y"
     },
     {
+      "Command": "storeChecked",
+      "Target": "name=vehicle",
+      "Value": "hasbike"
+    },
+    {
+      "Command": "storeChecked",
+      "Target": "xpath=(//input[@name='vehicle'])[2]",
+      "Value": "hascar"
+    },
+    {
+      "Command": "storeChecked",
+      "Target": "xpath=(//input[@name='vehicle'])[3]",
+      "Value": "hasboat"
+    },
+    {
+      "Command": "echo",
+      "Target": "User has bike:${hasbike}, car:${hascar}, boat:${hasboat}",
+      "Value": "green"
+    },
+    {
+      "Command": "comment",
+      "Target": "Search and extract directly from the page SOURCE",
+      "Value": "y"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=[\\$\\£\\€](\\d+(?:\\.\\d{1,2})?)",
+      "Value": "match1"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=[\\$\\£\\€](\\d+(?:\\.\\d{1,2})?)@2",
+      "Value": "match2"
+    },
+    {
+      "Command": "comment",
+      "Target": "You can also extract without regex with the * symbol",
+      "Value": "match2b"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "$*<",
+      "Value": "match2b"
+    },
+    {
+      "Command": "echo",
+      "Target": "Coffee costs ${match1} and tea ${match2}",
+      "Value": "blue"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=_width: (\\d+)",
+      "Value": "match1"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=_width: (\\d+)@1,1",
+      "Value": "match1group1"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=_width: (\\d+)@2",
+      "Value": "match2"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=_width: (\\d+)@2,1",
+      "Value": "match2group1"
+    },
+    {
+      "Command": "echo",
+      "Target": "match1 = [${MATCH1}] (group1 = [${match1group1}]) match2 =  [${MATCH2}]  (group1 = [${MATCH2GROUP1}])",
+      "Value": "blue"
+    },
+    {
+      "Command": "comment",
+      "Target": "Extract Google Analytics ID",
+      "Value": ""
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "UA-*,",
+      "Value": "ga_option1"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=UA-[0-9]+-[0-9]+",
+      "Value": "ga_option2"
+    },
+    {
+      "Command": "echo",
+      "Target": "Google Analytics ID = ${ga_option2}",
+      "Value": "pink"
+    },
+    {
+      "Command": "comment",
+      "Target": "Some assertion test for QA",
+      "Value": ""
+    },
+    {
+      "Command": "if",
+      "Target": "${match2group1} != 22",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Regex Extraction failed for Match2(1):  ${match2group1}",
+      "Value": ""
+    },
+    {
+      "Command": "endif",
+      "Target": "",
+      "Value": ""
+    },
+    {
       "Command": "echo",
       "Target": "Last but not least, taking a screenshot is another way to extract data",
       "Value": ""
     },
     {
       "Command": "captureScreenshot",
-      "Target": "myscreenshot-${mytitle}",
+      "Target": "myscreenshot_${mytitle}",
       "Value": ""
     },
     {
-      "Command": "echo",
-      "Target": "Tip: To save extracted data to CSV files use the csvSave command. See the DemoCsvSave macro for details.",
+      "Command": "storeImage",
+      "Target": "//*[@id=\"page-header\"]/div/div/h1",
+      "Value": "pagetitle.png"
+    },
+    {
+      "Command": "comment",
+      "Target": "Export images to download folder",
+      "Value": ""
+    },
+    {
+      "Command": "localStorageExport",
+      "Target": "myscreenshot_${mytitle}.png",
+      "Value": ""
+    },
+    {
+      "Command": "localStorageExport",
+      "Target": "pagetitle.png",
       "Value": ""
     }	
   ]
@@ -515,7 +1043,7 @@ DemoTakeScreenshots: {
     },
     {
       "Command": "captureEntirePageScreenshot",
-      "Target": "a9t9 blog",
+      "Target": "a9t9blog",
       "Value": ""
     },
     {
@@ -545,15 +1073,25 @@ DemoTakeScreenshots: {
     },
     {
       "Command": "captureScreenshot",
-      "Target": "article2-just-viewport",
+      "Target": "article2_just_viewport",
       "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "take screenshot of an _element_ with storeImage",
+      "Value": ""
+    },
+    {
+      "Command": "storeImage",
+      "Target": "link=The Autonomous Technology (A9T9) Blog",
+      "Value": "blogtitle"
     }	
   ]
 },
 DemoIfElse: {
-  "CreationDate": "2018-01-12",
+  "CreationDate": "2018-4-28",
   "Commands": [
- {
+    {
       "Command": "store",
       "Target": "fast",
       "Value": "!replayspeed"
@@ -697,11 +1235,61 @@ DemoIfElse: {
       "Command": "echo",
       "Target": "test case completed",
       "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "onError",
+      "Target": "#goto",
+      "Value": "fixerror"
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext",
+      "Value": "this line works"
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometextXXXXX",
+      "Value": "this line has the wrong ID..."
+    },
+    {
+      "Command": "echo",
+      "Target": "this line is never reached, because of the error above",
+      "Value": "blue"
+    },
+    {
+      "Command": "gotoLabel",
+      "Target": "end-part2",
+      "Value": ""
+    },
+    {
+      "Command": "label",
+      "Target": "fixerror",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "here we can have code that handles the error..",
+      "Value": "green"
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext",
+      "Value": "Fix Error Section: This command works."
+    },
+    {
+      "Command": "label",
+      "Target": "end-part2",
+      "Value": ""
     }
-  ]
+  ] 
 },
 DemoIframe:{
-  "CreationDate": "2017-10-16",
+  "CreationDate": "2018-4-28",
   "Commands": [
     {
       "Command": "open",
@@ -716,6 +1304,11 @@ DemoIframe:{
     {
       "Command": "click",
       "Target": "//*[@id=\"content\"]/div[2]/div/h2[1]",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "First iframe: Embedded Google Doc",
       "Value": ""
     },
     {
@@ -759,6 +1352,11 @@ DemoIframe:{
       "Value": ""
     },
     {
+      "Command": "comment",
+      "Target": "Second iframe: Embedded Youtube Video",
+      "Value": ""
+    },
+    {
       "Command": "selectFrame",
       "Target": "index=1",
       "Value": ""
@@ -774,13 +1372,23 @@ DemoIframe:{
       "Value": ""
     },
     {
+      "Command": "comment",
+      "Target": "Third iframe: Embedded Twitter + click links that open new tabs, then switch to them",
+      "Value": ""
+    },
+    {
       "Command": "selectFrame",
       "Target": "id=twitter-widget-0",
       "Value": ""
     },
     {
       "Command": "click",
-      "Target": "/html/body/div/div[2]/div[2]/ol/li[2]/div/div[2]/div/a/span[1]/img",
+      "Target": "link=@A9T9_com",
+      "Value": ""
+    },
+    {
+      "Command": "pause",
+      "Target": "2000",
       "Value": ""
     },
     {
@@ -794,15 +1402,70 @@ DemoIframe:{
       "Value": ""
     },
     {
+      "Command": "comment",
+      "Target": "Wait for tab to open",
+      "Value": ""
+    },
+    {
+      "Command": "pause",
+      "Target": "2000",
+      "Value": ""
+    },
+    {
       "Command": "selectWindow",
       "Target": "tab=2",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "link=Kantu Sel. IDE - Docs",
       "Value": ""
     }
   ]
 },
 DemoImplicitWaiting: {
-  "CreationDate": "2017-10-15",
+  "CreationDate": "2018-4-28",
   "Commands": [
+    {
+      "Command": "comment",
+      "Target": "WaitForVisible is not part of implicit waiting",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/waitforvisible",
+      "Value": ""
+    },
+    {
+      "Command": "waitForVisible",
+      "Target": "css=#div1 > h1",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "css=#div1 > h1",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "20",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "waitForVisible",
+      "Target": "css=#div2 > h1",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "css=#div2 > h1",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Implicit waiting: Wait for elements to be loaded  or <timeout_wait> is reached",
+      "Value": ""
+    },
     {
       "Command": "open",
       "Target": "https://a9t9.com/demo/webtest/implicitwaiting/",
@@ -812,7 +1475,7 @@ DemoImplicitWaiting: {
       "Command": "store",
       "Target": "15",
       "Value": "!TIMEOUT_WAIT"
-    },	
+    },
     {
       "Command": "assertText",
       "Target": "/html/body/header/center/p[2]",
@@ -825,122 +1488,27 @@ DemoImplicitWaiting: {
     },
     {
       "Command": "echo",
-      "Target": "The next element (target) is not available yet... Kantu waits for it up to ${!TIMEOUT_STEP} seconds to appear.",
-      "Value": ""
+      "Target": "The next element (target) is not available yet... Kantu waits for it up to ${!TIMEOUT_WAIT} seconds to appear.",
+      "Value": "blue"
     },
     {
       "Command": "click",
       "Target": "/html/body/header/center/img",
       "Value": ""
     }
-  ]
-},
- DemoPOS: {
-  "CreationDate": "2017-10-15",
-  "Commands": [
-    {
-      "Command": "open",
-      "Target": "https://a9t9.com/kantu/demo/storeeval",
-      "Value": ""
-    },
-    {
-      "Command": "echo",
-      "Target": "With @POS you click on the (in this case) 3rd link with the same name. Great for use with ${!loop}",
-      "Value": ""
-    },
-    {
-      "Command": "clickAndWait",
-      "Target": "link=This link@POS=3",
-      "Value": ""
-    },
-    {
-      "Command": "clickAndWait",
-      "Target": "link=Selenium IDE commands@POS=2",
-      "Value": ""
-    }
-  ]
+  ]	
 },
 DemoCsvReadWithLoop: {
   "CreationDate": "2017-11-23",
   "Commands": [
     {
-      "Command": "gotoIf",
-      "Target": "{${!LOOP} > 1}",
-      "Value": "TESTSTART"
-    },
-    {
-      "Command": "echo",
-      "Target": "First create some test data CSV file (3 lines)",
-      "Value": "!csvLine"
-    },
-    {
       "Command": "store",
-      "Target": "Donald",
-      "Value": "!csvLine"
-    },
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },  
     {
-      "Command": "store",
-      "Target": "Knuth",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "team@a9t9.com",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "csvSave",
-      "Target": "ReadCSVTestData.csv",
-      "Value": ""
-    },
-    {
-      "Command": "store",
-      "Target": "Ashu",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Zarathushtra",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Zarathushtra2018@gmail.com",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "csvSave",
-      "Target": "ReadCSVTestData.csv",
-      "Value": ""
-    },
-    {
-      "Command": "store",
-      "Target": "Yasna",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Haptanghaiti",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Happy123456@unknownstartup.com",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "csvSave",
-      "Target": "ReadCSVTestData.csv",
-      "Value": ""
-    },
-    {
-      "Command": "echo",
-      "Target": "--- Read CSV Test starts here ---",
-      "Value": ""
-    },
-    {
-      "Command": "label",
-      "Target": "TESTSTART",
+      "Command": "comment",
+      "Target": "The file ReadCSVTestData.csv is pre-installed with Kantu.",
       "Value": ""
     },
     {
@@ -989,78 +1557,8 @@ DemoCsvReadWithWhile: {
       "Value": "!replayspeed"
     },
     {
-      "Command": "echo",
-      "Target": "First create some test data CSV file (3 lines)",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Donald",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Knuth",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "team@a9t9.com",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "csvSave",
-      "Target": "ReadCSVTestData.csv",
-      "Value": ""
-    },
-    {
-      "Command": "store",
-      "Target": "Ashu",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Zarathushtra",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Zarathushtra2018@gmail.com",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "csvSave",
-      "Target": "ReadCSVTestData.csv",
-      "Value": ""
-    },
-    {
-      "Command": "store",
-      "Target": "Yasna",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Haptanghaiti",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Happy123456@unknownstartup.com",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "csvSave",
-      "Target": "ReadCSVTestData.csv",
-      "Value": ""
-    },
-    {
-      "Command": "echo",
-      "Target": "--- Read CSV Test starts here ---",
-      "Value": ""
-    },
-    {
-      "Command": "label",
-      "Target": "TESTSTART",
+      "Command": "comment",
+      "Target": "The file ReadCSVTestData.csv is pre-installed with Kantu.",
       "Value": ""
     },
     {
@@ -1141,8 +1639,13 @@ DemoCsvReadWithWhile: {
   ]
 }, 
 DemoCsvSave: {
-  "CreationDate": "2017-11-23",
+  "CreationDate": "2018-06-01",
   "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },  
     {
       "Command": "open",
       "Target": "https://a9t9.com/kantu/demo/csvsave",
@@ -1214,14 +1717,29 @@ DemoCsvSave: {
       "Value": ""
     },
     {
+      "Command": "comment",
+      "Target": "Append content of !csvLine to CSV file (or create file if none exists)",
+      "Value": ""
+    },
+    {
       "Command": "csvSave",
       "Target": "CurrencyConverterData",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "If needed, you can download (save) the CSV data from the CSV tab to the the download folder",
+      "Value": ""
+    },
+    {
+      "Command": "localStorageExport",
+      "Target": "currencyconverterdata.csv",
       "Value": ""
     }
   ]
 },
 DemoStoreEval:  {
-  "CreationDate": "2018-1-25",
+  "CreationDate": "2018-4-28",
   "Commands": [
     {
       "Command": "store",
@@ -1266,6 +1784,31 @@ DemoStoreEval:  {
     {
       "Command": "assertTitle",
       "Target": "123",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Use sourceSearch to assert we have the right Google Analytics Code",
+      "Value": ""
+    },
+    {
+      "Command": "sourceSearch",
+      "Target": "UA-86195842-1",
+      "Value": "matches"
+    },
+    {
+      "Command": "if",
+      "Target": "${matches} == 0",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Google Analytics ID is wrong!",
+      "Value": ""
+    },
+    {
+      "Command": "endif",
+      "Target": "",
       "Value": ""
     },
     {
@@ -1397,7 +1940,42 @@ DemoStoreEval:  {
       "Command": "type",
       "Target": "id=sometext",
       "Value": "${output}"
-    }
+    },
+    {
+      "Command": "if",
+      "Target": "parseFloat(\"${!runtime}\") > 15",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Runtime too slow, test failed",
+      "Value": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Runtime Ok, test passed!",
+      "Value": "green"
+    },
+    {
+      "Command": "endif",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "With @POS you click on the (in this case) 3rd link with the same name. Great for looping over a list of links with the same name.",
+      "Value": "green"
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "link=This link@POS=3",
+      "Value": ""
+    },
   ]
 },
 DemoTabs: {
@@ -1462,26 +2040,137 @@ DemoTabs: {
       "Command": "type",
       "Target": "id=sometext1",
       "Value": "Now back in tab 1 - test done!"
-    }
-  ]
-},
-DemoTimeout: {
-  "CreationDate": "2017-10-18",
-  "Commands": [
-    {
-      "Command": "store",
-      "Target": "35",
-      "Value": "!TIMEOUT_PAGELOAD"
     },
     {
-      "Command": "open",
-      "Target": "https://a9t9.com/kantu/demo/pageloadtimeout",
+      "Command": "comment",
+      "Target": "We can also open new tabs",
       "Value": ""
     },
     {
+      "Command": "selectWindow",
+      "Target": "tab=open",
+      "Value": "https://a9t9.com"
+    },
+    {
+      "Command": "selectWindow",
+      "Target": "tab=open",
+      "Value": "https://ocr.space"
+    },
+    {
       "Command": "type",
-      "Target": "id=mce-EMAIL",
-      "Value": "Page loaded completely... test done."
+      "Target": "id=imageUrl",
+      "Value": "Kantu Tab Test done"
+    }
+  ]
+},
+DemoVisualUITest:
+{
+  "CreationDate": "2018-6-26",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/",
+      "Value": ""
+    },
+    {
+      "Command": "resize",
+      "Target": "1024@768",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "uitest_logo_wide_dpi_96.png@0.70",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "uitest_download_dpi_96.png@0.70",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "uitest_share_dpi_96.png@0.70",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Resize to iPhone6 screen size",
+      "Value": ""
+    },
+    {
+      "Command": "resize",
+      "Target": "375@768",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "uitest_logo_mobile_dpi_96.png",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Missing menu is critical, so we use ASSERT (instead of just VERIFY)",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "uitest_hamburger_dpi_96.png",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Check that Share buttons do not show",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "At this point, page is surely loaded => reduce wait for (normally missing) image",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "2",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "visualSearch",
+      "Target": "uitest_share_dpi_96.png@0.70",
+      "Value": "count"
+    },
+    {
+      "Command": "if",
+      "Target": "${count} > 0",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Share buttons should NOT show on mobile phones",
+      "Value": ""
+    },
+    {
+      "Command": "endif",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Restore default wait (not really needed here, since macro stops now anyway)",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "10",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "comment",
+      "Target": "Done, enlarge browser again",
+      "Value": ""
+    },
+    {
+      "Command": "resize",
+      "Target": "1024@768",
+      "Value": ""
     }
   ]
 }

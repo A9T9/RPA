@@ -5,6 +5,11 @@
   flex: 1;
   margin: 15px 15px 0;
 
+  .flex-row {
+    display: flex;
+    flex-direction: row;
+  }
+
   .form-group {
     margin-bottom: 15px;
   }
@@ -149,6 +154,104 @@
         overflow-y: auto;
       }
     }
+
+    .command-row {
+      position: relative;
+      display: flex;
+      flex-direction: row;
+      padding-left: 5px;
+      border-bottom: 1px solid #e9e9e9;
+      line-height: 45px;
+      font-size: 13px;
+
+      &:hover {
+        background: #ecf6fd
+      }
+
+      &.header-row,
+      &.footer-row {
+        background-color: #f7f7f7;
+        font-weight: bold;
+      }
+
+      &.footer-row {
+        display: block;
+        text-align: center;
+        cursor: pointer;
+      }
+
+      &.breakpoint-command {
+        &::before {
+          content: "";
+          position: absolute;
+          top: 50%;
+          left: 0;
+          transform: translateY(-50%);
+          width: 0;
+          height: 0;
+          border: 8px solid transparent;
+          border-left-color: green; 
+        }
+      }
+
+      &.selected-command {
+        background-color: #fdffd1;
+      }
+    
+      &.error-command {
+        background-color: #f7c1c1;
+      }
+    
+      &.running-command {
+        background-color: #d5d6f9;
+      }
+    
+      &.done-command {
+        background-color: #d1ffd8;
+      }
+
+      &.comment-command {
+        background-color: transparent;
+        color: #ccc;
+        font-style: italic;
+
+        &.selected-command {
+          background-color: #fdffd1;
+        }
+      }
+
+      .row-col {
+        padding: 0 8px;
+
+        &.command-col {
+          width: 130px;
+          overflow: hidden;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+
+        &.target-col {
+          width: 30%;
+          overflow: hidden;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+
+        &.value-col {
+          flex: 1;
+          overflow: hidden;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+
+        &.op-col {
+          width: 80px;
+          overflow: hidden;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+      }
+    }
   }
 
   .table-footer {
@@ -186,6 +289,10 @@
         height: 6px;
         background: #ccc;
       }
+    }
+
+    .ant-tabs.ant-tabs-card > .ant-tabs-bar .ant-tabs-tab {
+      padding: 5px 12px 4px;
     }
 
     .ant-tabs {
@@ -266,6 +373,10 @@
           font-weight: bold;
         }
 
+        &.warning {
+          color: orange;
+        }
+
         .log-type {
           float: left;
           margin-right: 10px;
@@ -284,9 +395,98 @@
         margin-right: 5px;
       }
     }
+
+    .variable-content {
+      padding: 10px;
+
+      .variable-options {
+        margin-bottom: 10px;
+      }
+
+      .ant-checkbox-wrapper {
+        margin-left: 0 !important;
+        margin-right: 10px;
+      }
+
+      .read-only {
+        color: #ccc;
+      }
+    }
+
+    .vision-content {
+      padding: 10px;
+
+      .vision-top-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+
+        .main-actions {
+          display: flex;
+
+          & > * {
+            margin-right: 15px;
+  
+            &:last-child {
+              margin-right: 0
+            }
+          }
+  
+          .load-image-button {
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+  
+            label {
+              padding: 0 15px;
+              cursor: pointer;
+            }
+          }
+        }
+
+        .more-info {
+          font-size: 14px;
+        }
+      }
+
+      .vision-image {
+        display: flex;
+        flex-direction: row;
+        justify-content: center;
+        align-content: center;
+        overflow: hidden;
+        width: 100px;
+        height: 100px;
+        border: 1px solid #ccc;
+        
+        img {
+          max-height: 100px;
+        }
+      }
+
+      .vision-name {
+        font-size: 14px;
+        word-break: break-all;
+      }
+
+      .vision-actions {
+        button {
+          margin-right: 5px;
+
+          &:last-child  {
+            margin-right: 0;
+          }
+        }
+      }
+    }
   }
 
   .online-help {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
     margin-top: 15px;
     padding: 0 10px;
     height: 25px;

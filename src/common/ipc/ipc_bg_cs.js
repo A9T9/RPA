@@ -1,8 +1,9 @@
 import ipcPromise from './ipc_promise'
 import Ext from '../web_extension'
 import log from '../log'
+import { retry, withTimeout } from '../utils'
 
-const TIMEOUT = 1000 * 60
+const TIMEOUT = -1
 
 // Note: `cuid` is a kind of unique id so that you can create multiple
 // ipc promise instances between the same two end points
@@ -65,7 +66,7 @@ export const openBgWithCs = (cuid) => {
   }
 
   // factory function to generate ipc promise for content scripts
-  const ipcCs = () => {
+  const ipcCs = (checkReady) => {
     let csListeners = []
 
     Ext.runtime.onMessage.addListener((req, sender, sendResponse) => {
@@ -75,6 +76,7 @@ export const openBgWithCs = (cuid) => {
 
     return ipcPromise({
       timeout: TIMEOUT,
+      checkReady: checkReady,
       ask: function (uid, cmd, args) {
         // log('cs ask', uid, cmd, args)
         Ext.runtime.sendMessage({
@@ -130,21 +132,50 @@ export const csInit = () => {
 
   // try this process in case we're in none-src frame
   try {
-    Ext.runtime.sendMessage({
-      type: 'CONNECT',
-      cuid: cuid
+    let connected     = false
+    const checkReady  = () => {
+      if (connected)  return Promise.resolve(true)
+      return Promise.reject(new Error('cs not connected with bg yet'))
+    }
+    const connectBg   = () => {
+      return withTimeout(1000, (cancelTimeout) => {
+        return Ext.runtime.sendMessage({
+          type: 'CONNECT',
+          cuid: cuid
+        })
+        .then(done => {
+          if (done) {
+            connected = true
+            cancelTimeout()
+            return true
+          }
+          throw new Error('not done')
+        })
+      })
+    }
+    const tryConnect = retry(connectBg, {
+      shouldRetry: () => true,
+      retryInterval: 0,
+      timeout: 5000
     })
 
-    return openBgWithCs(cuid).ipcCs()
-  } catch (e) {}
+    tryConnect().catch(e => {
+      log.error(e)
+    })
+
+    return openBgWithCs(cuid).ipcCs(checkReady)
+  } catch (e) {
+    log.error(e.stack)
+  }
 }
 
 // Helper function to init ipc promise instance for background
 // it accepts a `fn` function to handle CONNECT message from content scripts
 export const bgInit = (fn) => {
-  Ext.runtime.onMessage.addListener((req, sender) => {
+  Ext.runtime.onMessage.addListener((req, sender, sendResponse) => {
     if (req.type === 'CONNECT' && req.cuid) {
       fn(sender.tab.id, openBgWithCs(req.cuid).ipcBg(sender.tab.id))
+      sendResponse(true)
     }
     return true
   })

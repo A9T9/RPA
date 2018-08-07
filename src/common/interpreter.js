@@ -148,6 +148,24 @@ export default class Interpreter {
 
     // label
     switch (cmd) {
+      case 'onError': {
+        const value           = command.value && command.value.trim()
+        const target          = command.target && command.target.trim()
+        const isValidTarget   = target && (/^#restart$/i.test(target) || /^#goto$/i.test(target))
+
+        if (!isValidTarget) {
+          throw new Error('invalid target for onError command')
+        }
+
+        if (/^#goto$/i.test(target)) {
+          if (!this.state.labels[value]) {
+            throw new Error(`label ${value} doesn't exist`)
+          }
+        }
+
+        return Promise.resolve({ isFlowLogic: true })
+      }
+
       case 'gotoLabel': {
         if (!target || !target.length) {
           throw new Error('invalid target for gotoLabel commmand')
@@ -194,6 +212,9 @@ export default class Interpreter {
           nextIndex: tag.start.index
         })
       }
+
+      case 'comment':
+        return Promise.resolve({ isFlowLogic: true })
 
       // As of 'label', it doesn't do anything, so we just kind of skip it
       case 'label':
@@ -271,6 +292,16 @@ export default class Interpreter {
       default:
         return Promise.resolve()
     }
+  }
+
+  commandIndexByLabel (labelName) {
+    const label = this.state.labels[labelName]
+
+    if (!label) {
+      throw new Error(`label '${labelName}' doesn't exist`)
+    }
+
+    return label.index
   }
 
   __setState (st) {

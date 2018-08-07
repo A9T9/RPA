@@ -1,16 +1,19 @@
 import React from 'react'
+import ReactDOM from 'react-dom'
 import { connect } from 'react-redux'
 import { bindActionCreators, compose }  from 'redux'
 import { Modal, Tabs, Icon, Select, Input, Button, Menu, Dropdown, Alert, message } from 'antd'
 import ClickOutside from 'react-click-outside'
-import FileSaver from 'file-saver'
 import JSZip from 'jszip'
 
+import FileSaver from '../../common/lib/file_saver'
 import * as actions from '../../actions'
 import * as C from '../../common/constant'
+import getSaveTestCase from '../../components/save_test_case'
 import { getPlayer } from '../../common/player'
 import { setIn, updateIn, cn, formatDate, nameFactory } from '../../common/utils'
-import { stringifyTestSuite, parseTestSuite, validateTestSuiteText } from '../../common/convert_suite_utils'
+import { stringifyTestSuite, parseTestSuite, validateTestSuiteText, toBookmarkData, toHtml } from '../../common/convert_suite_utils'
+import { createBookmarkOnBar } from '../../common/bookmark'
 import EditTestSuite from '../../components/edit_test_suite'
 import EditableText from '../../components/editable_text'
 
@@ -22,6 +25,13 @@ const downloadTestSuite = (ts, testCases) => {
   const blob = new Blob([str], { type: 'text/plain;charset=utf-8' })
 
   FileSaver.saveAs(blob, `suite_${ts.name}.json`)
+}
+
+const downloadTestSuiteAsHTML = (ts) => {
+  const str = toHtml({ name: ts.name })
+  const blob = new Blob([str], { type: 'text/plain;charset=utf-8' })
+
+  FileSaver.saveAs(blob, `${ts.name}.html`)
 }
 
 class SidebarTestSuites extends React.Component {
@@ -103,7 +113,7 @@ class SidebarTestSuites extends React.Component {
     e.stopPropagation()
     e.preventDefault()
 
-    this.setState({
+    const updated = {
       tsContextMenu: {
         x: e.clientX,
         y: e.clientY,
@@ -111,14 +121,18 @@ class SidebarTestSuites extends React.Component {
         ts,
         tsIndex
       }
-    })
+    }
+
+    // Note: to make it work in Firefox, have to delay this new state a little bit
+    // Because hideTcContextMenu could be executed at the same time via clickOutside
+    setTimeout(() => this.setState(updated), 20)
   }
 
   onClickTsTestCaseMore = (e, tc, tcIndex, ts, tsIndex) => {
     e.stopPropagation()
     e.preventDefault()
 
-    this.setState({
+    const updated = {
       tscContextMenu: {
         x: e.clientX,
         y: e.clientY,
@@ -128,7 +142,11 @@ class SidebarTestSuites extends React.Component {
         tcIndex,
         tsIndex
       }
-    })
+    }
+
+    // Note: to make it work in Firefox, have to delay this new state a little bit
+    // Because hideTcContextMenu could be executed at the same time via clickOutside
+    setTimeout(() => this.setState(updated), 20)
   }
 
   hideTsContextMenu = () => {
@@ -187,6 +205,23 @@ class SidebarTestSuites extends React.Component {
       case 'export':
         downloadTestSuite(ts, this.props.testCases)
         break
+
+      case 'create_bookmark': {
+        const bookmarkTitle = prompt('Title for this bookmark', `#${ts.name}.kantu`)
+        if (bookmarkTitle === null) return
+
+        return createBookmarkOnBar(toBookmarkData({
+          bookmarkTitle,
+          name: ts.name
+        }))
+        .then(() => {
+          message.success('successfully created bookmark!', 1.5)
+        })
+      }
+
+      case 'export_html': {
+        return downloadTestSuiteAsHTML(ts)
+      }
 
       case 'delete':
         Modal.confirm({
@@ -312,9 +347,20 @@ class SidebarTestSuites extends React.Component {
     })
   }
 
+  getPortalContainer () {
+    const id = '__context_menu_container__'
+    const $el = document.getElementById(id)
+    if ($el)  return $el
+
+    const $new = document.createElement('div')
+    $new.id = id
+    document.body.appendChild($new)
+    return $new
+  }
+
   renderTestSuiteContextMenu () {
     const contextMenu = this.state.tsContextMenu
-    const mw  = 150
+    const mw  = 230
     let x     = contextMenu.x + window.scrollX
     let y     = contextMenu.y + window.scrollY
 
@@ -331,7 +377,7 @@ class SidebarTestSuites extends React.Component {
       width: mw + 'px'
     }
 
-    return (
+    const content = (
       <div style={style} className="context-menu">
         <ClickOutside onClickOutside={this.hideTsContextMenu}>
           <Menu
@@ -344,12 +390,16 @@ class SidebarTestSuites extends React.Component {
             <Menu.Item key="edit_source">Edit source..</Menu.Item>
             <Menu.Item key="rename">Rename..</Menu.Item>
             <Menu.Item key="export">Export</Menu.Item>
+            <Menu.Item key="export_html">Create HTML autorun page</Menu.Item>
+            <Menu.Item key="create_bookmark">Add to Bookmarks</Menu.Item>
             <Menu.Divider />
             <Menu.Item key="delete">Delete</Menu.Item>
           </Menu>
         </ClickOutside>
       </div>
     )
+
+    return ReactDOM.createPortal(content, this.getPortalContainer())
   }
 
   renderTestSuiteCaseContextMenu () {
@@ -371,7 +421,7 @@ class SidebarTestSuites extends React.Component {
       width: mw + 'px'
     }
 
-    return (
+    const content = (
       <div style={style} className="context-menu">
         <ClickOutside onClickOutside={this.hideTscContextMenu}>
           <Menu
@@ -385,6 +435,8 @@ class SidebarTestSuites extends React.Component {
         </ClickOutside>
       </div>
     )
+
+    return ReactDOM.createPortal(content, this.getPortalContainer())
   }
 
   renderTestSuiteMenu () {
@@ -422,12 +474,12 @@ class SidebarTestSuites extends React.Component {
       <Menu onClick={onClickMenuItem} selectable={false}>
         <Menu.Item key="export_all">Export all (JSON)</Menu.Item>
         <Menu.Item key="4">
-          <label htmlFor="select_json_files">Import JSON</label>
+          <label htmlFor="select_json_files_for_ts">Import JSON</label>
           <input
             multiple
             type="file"
             accept=".json"
-            id="select_json_files"
+            id="select_json_files_for_ts"
             onChange={this.onJSONFileChange}
             style={{display: 'none'}}
             ref={el => { this.jsonFileInput = el }}
@@ -525,7 +577,15 @@ class SidebarTestSuites extends React.Component {
                       <Icon
                         type="file"
                         style={{ marginRight: '10px', cursor: 'pointer' }}
-                        onClick={() => this.props.editTestCase(item.testCaseId)}
+                        onClick={() => {
+                          const { src } = this.props.editing.meta
+                          const go = () => {
+                            this.props.editTestCase(item.testCaseId)
+                            return Promise.resolve()
+                          }
+
+                          return getSaveTestCase().saveOrNot().then(go)
+                        }}
                       />
                       <Select
                         showSearch
@@ -563,7 +623,7 @@ class SidebarTestSuites extends React.Component {
                   type="default"
                   onClick={() => this.addTestCaseToTestSuite(ts)}
                 >
-                  + Test Case
+                  + Macro
                 </Button>
               </div>
             </li>

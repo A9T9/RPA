@@ -1,8 +1,12 @@
 import $ from 'jquery'
 import parseJson from 'parse-json'
 import URL from 'url-parse'
-import normalizeUrl from 'normalize-url'
 import { pick } from './utils'
+
+const joinUrl = (base, url) => {
+  const urlObj = new URL(url, base)
+  return urlObj.toString()
+}
 
 // HTML template from test case
 function genHtml ({ name, baseUrl, commandTrs }) {
@@ -21,6 +25,28 @@ function genHtml ({ name, baseUrl, commandTrs }) {
 </thead><tbody>
 ${commandTrs.join('\n')}
 </tbody></table>
+<script>
+(function() {
+  try {
+    var evt = new CustomEvent('kantuSaveAndRunMacro', { detail: { html: document.documentElement.outerHTML } })  
+    window.dispatchEvent(evt);
+    
+    if (window.location.protocol === 'file:') {
+      var onInvokeSuccess = function () {
+        clearTimeout(timer)
+        window.removeEventListener('kantuInvokeSuccess', onInvokeSuccess)
+      }
+      var timer = setTimeout(function () {
+        alert("Error: It seems you need to enable File Access for Kantu in the extension settings.")
+      }, 2000)
+
+      window.addEventListener('kantuInvokeSuccess', onInvokeSuccess)
+    }
+  } catch (e) {
+    alert('Kantu Bookmarklet error: ' + e.toString());
+  }
+})();
+</script>
 </body>
 </html>
   `
@@ -41,29 +67,37 @@ export function toHtml ({ name, commands }) {
   const copyCommands  = commands.map(c => Object.assign({}, c))
   const openTc        = copyCommands.find(tc => tc.cmd === 'open')
 
-  if (!openTc) {
-    throw new Error('To export html, test case must contain an open command')
+  const url         = openTc && new URL(openTc.target)
+  const origin      = url && url.origin
+  const replacePath = (path) => {
+    if (path.indexOf(origin) !== 0) return path
+    const result = path.replace(origin, '')
+    return result.length === 0 ? '/' : result
   }
 
-  const url     = new URL(openTc.target)
-  const origin  = url.origin
-  const path    = url.href.replace(origin, '')
+  if (openTc) {
+    openTc.target = replacePath(openTc.target)
+  }
 
-  openTc.target = path
+  const commandTrs = copyCommands.map(c => {
+    if (c.cmd === 'open') {
+      // Note: remove origin if it's the same as the first open command
+      c.target = replacePath(c.target)
+    }
 
-  const commandTrs = copyCommands.map(c => `
-    <tr>
-      <td>${c.cmd || ''}</td>
-      <td>${c.target || ''}</td>
-      <td>${c.value || ''}</td>
-    </tr>
+    return `
+      <tr>
+        <td>${c.cmd || ''}</td>
+        <td>${c.target || ''}</td>
+        <td>${c.value || ''}</td>
+      </tr>
     `
-  )
+  })
 
   return genHtml({
     name,
     commandTrs,
-    baseUrl: origin + '/'
+    baseUrl: origin || ''
   })
 }
 
@@ -79,12 +113,8 @@ export function fromHtml (html) {
   const $title  = $root.find('title')
   const $trs    = $root.find('tbody > tr')
 
-  const baseUrl   = $base.attr('href')
+  const baseUrl   = $base && $base.attr('href')
   const name      = $title.text()
-
-  if (!baseUrl || !baseUrl.length) {
-    throw new Error('fromHtml: missing baseUrl')
-  }
 
   if (!name || !name.length) {
     throw new Error('fromHtml: missing title')
@@ -93,6 +123,10 @@ export function fromHtml (html) {
   const commands  = [].slice.call($trs).map(tr => {
     const $el       = $(tr)
     const trHtml    = $el[0].outerHtml
+
+    // Note: remove any datalist option in katalon-like html file
+    $el.find('datalist').remove()
+
     const $children = $el.children()
     const $cmd      = $children.eq(0)
     const $tgt      = $children.eq(1)
@@ -106,7 +140,8 @@ export function fromHtml (html) {
     }
 
     if (cmd === 'open') {
-      target = normalizeUrl(baseUrl + '/' + target)
+      // Note: with or without baseUrl
+      target = baseUrl && !/:\/\//.test(target) ? joinUrl(baseUrl, target) : target
     }
 
     return { cmd, target, value }
@@ -125,6 +160,15 @@ export function fromJSONString (str, fileName) {
 
   const name      = fileName.split('.')[0]
   const obj       = parseJson(str)
+
+  if (obj.macros) {
+    throw new Error(`This is a test suite, not a macro`)
+  }
+
+  if (!Array.isArray(obj.Commands)) {
+    throw new Error(`'Commands' field must be an array`)
+  }
+
   const commands  = obj.Commands.map(c => ({
     cmd: c.Command,
     target: c.Target,
@@ -161,4 +205,26 @@ export function toJSONString (obj) {
 // generate data uri of json from a test case
 export function toJSONDataUri (obj) {
   return jsonDataUri(toJSONString(obj))
+}
+
+export function toBookmarkData (obj) {
+  const { name, bookmarkTitle } = obj
+
+  if (!name)  throw new Error('name is required to generate bookmark for macro')
+  if (!bookmarkTitle)  throw new Error('bookmarkTitle is required to generate bookmark for macro')
+
+  return {
+    title: bookmarkTitle,
+    url: `javascript:
+      (function() {
+        try {
+          var evt = new CustomEvent('kantuRunMacro', { detail: { name: '${name}', from: 'bookmark' } });
+          window.dispatchEvent(evt);
+        } catch (e) {
+          alert('Kantu Bookmarklet error: ' + e.toString());
+        }
+      })();
+    `
+    .replace(/\n\s*/g, '')
+  }
 }

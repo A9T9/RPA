@@ -1,6 +1,6 @@
 export default [
   {
-    "creationDate": "2017-12-12",
+    "creationDate": "2018-05-12",
     "name": "DemoLoopsInsideTestSuite",
     "fold": true,
     "macros": [
@@ -19,12 +19,20 @@ export default [
     ]
   },
   {
-  "creationDate": "2017-12-15",
+  "creationDate": "2018-05-31",
   "name": "DemoTestSuite",
   "fold": true,
   "macros": [
     {
       "macro": "DemoAutofill",
+      "loops": 1
+    },
+    {
+      "macro": "DemoCanvas",
+      "loops": 1
+    },
+    {
+      "macro": "DemoComputerVision",
       "loops": 1
     },
     {
@@ -41,6 +49,10 @@ export default [
     },
     {
       "macro": "DemoDialogboxes",
+      "loops": 1
+    },
+    {
+      "macro": "DemoDownload",
       "loops": 1
     },
     {
@@ -72,10 +84,6 @@ export default [
       "loops": 1
     },
     {
-      "macro": "DemoPOS",
-      "loops": 1
-    },
-    {
       "macro": "DemoStoreEval",
       "loops": 1
     },
@@ -84,7 +92,7 @@ export default [
       "loops": 1
     },
     {
-      "macro": "DemoTimeout",
+      "macro": "DemoVisualUITest",
       "loops": 1
     }
   ]

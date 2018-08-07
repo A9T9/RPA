@@ -74,25 +74,34 @@
   var UsedAPI = {
     toPromisify: {
       tabs: ['create', 'sendMessage', 'get', 'update', 'query', 'captureVisibleTab', 'remove'],
-      windows: ['update', 'getLastFocused', 'getCurrent'],
+      windows: ['update', 'getLastFocused', 'getCurrent', 'getAll', 'remove', 'create', 'get'],
       runtime: ['sendMessage', 'setUninstallURL'],
       cookies: ['get', 'getAll', 'set', 'remove'],
-      notifications: ['create'],
+      notifications: ['create', 'clear'],
       browserAction: ['getBadgeText'],
+      bookmarks: ['create', 'getTree'],
       debugger: ['attach', 'detach', 'sendCommand', 'getTargets'],
       'storage.local': ['get', 'set']
     },
     toCopy: {
-      tabs: ['onActivated'],
-      runtime: ['onMessage', 'onInstalled'],
+      tabs: ['onActivated', 'onUpdated'],
+      windows: ['onFocusChanged'],
+      runtime: ['onMessage', 'onInstalled', 'getManifest'],
       storage: ['onChanged'],
       browserAction: ['setBadgeText', 'setBadgeBackgroundColor', 'onClicked'],
       extension: ['getURL'],
-      debugger: ['onEvent', 'onDetach']
+      debugger: ['onEvent', 'onDetach'],
+      downloads: ['onCreated', 'onChanged', 'onDeterminingFilename']
     }
   }
 
   var Ext = typeof chrome !== 'undefined' ? adaptChrome(UsedAPI, chrome) : browser
+
+  Object.assign(Ext, {
+    isFirefox: () => {
+      return /Firefox/.test(window.navigator.userAgent)
+    }
+  })
 
   if (typeof module !== 'undefined') {
     module.exports = Ext

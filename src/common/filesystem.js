@@ -1,3 +1,4 @@
+import 'idb.filesystem.js'
 
 const fs = (function () {
   const requestFileSystem = window.requestFileSystem || window.webkitRequestFileSystem
@@ -137,6 +138,28 @@ const fs = (function () {
     })
   }
 
+  const moveFile = (srcPath, targetPath) => {
+    return getFS()
+    .then(fs => {
+      return Promise.all([
+        fileLocator(srcPath, fs),
+        fileLocator(targetPath, fs)
+      ])
+      .then(tuple => {
+        const srcDirEntry = tuple[0].directoryEntry
+        const srcFileName = tuple[0].fileName
+        const tgtDirEntry = tuple[1].directoryEntry
+        const tgtFileName = tuple[1].fileName
+
+        return new Promise((resolve, reject) => {
+          srcDirEntry.getFile(srcFileName, {}, (fileEntry) => {
+            fileEntry.moveTo(tgtDirEntry, tgtFileName, resolve, reject)
+          }, reject)
+        })
+      })
+    })
+  }
+
   const getMetadata = (filePath) => {
     return getFS()
     .then(fs => {
@@ -193,6 +216,7 @@ const fs = (function () {
     readFile,
     writeFile,
     removeFile,
+    moveFile,
     getDirectory,
     getMetadata,
     exists
