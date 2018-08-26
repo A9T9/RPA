@@ -67,13 +67,17 @@ export function toHtml ({ name, commands }) {
   const copyCommands  = commands.map(c => Object.assign({}, c))
   const openTc        = copyCommands.find(tc => tc.cmd === 'open')
 
-  const url         = openTc && new URL(openTc.target)
-  const origin      = url && url.origin
-  const replacePath = (path) => {
-    if (path.indexOf(origin) !== 0) return path
-    const result = path.replace(origin, '')
-    return result.length === 0 ? '/' : result
-  }
+  // Note: Aug 10, 2018, no baseUrl when exported to html
+  // so that `${variable}` could be used in open command, and won't be prefixed with baseUrl
+  const origin        = null
+  const replacePath   = path => path
+  // const url         = openTc && new URL(openTc.target)
+  // const origin      = url && url.origin
+  // const replacePath = (path) => {
+  //   if (path.indexOf(origin) !== 0) return path
+  //   const result = path.replace(origin, '')
+  //   return result.length === 0 ? '/' : result
+  // }
 
   if (openTc) {
     openTc.target = replacePath(openTc.target)
@@ -141,7 +145,7 @@ export function fromHtml (html) {
 
     if (cmd === 'open') {
       // Note: with or without baseUrl
-      target = baseUrl && !/:\/\//.test(target) ? joinUrl(baseUrl, target) : target
+      target = baseUrl && baseUrl.length && !/:\/\//.test(target) ? joinUrl(baseUrl, target) : target
     }
 
     return { cmd, target, value }

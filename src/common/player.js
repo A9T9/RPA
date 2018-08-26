@@ -330,16 +330,21 @@ export class Player {
             .then(guardToken(nextIndex => {
               // Note: __handle has the chance to return a `nextIndex`, mostly when it's
               // from a flow logic. But still, it could be undefined for normal commands
+              const oldLoopsCursor = this.state.loopsCursor
+
               this.__setNext(nextIndex)
               this.emit('PLAYED_LIST', {
                 indices: this.state.doneIndices,
                 extra: this.state.extra
               })
+
+              return oldLoopsCursor === this.state.loopsCursor
             }))
-            .then(() => {
+            .then((isLoopsCursorChanged) => {
               // __handle may change postDelay
               const { postDelay } = this.state
-              return postDelay > 0 ? this.__delay(() => undefined, postDelay) : Promise.resolve()
+              const delay         = Math.max(postDelay, isLoopsCursorChanged ? 10 : 0)
+              return delay > 0 ? this.__delay(() => undefined, delay) : Promise.resolve()
             })
             .then(() => {
               if (isStep) return this.pause()

@@ -521,6 +521,7 @@ const updateStatus = (args) => {
   // Note: clear recording frame stack whenever it stops recording
   if (args.status === C.CONTENT_SCRIPT_STATUS.NORMAL) {
     state.recordingFrameStack = []
+    state.playingFrame = window
   }
 
   // IMPORTANT: broadcast status change to all frames inside
@@ -944,7 +945,11 @@ const runCommand = (command) => {
   if (state.playingFrame === window || command.cmd === 'open') {
     // Note: both top and inner frames could run commands here
     // So must use superCsIpc instead of csIpc
-    const ret = run(command, superCsIpc, { highlightDom, hackAlertConfirmPrompt })
+    const ret = run(command, superCsIpc, {
+      highlightDom,
+      hackAlertConfirmPrompt,
+      xpath: inspector.xpath
+    })
 
     // Note: `run` returns the contentWindow of the selected frame
     if (command.cmd === 'selectFrame') {
@@ -1026,7 +1031,7 @@ const loadConfig = () => {
     state.config = config
 
     // IMPORTANT: broadcast status change to all frames inside
-    broadcastToAllFrames('UPDATE_CONFIG', config)    
+    broadcastToAllFrames('UPDATE_CONFIG', config)
   })
 }
 

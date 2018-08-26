@@ -12,7 +12,7 @@ export default function backup ({ backup, testCases, testSuites, screenshots, cs
   const ps  = []
 
   if (backup.testCase && testCases && testCases.length) {
-    const folder = zip.folder('test_cases')
+    const folder = zip.folder('macros')
 
     testCases.forEach(tc => {
       folder.file(`${tc.name}.json`, toJSONString({
@@ -23,7 +23,7 @@ export default function backup ({ backup, testCases, testSuites, screenshots, cs
   }
 
   if (backup.testSuite && testCases && testSuites && testSuites.length) {
-    const folder  = zip.folder('test_suites')
+    const folder  = zip.folder('testsuites')
     const genName = nameFactory()
 
     testSuites.forEach(ts => {
@@ -47,7 +47,7 @@ export default function backup ({ backup, testCases, testSuites, screenshots, cs
   }
 
   if (backup.vision && visions && visions.length) {
-    const folder  = zip.folder('visual_ui_test_images')
+    const folder  = zip.folder('images')
     const man     = getVisionMan()
 
     visions.forEach(vision => {
@@ -61,7 +61,7 @@ export default function backup ({ backup, testCases, testSuites, screenshots, cs
   }
 
   if (backup.csv && csvs && csvs.length) {
-    const folder  = zip.folder('csvs')
+    const folder  = zip.folder('datasources')
     const man     = getCSVMan()
 
     csvs.forEach(csv => {

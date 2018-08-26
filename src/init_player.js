@@ -6,13 +6,14 @@ import { parseFromCSV, stringifyToCSV } from './common/csv'
 import { Player, getPlayer } from './common/player'
 import csIpc from './common/ipc/ipc_cs'
 import log from './common/log'
-import { updateIn, setIn, objMap, dataURItoBlob, delay, retry } from './common/utils'
+import { updateIn, setIn, objMap, dataURItoBlob, delay, retry, withCountDown } from './common/utils'
 import * as C from './common/constant'
 import * as act from './actions'
 import { getScreenshotMan } from './common/screenshot_man'
 import { getVisionMan } from './common/vision_man'
 import Ext from './common/web_extension'
 import FileSaver from './common/lib/file_saver'
+import { renderLog } from './common/macro_log'
 
 class TimeTracker {
   constructor () {
@@ -73,13 +74,85 @@ class Timeout {
   }
 }
 
-const replaceEscapedChar = (str) => {
+const replaceEscapedChar = (str, command, field) => {
+  if (['storeEval', 'gotoIf', 'if', 'while'].indexOf(command.cmd) !== -1 && field === 'target') {
+    return str
+  }
+
   return [
     [/\\n/g, '\n'],
     [/\\t/g, '\t']
   ].reduce((prev, [reg, c]) => {
     return prev.replace(reg, c)
   }, str)
+}
+
+const retryIfHeartBeatExpired = (mainFunc) => {
+  const runWithHeartBeat = () => {
+    let stop = false
+
+    const infiniteCheckHeartBeat = (() => {
+      const startTime = new Date().getTime()
+      let stop        = false
+      let lastSecret  = null
+
+      const fn = () => {
+        log('start to send heart beat to background')
+        if (stop) return Promise.resolve()
+
+        return csIpc.ask('PANEL_HEART_BEAT', {}, 300)
+        .then(
+          (secret) => {
+            // Note: secret === -1 means no heart beat available
+            if (secret === -1)  return new Promise(() => {})
+
+            if (secret === lastSecret) {
+              throw new Error('lost background heart beat when running command')
+            } else {
+              lastSecret = secret
+            }
+
+            return delay(() => {}, 3000).then(fn)
+          },
+          e => {
+            log.error('lost background heart beart!!', e.stack)
+            throw new Error('lost background heart beat when running command')
+          }
+        )
+      }
+      fn.stop = () => {
+        log('stopping background heart beat')
+        stop = true
+      }
+
+      return fn
+    })()
+
+    return Promise.race([
+      mainFunc()
+        .then(data => {
+          infiniteCheckHeartBeat.stop()
+          return data
+        })
+        .catch(e => {
+          infiniteCheckHeartBeat.stop()
+          throw e
+        }),
+      infiniteCheckHeartBeat()
+    ])
+  }
+
+  const retryFn = retry(runWithHeartBeat, {
+    timeout: 999999,
+    shouldRetry: (e, retryCount) => {
+      return  e &&
+              e.message &&
+              e.message.indexOf('lost background heart beat when running command') !== -1 &&
+              retryCount < 10
+    }
+  })
+
+  return retryFn()
 }
 
 const interpretSpecialCommands = ({ store, vars }) => {
@@ -107,7 +180,79 @@ const interpretCsFreeCommands = ({ store, vars }) => (command, index) => {
   log('interpretCsFreeCommands', command)
 
   switch (cmd) {
+    case 'store': {
+      return {
+        byPass: true,
+        vars: {
+          [value]: target
+        }
+      }
+    }
+
+    case 'echo': {
+      const extra = (function () {
+        if (value === '#shownotification')  return { options: { notification: true } }
+        if (value)                          return { options: { color: value } }
+        return {}
+      })()
+
+      return {
+        byPass: true,
+        log: {
+          info: target,
+          ...extra
+        }
+      }
+    }
+
+    case 'throwError': {
+      throw new Error(target)
+    }
+
+    case 'pause': {
+      const n = parseInt(target)
+
+      if (!target || !target.length || n === 0) {
+        return {
+          byPass: true,
+          control: {
+            type: 'pause'
+          }
+        }
+      }
+
+      if (isNaN(n) || n < 0) {
+        throw new Error('target of pause command must be a positive integer')
+      }
+
+      return withCountDown({
+        timeout: n,
+        interval: 1000,
+        onTick: ({ total, past }) => {
+          store.dispatch(act.setTimeoutStatus({
+            past,
+            total,
+            type: 'pause'
+          }))
+        }
+      })
+      .then(() => ({ byPass: true }))
+    }
+
     case 'localStorageExport': {
+      const deleteAfterExport = /\s*#DeleteAfterExport\s*/i.test(value)
+
+      if (/^\s*log\s*$/i.test(target)) {
+        const text = store.getState().logs.map(renderLog).join('\n')
+        FileSaver.saveAs(new Blob([text]), 'kantu_log.txt')
+
+        if (deleteAfterExport) {
+          store.dispatch(act.clearLogs())
+        }
+
+        return result
+      }
+
       if (/\.csv$/i.test(target)) {
         return csvMan.exists(target)
         .then(existed => {
@@ -116,6 +261,12 @@ const interpretCsFreeCommands = ({ store, vars }) => (command, index) => {
           return csvMan.read(target)
           .then(text => {
             FileSaver.saveAs(new Blob([text]), target)
+
+            if (deleteAfterExport) {
+              csvMan.remove(target)
+              .then(() => store.dispatch(act.listCSV()))
+            }
+
             return result
           })
         })
@@ -129,6 +280,12 @@ const interpretCsFreeCommands = ({ store, vars }) => (command, index) => {
           return ssMan.read(target)
           .then(buffer => {
             FileSaver.saveAs(new Blob([new Uint8Array(buffer)]), target)
+
+            if (deleteAfterExport) {
+              ssMan.remove(target)
+              .then(() => store.dispatch(act.listScreenshots()))
+            }
+
             return result
           })
         })
@@ -162,7 +319,7 @@ const interpretCsFreeCommands = ({ store, vars }) => (command, index) => {
 
       const run = () => {
         return csIpc.ask('PANEL_CLEAR_VISION_RECTS_ON_PLAYING_PAGE')
-        //#324 .then(() => delay(() => {}, 500))
+        // #324 .then(() => delay(() => {}, 500))
         .then(() => csIpc.ask('PANEL_SEARCH_VISION_ON_PLAYING_PAGE', {
           visionFileName,
           minSimilarity,
@@ -294,7 +451,7 @@ const interpretCSVCommands = ({ store, vars }) => (command, index) => {
       .then(isExisted => {
         if (!isExisted) {
           vars.set({ '!CsvReadStatus': 'FILE_NOT_FOUND' }, true)
-          throw new Error(`csv file '${target}' not exist`)
+          throw new Error(`csv file '${target}' does not exist`)
         }
 
         return csvMan.read(target)
@@ -465,7 +622,9 @@ const initTestCasePlayer = ({ store, vars, interpreter }) => {
               ...command,
               [field]: vars.render(
                 replaceEscapedChar(
-                  command.cmd === 'type' ? command[field] : command[field].trim()
+                  command.cmd === 'type' ? command[field] : command[field].trim(),
+                  command,
+                  field
                 ),
                 opts
               )
@@ -503,7 +662,10 @@ const initTestCasePlayer = ({ store, vars, interpreter }) => {
 
           // Note: -1 will disable ipc timeout for 'pause' command
           const timeout = command.cmd === 'pause' ? -1 : null
-          return csIpc.ask('PANEL_RUN_COMMAND', { command }, timeout)
+
+          return retryIfHeartBeatExpired(() => {
+            return csIpc.ask('PANEL_RUN_COMMAND', { command }, timeout)
+          })
         })
         .catch(e => {
           // Note: it will just log errors instead of a stop of whole macro, in following situations
@@ -901,7 +1063,7 @@ const initTestSuitPlayer = ({store, tcPlayer}) => {
       const openTc  = tc && tc.data.commands.find(c => c.cmd.toLowerCase() === 'open')
 
       if (!tc) {
-        throw new Error('macro not exist')
+        throw new Error('macro does not exist')
       }
 
       // update editing && start to play tcPlayer

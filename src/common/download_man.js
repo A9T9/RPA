@@ -214,6 +214,11 @@ export class DownloadMan {
   onCountDown (fn) {
     this.countDownHandler = fn
   }
+
+  hasPendingDownload () {
+    const downloadToCreate = this.activeDownloads.find(item => !item.id)
+    return !!downloadToCreate
+  }
 }
 
 export const getDownloadMan = (function () {

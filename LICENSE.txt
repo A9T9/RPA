@@ -34,7 +34,7 @@ If you want to use or redistribute _modified_ versions of Kantu or want to inclu
 
 2. You do _not_ need a commercial license to redistribute or bundle the _unmodifed_ version of Kantu with your project, as long as Kantu stays separate.
 
-Example: Some companies use Kantu to allow their users to record macros that are then run by their commercial SaaS or on-premise application monitoring backends. Such a use is compatible with the AGPLv3 license and no commercial license is required.
+Example: Some companies use Kantu to allow their users to record macros that are then run by their commercial SaaS or on-premise application monitoring backends. Kantu is not modified. As such, it can be distributed commercially for free. No commercial license or fee of any kind is required.
 
 3. Open-Source Projects: If you want to include/embed Kantu as part of a free, open source project but want to keep your existing license we can probably work something out. Please contact us.
 

@@ -122,16 +122,16 @@ class DashboardBottom extends React.Component {
   removeCSV = (csv) => {
     const csvMan  = getCSVMan()
 
-    csvMan.remove(csv.fileName)
+    csvMan.remove(csv.name)
     .then(() => this.props.listCSV())
     .then(() => {
       message.success(`successfully deleted`)
-      this.props.addLog('info', `${csv.fileName} deleted`)
+      this.props.addLog('info', `${csv.name} deleted`)
     })
   }
 
   viewCSV = (csv) => {
-    window.open(`./csv_editor.html?csv=${csv.fileName}`, '', 'width=600,height=500,scrollbars=true')
+    window.open(`./csv_editor.html?csv=${csv.name}`, '', 'width=600,height=500,scrollbars=true')
   }
 
   onImageFileChange = (e) => {
@@ -295,12 +295,12 @@ class DashboardBottom extends React.Component {
   renderCSVTable () {
     const csvMan  = getCSVMan()
     const columns = [
-      { title: 'Name',            dataIndex: 'fileName',      key: 'fileName' },
-      { title: 'Size',            dataIndex: 'size',          key: 'size' },
+      { title: 'Name',            dataIndex: 'name',      key: 'name' },
+      { title: 'Size',            dataIndex: 'size',      key: 'size' },
       {
         title:'Last Modified',
-        dataIndex: 'lastModified',
-        key: 'lastModified',
+        dataIndex: 'createTime',
+        key: 'createTime',
         render: (d) => {
           const pad = n => n >= 10 ? ('' + n) : ('0' + n)
           return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
@@ -322,7 +322,7 @@ class DashboardBottom extends React.Component {
                 <Icon type="eye-o" />
               </Button>
 
-              <a href={csvMan.getLink(csv.fileName)} download={csv.fileName}>
+              <a href={csv.url} download={csv.name}>
                 <Button
                   size="small"
                   type="primary"

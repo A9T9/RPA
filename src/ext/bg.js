@@ -15,10 +15,11 @@ import storage from '../common/storage'
 import { setFileInputFiles } from '../common/debugger'
 import { getDownloadMan } from '../common/download_man'
 import config from '../config'
-import { getScreenshotMan } from '../common/screenshot_man';
+import { getScreenshotMan } from '../common/screenshot_man'
 import { searchImage } from '../common/imagesearch/adaptor.ts'
 import { getVisionMan } from '../common/vision_man';
-import { resizeViewportOfTab } from '../common/resize_window';
+import { resizeViewportOfTab } from '../common/resize_window'
+import { getIpcCache } from '../common/ipc/ipc_cache'
 
 // Note: in Ubuntu, you have to take some delay after activating some tab, otherwise there are chances
 // Chrome still think the panel is the window you want to take screenshot, and weird enough in Ubuntu,
@@ -38,8 +39,17 @@ const state = {
     toPlay: null,
     panel: null
   },
-  ipcCache: {},
-  pullback: false
+  pullback: false,
+  // Note: heartBeatSecret = -1, means no heart beat available, and panel should not retry on heart beat lost
+  heartBeatSecret: 0
+}
+
+const updateHeartBeatSecret = ({ disabled = false } = {}) => {
+  if (disabled) {
+    state.heartBeatSecret = -1
+  } else {
+    state.heartBeatSecret = (Math.max(0, state.heartBeatSecret) + 1) % 10000
+  }
 }
 
 const createTab = (url) => {
@@ -62,7 +72,7 @@ const getTab = (tabId) => {
 }
 
 // Generate function to get ipc based on tabIdName and some error message
-const genGetTabIpc = (tabIdName, purpose) => () => {
+const genGetTabIpc = (tabIdName, purpose) => (timeout = 100, before = Infinity) => {
   const tabId = state.tabIds[tabIdName]
 
   if (!tabId) {
@@ -75,13 +85,10 @@ const genGetTabIpc = (tabIdName, purpose) => () => {
       throw new Error(`The ${purpose} tab seems to be closed`)
     }
 
-    const ipc = state.ipcCache[tab.id]
-
-    if (!ipc) {
+    return getIpcCache().get(tab.id, timeout, before)
+    .catch(e => {
       throw new Error(`No ipc available for the ${purpose} tab`)
-    }
-
-    return ipc
+    })
   })
 }
 
@@ -125,9 +132,10 @@ const getPlayTab  = (url) => {
           return tab
         }
 
-        // Note: must clear ipcCache manually here, so that further messages
+        // Note: must disable ipcCache manually here, so that further messages
         // won't be sent the old ipc
-        state.ipcCache[tab.id] = null
+        getIpcCache().disable(tab.id)
+
         return Ext.tabs.update(tab.id, { url })
       },
       ()  => createOne(url)
@@ -174,10 +182,11 @@ const showPanelWindow = () => {
 
 const withPanelIpc = () => {
   return showPanelWindow()
-  .then(() => until('panel ipc', () => ({
-    pass: state.tabIds.panel && state.ipcCache[state.tabIds.panel]
+  .then(() => until('panel tab id recorded', () => ({
+    pass: state.tabIds.panel
   })))
-  .then(() => delay(getPanelTabIpc, 2000))
+  .then(() => delay(() => {}, 2000))
+  .then(() => getPanelTabIpc(2000))
 }
 
 const showBadge = (options) => {
@@ -323,10 +332,11 @@ const isTimeToBackup = () => {
 const notifyPanelAboutActiveTab = (activeTabId) => {
   Promise.all([
     Ext.tabs.get(activeTabId),
-    getPanelTabIpc()
+    getPanelTabIpc().catch(() => null)
   ])
   .then(tuple => {
     const [tab, panelIpc] = tuple
+    if (!panelIpc)  return
     if (tab.url.indexOf(Ext.extension.getURL('')) !== -1) return
 
     if (!tab.title || tab.title.trim().length === 0) {
@@ -396,10 +406,11 @@ const bindEvents = () => {
     .then(tabs => {
       if (tabs.length === 0) return
 
-      const ipc = state.ipcCache[tabs[0].id]
-      if (ipc) {
-        ipc.ask('TAB_ACTIVATED', {})
-      }
+      getIpcCache().get(tabs[0].id, 100)
+      .then(
+        ipc => ipc.ask('TAB_ACTIVATED', {}),
+        e => 'Comment: ingore this error'
+      )
     })
   })
 
@@ -407,10 +418,11 @@ const bindEvents = () => {
   Ext.tabs.onActivated.addListener((activeInfo) => {
     if (activeInfo.tabId === state.tabIds.panel)  return
 
-    const ipc = state.ipcCache[activeInfo.tabId]
-    if (ipc) {
-      ipc.ask('TAB_ACTIVATED', {})
-    }
+    getIpcCache().get(activeInfo.tabId, 100)
+    .then(
+      ipc => ipc.ask('TAB_ACTIVATED', {}),
+      e => 'Comment: ingore this error'
+    )
 
     notifyPanelAboutActiveTab(activeInfo.tabId)
 
@@ -438,12 +450,7 @@ const bindEvents = () => {
         // 3. commit a `selectWindow` command
         //
         // Have to wait for the new tab establish connection with background
-        until('new tab creates ipc', () => {
-          return {
-            pass: state.ipcCache[activeInfo.tabId],
-            result: state.ipcCache[activeInfo.tabId]
-          }
-        })
+        getIpcCache().get(activeInfo.tabId, 5000)
         // Note: wait for 1 second, expecting commands from original page to be committed
         .then(ipc => delay(() => ipc, 1000))
         .then(ipc => {
@@ -502,6 +509,7 @@ const bindEvents = () => {
         .catch(e => {
           log.error(e.stack)
         })
+
         break
       }
     }
@@ -523,8 +531,9 @@ const setInspectorTabId = (tabId, shouldRemove, noNotify) => {
 
       if (noNotify) return Promise.resolve(true)
 
-      return state.ipcCache[state.tabIds.toInspect].ask('STOP_INSPECTING')
-        .catch(e => log(e.stack))
+      return getIpcCache().get(state.tabIds.toInspect)
+      .then(ipc => ipc.ask('STOP_INSPECTING'))
+      .catch(e => log(e.stack))
     }
     return Promise.resolve(true)
   }
@@ -656,47 +665,15 @@ const onRequest = (cmd, args) => {
 
       if (state.timer) clearInterval(state.timer)
 
-      return getPlayTab()
-      // Note: catch any error, and make it run 'getPlayTab(args.url)' instead
-      .catch(e => ({ id: -1 }))
-      .then(tab => {
-        log('after first getPlayTab', tab)
-        const openUrlInTab = () => {
-          return getPlayTab(args.url)
-          .then(tab => ({ tab, hasOpenedUrl: true }))
-        }
+      return true
+      // .catch(e => {
+      //   togglePlayingBadge(false)
+      //   throw e
+      // })
+    }
 
-        if (!state.ipcCache[tab.id]) {
-          return openUrlInTab()
-        } else {
-          // Note: test if the ipc is still active,
-          // if it's not, try to open url as if that ipc doesn't exist at all
-          return state.ipcCache[tab.id].ask('HEART_BEAT', {}, 500)
-          .then(() => ({ tab, hasOpenedUrl: false }))
-          .catch(openUrlInTab)
-        }
-      })
-      .then(({ tab, hasOpenedUrl }) => {
-        const p = args.shouldNotActivateTab ? Promise.resolve() : activateTab(tab.id, true)
-
-        // Note: wait for tab to confirm it has loaded
-        return p.then(() => {
-          return until('ipc of tab to play', () => {
-            return {
-              pass: !!state.ipcCache[tab.id],
-              result: state.ipcCache[tab.id]
-            }
-          }, 1000, 6000 * 10)
-        })
-        .then(ipc => {
-          const p = !hasOpenedUrl ? Promise.resolve() : ipc.ask('MARK_NO_COMMANDS_YET', {})
-          return p.then(() => ipc.ask('SET_STATUS', { status: C.CONTENT_SCRIPT_STATUS.PLAYING }))
-        })
-      })
-      .catch(e => {
-        togglePlayingBadge(false)
-        throw e
-      })
+    case 'PANEL_HEART_BEAT': {
+      return state.heartBeatSecret
     }
 
     case 'PANEL_RUN_COMMAND': {
@@ -707,25 +684,62 @@ const onRequest = (cmd, args) => {
         if (command.cmd === 'click') return true
         return false
       }
+      const checkHeartBeat = (timeout, before) => {
+        updateHeartBeatSecret()
+
+        return getPlayTabIpc(timeout, before)
+        .then(ipc => ipc.ask('HEART_BEAT', { timeout, before }))
+        .catch(e => {
+          log.error('at least I catched it', e.message)
+          throw new Error('heart beat error thrown')
+        })
+      }
+      const shoudWaitForCommand = (command) => {
+        log('shoudWaitForCommand', command)
+        return /andWait/i.test(command.cmd) || command.cmd === 'open'
+      }
+
+      // Note: There are several versions of runCommandXXX here. One by one, they have a better tolerence of error
+      // 1. runCommand:
+      //      Run a command, and wait until we can confirm that command is completed (e.g.  xxxAndWait)
+      //
+      // 2. runCommandWithRetry:
+      //      Enhance runCommand with retry mechanism, only retry when element is not found
+      //
+      // 3. runCommandWithClosureAndErrorProcess:
+      //      Include `args` in closure, and take care of `errorIgnore`
+      //
+      // 4. runWithHeartBeat:
+      //      Run a heart beat check along with `runCommandWithClosureAndErrorProcess`.
+      //      Heart beat check requires cs Ipc must be created before heart beat check starts.
+      //      With this, we can ensure the page is not closed or refreshed
+      //
+      // 5. runWithHeartBeatRetry:
+      //      Run `runWithHeartBeat` with retry mechanism. only retry when it's a 'lost heart beat' error
+      //      When closed/refresh is detected, it will try to send same command to that tab again.
+      //
+
       const runCommand = (args, retryInfo) => {
         return getPlayTabIpc()
         .then(ipc => {
+          // Note: each command keeps target page's status as PLAYING
+          ipc.ask('SET_STATUS', { status: C.CONTENT_SCRIPT_STATUS.PLAYING })
+
           let gotHeartBeat = false
 
-          const checkHeartBeat = () => {
+          const innerCheckHeartBeat = () => {
             // Note: ignore any exception when checking heart beat
             // possible exception: no tab for play, no ipc
-            return getPlayTabIpc()
-              .then(ipc => ipc.ask('HEART_BEAT', {}))
-              .then(
-                () => { gotHeartBeat = true },
-                () => { return null }
-              )
+            return checkHeartBeat()
+            .then(
+              () => { gotHeartBeat = true },
+              e => { log.error(e); return null }
+            )
           }
 
           // res format: { data, isIFrame }
           const wait = (res) => {
-            const shouldWait      = /wait/i.test(args.command.cmd) || args.command.cmd === 'open'
+            const shouldWait      = shoudWaitForCommand(args.command)
             const shouldResetIpc  = !res.isIFrame && (/AndWait/i.test(args.command.cmd) ||
                                                       args.command.cmd === 'refresh')
             if (!shouldWait) return Promise.resolve(res.data)
@@ -734,19 +748,21 @@ const onRequest = (cmd, args) => {
             const timeoutPageLoad   = ((res.data && res.data.extra && res.data.extra.timeoutPageLoad) || 60) * 1000
             const timeoutHeartbeat  = ((res.data && res.data.extra && res.data.extra.timeoutElement) || 10) * 1000
 
-            // Note: for clickAndWait etc.,  must reset ipc to avoid
+            // Note: for clickAndWait etc.,  must disable ipc to avoid
             // any further message (like heart beat) to be sent to the original ipc
-            if (shouldResetIpc)   ipc.destroy()
+            if (shouldResetIpc) {
+              getIpcCache().disable(state.tabIds.toPlay)
+            }
 
             // Note: put some delay here because there are cases when next command's
             // heart beat request is answered by previous page
             return delay(() => {}, 2000)
             // A standlone `checkHeartBeat to make sure we don't have to wait until's
             // first interval to pass the check
-            .then(() => checkHeartBeat())
+            .then(() => innerCheckHeartBeat())
             .then(() => {
               return until('player tab heart beat check', () => {
-                checkHeartBeat()
+                innerCheckHeartBeat()
 
                 return {
                   pass: gotHeartBeat,
@@ -791,77 +807,220 @@ const onRequest = (cmd, args) => {
           if (state.timer && retryInfo.retryCount === 0)  clearInterval(state.timer)
 
           // Note: -1 will disable ipc timeout for 'pause' command
-          const ipcTimeout = args.command.cmd === 'pause' ? -1 : null
+          const ipcTimeout = (function () {
+            switch (args.command.cmd) {
+              case 'open':    return ((args.command.extra && args.command.extra.timeoutPageLoad) || 60) * 1000
+              case 'pause':   return -1
+              default:        return null
+            }
+          })()
 
           return ipc.ask('DOM_READY', {})
-          .then(() => ipc.ask('RUN_COMMAND', {
-            command: {
-              ...args.command,
-              extra: {
-                ...(args.command.extra || {}),
-                retryInfo
+          .then(() => {
+            return ipc.ask('RUN_COMMAND', {
+              command: {
+                ...args.command,
+                extra: {
+                  ...(args.command.extra || {}),
+                  retryInfo
+                }
               }
-            }
-          }, ipcTimeout))
+            }, ipcTimeout)
+          })
           .then(wait)
+        })
+        .catch(e => {
+          log.error('all catched by runCommand - ' + e.message)
+          throw e
         })
       }
 
-      let timer     = null
       const timeout = args.command.extra.timeoutElement * 1000
+      const runCommandWithRetry = (...args) => {
+        // Note: add timerSecret to ensure it won't clear timer that is not created by this function call
+        const timerSecret = Math.random()
+        state.timerSecret = timerSecret
 
-      const runCommandWithRetry = retry(runCommand, {
-        timeout,
-        shouldRetry: (e) => {
-          return e.message &&
-                  (e.message.indexOf('timeout reached when looking for') !== -1 ||
-                   e.message.indexOf('element is found but not visible yet') !== -1 ||
-                   e.message.indexOf('IPC Promise has been destroyed') !== -1)
-        },
-        onFirstFail: (e) => {
-          const title = e.message.indexOf('element is found but not visible yet') !== -1
-                            ? 'Tag waiting' // All use Tag Waiting for now  // 'Visible waiting'
-                            : 'Tag waiting'
+        const fn = retry(runCommand, {
+          timeout,
+          shouldRetry: (e) => {
+            log('runCommandWithRetry - shouldRetry', e.message)
 
-          startSendingTimeoutStatus(timeout, title)
-        },
-        onFinal: (err, data) => {
-          log('onFinal', err, data)
-          if (state.timer)  clearInterval(state.timer)
-        }
-      })
+            return e.message &&
+                    (e.message.indexOf('timeout reached when looking for') !== -1 ||
+                     e.message.indexOf('element is found but not visible yet') !== -1 ||
+                     e.message.indexOf('IPC Promise has been destroyed') !== -1)
+          },
+          onFirstFail: (e) => {
+            const title = e && e.message && e.message.indexOf('element is found but not visible yet') !== -1
+                              ? 'Tag waiting' // All use Tag Waiting for now  // 'Visible waiting'
+                              : 'Tag waiting'
 
-      return runCommandWithRetry(args)
-      .catch(e => {
-        // Note: if variable !ERRORIGNORE is set to true,
-        // it will just log errors instead of a stop of whole macro
-        if (args.command.extra && args.command.extra.errorIgnore) {
-          return {
-            log: {
-              error: e.message
+            startSendingTimeoutStatus(timeout, title)
+          },
+          onFinal: (err, data) => {
+            log('onFinal', err, data)
+            if (state.timer && state.timerSecret === timerSecret)  clearInterval(state.timer)
+          }
+        })
+
+        return fn(...args)
+      }
+
+      const runCommandWithClosureAndErrorProcess = () => {
+        return runCommandWithRetry(args)
+        .catch(e => {
+          // Note: if variable !ERRORIGNORE is set to true,
+          // it will just log errors instead of a stop of whole macro
+          if (args.command.extra && args.command.extra.errorIgnore) {
+            return {
+              log: {
+                error: e.message
+              }
             }
           }
-        }
 
-        throw e
-      })
-      .then(data => {
-        if (shouldWaitForDownloadAfterRun(args.command)) {
-          // Note: wait for download to either be create or completed
-          return getDownloadMan().waitForDownloadIfAny()
-          .then(() => data)
-        }
-
-        return data
-      })
-      .then(data => {
-        // Note: use bg to set pageUrl, so that we can be sure that this `pageUrl` is 100% correct
-        return Ext.tabs.get(state.tabIds.toPlay)
-        .then(tab => ({ ...data, pageUrl: tab.url }))
-        .catch(e => {
-          log.error('Error in fetching play tab url')
-          return data
+          throw e
         })
+      }
+
+      const runWithHeartBeat = () => {
+        const infiniteCheckHeartBeat = (() => {
+          const startTime = new Date().getTime()
+          let stop = false
+
+          const fn = () => {
+            log('starting heart beat')
+            // Note: do not check heart beat when
+            // 1. it's a 'open' command, which is supposed to reconnect ipc
+            // 2. it's going to download files, which will kind of reload page and reconnect ipc
+            if (shoudWaitForCommand(args.command) ||
+                getDownloadMan().hasPendingDownload()) {
+              updateHeartBeatSecret({ disabled: true })
+              return new Promise(() => {})
+            }
+
+            if (stop) return Promise.resolve()
+
+            return checkHeartBeat(100, startTime)
+            .then(
+              () => delay(() => {}, 1000).then(fn),
+              e => {
+                log.error('lost heart beart!!', e.stack)
+                throw new Error('lost heart beat when running command')
+              }
+            )
+          }
+          fn.stop = () => {
+            log('stopping heart beat')
+            stop = true
+          }
+
+          return fn
+        })()
+
+        return Promise.race([
+          runCommandWithClosureAndErrorProcess()
+            .then(data => {
+              infiniteCheckHeartBeat.stop()
+              return data
+            })
+            .catch(e => {
+              infiniteCheckHeartBeat.stop()
+              throw e
+            }),
+          infiniteCheckHeartBeat()
+        ])
+      }
+
+      const runWithHeartBeatRetry = retry(runWithHeartBeat, {
+        timeout,
+        shouldRetry: (e) => {
+          log('runWithHeartBeatRetry - shouldRetry', e.message)
+          return e && e.message && e.message.indexOf('lost heart beat when running command') !== -1
+        }
+      })
+
+      const runEternally = () => {
+        return new Promise((resolve, reject) => {
+          const p = runWithHeartBeatRetry().then(data => {
+            if (shouldWaitForDownloadAfterRun(args.command)) {
+              // Note: wait for download to either be create or completed
+              return getDownloadMan().waitForDownloadIfAny()
+              .then(() => data)
+            }
+
+            return data
+          })
+          .then(data => {
+            // Note: use bg to set pageUrl, so that we can be sure that this `pageUrl` is 100% correct
+            return Ext.tabs.get(state.tabIds.toPlay)
+            .then(tab => ({ ...data, pageUrl: tab.url }))
+            .catch(e => {
+              log.error('Error in fetching play tab url')
+              return data
+            })
+          })
+
+          resolve(p)
+        })
+      }
+
+      const prepare = () => {
+        return getPlayTab()
+        // Note: catch any error, and make it run 'getPlayTab(args.url)' instead
+        .catch(e => ({ id: -1 }))
+        .then(tab => {
+          log('after first getPlayTab', tab)
+          const openUrlInTab = () => {
+            const { cmd, target } = args.command
+            if (cmd !== 'open') throw new Error('no play tab found')
+
+            return getPlayTab(target)
+            .then(tab => ({ tab, hasOpenedUrl: true }))
+          }
+
+          return getIpcCache().get(tab.id, 100)
+          .then(
+            ipc => {
+              // Note: test if the ipc is still active,
+              // if it's not, try to open url as if that ipc doesn't exist at all
+              // return ipc.ask('HEART_BEAT', {}, 500)
+              // .then(() => ({ tab, hasOpenedUrl: false }))
+              // .catch(openUrlInTab)
+              return { tab, hasOpenedUrl: false }
+            },
+            e => {
+              return openUrlInTab()
+            }
+          )
+        })
+        .then(({ tab, hasOpenedUrl }) => {
+          // const p = args.shouldNotActivateTab ? Promise.resolve() : activateTab(tab.id, true)
+          const p = Promise.resolve()
+
+          // Note: wait for tab to confirm it has loaded
+          return p
+          .then(() => getIpcCache().get(tab.id, 6000 * 10))
+          .then(ipc => {
+            const p = !hasOpenedUrl ? Promise.resolve() : ipc.ask('MARK_NO_COMMANDS_YET', {})
+            return p.then(() => ipc.ask('SET_STATUS', { status: C.CONTENT_SCRIPT_STATUS.PLAYING }))
+          })
+        })
+      }
+
+      return prepare()
+      .then(runEternally)
+      .catch(e => {
+        log.error('catched by runEternally', e.stack)
+
+        if (e && e.message && (
+              e.message.indexOf('lost heart beat when running command') !== -1 ||
+              e.message.indexOf('Could not establish connection') !== -1
+            )) {
+          return runEternally()
+        }
+        throw e
       })
     }
 
@@ -879,8 +1038,8 @@ const onRequest = (cmd, args) => {
       if (state.timer) clearInterval(state.timer)
 
       // Note: let cs know that it should exit playing mode
-      const ipc = state.ipcCache[state.tabIds.toPlay]
-      return ipc.ask('SET_STATUS', { status: C.CONTENT_SCRIPT_STATUS.NORMAL })
+      return getIpcCache().get(state.tabIds.toPlay)
+      .then(ipc => ipc.ask('SET_STATUS', { status: C.CONTENT_SCRIPT_STATUS.NORMAL }))
     }
 
     // corresponding to the 'find' functionality on dashboard panel
@@ -1169,32 +1328,34 @@ const onRequest = (cmd, args) => {
     case 'CS_STORE_SCREENSHOT_IN_SELECTION': {
       const { rect, devicePixelRatio, fileName } = args
       const tabId = args.sender.tab.id
-      const ipc   = state.ipcCache[tabId]
 
-      return activateTab(state.tabIds.toPlay, true)
-      .then(() => delay(() => {}, SCREENSHOT_DELAY))
-      .then(() => captureScreenInSelection(state.tabIds.toPlay, { rect, devicePixelRatio }, {
-        startCapture: () => {
-          return ipc.ask('START_CAPTURE_FULL_SCREENSHOT', { hideScrollbar: false })
-        },
-        endCapture: (pageInfo) => {
-          return ipc.ask('END_CAPTURE_FULL_SCREENSHOT', { pageInfo })
-        },
-        scrollPage: (offset) => {
-          return ipc.ask('SCROLL_PAGE', { offset })
-        }
-      }))
-      .then(dataUrl => {
-        const man = getScreenshotMan()
+      return getIpcCache().get(tabId)
+      .then(ipc => {
+        return activateTab(state.tabIds.toPlay, true)
+        .then(() => delay(() => {}, SCREENSHOT_DELAY))
+        .then(() => captureScreenInSelection(state.tabIds.toPlay, { rect, devicePixelRatio }, {
+          startCapture: () => {
+            return ipc.ask('START_CAPTURE_FULL_SCREENSHOT', { hideScrollbar: false })
+          },
+          endCapture: (pageInfo) => {
+            return ipc.ask('END_CAPTURE_FULL_SCREENSHOT', { pageInfo })
+          },
+          scrollPage: (offset) => {
+            return ipc.ask('SCROLL_PAGE', { offset })
+          }
+        }))
+        .then(dataUrl => {
+          const man = getScreenshotMan()
 
-        return man.overwrite(fileName, dataURItoBlob(dataUrl))
-        .then(() => {
-          getPanelTabIpc()
-          .then(panelIpc => {
-            return panelIpc.ask('RESTORE_SCREENSHOTS')
+          return man.overwrite(fileName, dataURItoBlob(dataUrl))
+          .then(() => {
+            getPanelTabIpc()
+            .then(panelIpc => {
+              return panelIpc.ask('RESTORE_SCREENSHOTS')
+            })
+
+            return fileName
           })
-
-          return fileName
         })
       })
     }
@@ -1202,7 +1363,6 @@ const onRequest = (cmd, args) => {
     case 'CS_SCREEN_AREA_SELECTED': {
       const { rect, devicePixelRatio } = args
       const tabId = args.sender.tab.id
-      const ipc   = state.ipcCache[tabId]
 
       log('CS_SCREEN_AREA_SELECTED', rect, devicePixelRatio, tabId)
 
@@ -1244,9 +1404,11 @@ const onRequest = (cmd, args) => {
             state.tabIds.toInspect = args.sender.tab.id
 
             setTimeout(() => {
-              const ipc = state.ipcCache[state.tabIds.toInspect]
-              ipc.ask('SET_STATUS', {
-                status: C.CONTENT_SCRIPT_STATUS.INSPECTING
+              getIpcCache().get(state.tabIds.toInspect)
+              .then(ipc => {
+                return ipc.ask('SET_STATUS', {
+                  status: C.CONTENT_SCRIPT_STATUS.INSPECTING
+                })
               })
             }, 0)
 
@@ -1282,9 +1444,11 @@ const onRequest = (cmd, args) => {
       }
 
       setTimeout(() => {
-        const ipc = state.ipcCache[state.tabIds.toRecord]
-        ipc.ask('SET_STATUS', {
-          status: C.CONTENT_SCRIPT_STATUS.RECORDING
+        getIpcCache().get(state.tabIds.toRecord)
+        .then(ipc => {
+          return ipc.ask('SET_STATUS', {
+            status: C.CONTENT_SCRIPT_STATUS.RECORDING
+          })
         })
       }, 0)
 
@@ -1377,12 +1541,7 @@ const onRequest = (cmd, args) => {
       .then(tab => {
         log('selectWindow, got tab', tab)
 
-        return until('new tab creates ipc', () => {
-          return {
-            pass: state.ipcCache[tab.id],
-            result: state.ipcCache[tab.id]
-          }
-        })
+        return getIpcCache().get(tab.id, 10000)
         .catch(e => {
           if (/tab=\s*open\s*/i.test(args.target)) {
             throw new Error('To open a new tab, a valid URL is needed')
@@ -1406,8 +1565,11 @@ const onRequest = (cmd, args) => {
           // only if the new tab is set to PLAYING status
           log('selectWindow, set orignial to normal')
 
-          state.ipcCache[oldTablId].ask('SET_STATUS', {
-            status: C.CONTENT_SCRIPT_STATUS.NORMAL
+          getIpcCache().get(oldTablId)
+          .then(ipc => {
+            return ipc.ask('SET_STATUS', {
+              status: C.CONTENT_SCRIPT_STATUS.NORMAL
+            })
           })
         })
         .then(() => {
@@ -1560,6 +1722,11 @@ const onRequest = (cmd, args) => {
       })
     }
 
+    case 'CS_ADD_LOG': {
+      return getPanelTabIpc()
+      .then(ipc => ipc.ask('ADD_LOG', args))
+    }
+
     case 'SET_CLIPBOARD': {
       clipboard.set(args.value)
       return true
@@ -1575,8 +1742,9 @@ const onRequest = (cmd, args) => {
 }
 
 const initIPC = () => {
-  bgInit((tabId, ipc) => {
-    state.ipcCache[tabId] = ipc
+  bgInit((tabId, cuid, ipc) => {
+    log('connect cs ipc', tabId, cuid, ipc)
+    getIpcCache().set(tabId, ipc, cuid)
     ipc.onAsk(onRequest)
   })
 }

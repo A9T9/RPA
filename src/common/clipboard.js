@@ -7,6 +7,10 @@ const setStyle = ($dom, obj) => {
 
 const withInput = (fn) => {
   const $input = document.createElement('textarea')
+  // Note: Firefox requires 'contenteditable' attribute, even on textarea element
+  // without it, execCommand('paste') won't work in Firefox
+  // reference: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Interact_with_the_clipboard#Browser-specific_considerations_2
+  $input.setAttribute('contenteditable', true)
 
   setStyle($input, {
     position: 'aboslute',

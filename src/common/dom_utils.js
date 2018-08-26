@@ -1,12 +1,12 @@
 import { and } from './utils'
 
 export const getStyle = function (dom) {
-  if (!dom)   throw new Error('getStyle: dom not exist')
+  if (!dom)   throw new Error('getStyle: dom does not exist')
   return getComputedStyle(dom)
 }
 
 export const setStyle = function (dom, style) {
-  if (!dom)   throw new Error('setStyle: dom not exist')
+  if (!dom)   throw new Error('setStyle: dom does not exist')
 
   for (var i = 0, keys = Object.keys(style), len = keys.length; i < len; i++) {
     dom.style[keys[i]] = style[keys[i]]

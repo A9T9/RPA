@@ -280,7 +280,17 @@ export const withTimeout = (timeout, fn) => {
       reject(new Error('withTimeout: timeout'))
     }, timeout)
 
-    fn(cancel).then(resolve, reject)
+    fn(cancel)
+    .then(
+      data => {
+        cancel()
+        resolve(data)
+      },
+      e => {
+        cancel()
+        reject(e)
+      }
+    )
   })
 }
 
@@ -334,10 +344,12 @@ export const retry = (fn, options) => (...args) => {
     }
   })()
 
-  const onError = e => {
-    if (!shouldRetry(e)) {
+  const onError = (e, reject) => {
+    if (!shouldRetry(e, retryCount)) {
       wrappedOnFinal(e)
-      throw e
+
+      if (reject) return reject(e)
+      else        throw e
     }
     lastError = e
 
@@ -353,7 +365,7 @@ export const retry = (fn, options) => (...args) => {
       if (done) return
 
       delay(run, intervalMan.getInterval())
-      .then(resolve, onError)
+      .then(resolve, e => onError(e, reject))
     })
   }
 
@@ -543,4 +555,49 @@ export const dpiFromFileName = (fileName) => {
   const reg = /_dpi_(\d+)/i
   const m = fileName.match(reg)
   return m ? parseInt(m[1], 10) : 0
+}
+
+export const mockAPIWith = (factory, mock, promiseFunctionKeys = []) => {
+  let real = mock
+  let exported = objMap((val, key) => {
+    if (typeof val === 'function') {
+      if (promiseFunctionKeys.indexOf(key) !== -1) {
+        return (...args) => p.then(() => real[key](...args))
+      } else {
+        return (...args) => {
+          p.then(() => real[key](...args))
+          return real[key](...args)
+        }
+      }
+    } else {
+      return val
+    }
+  }, mock)
+
+  const p = Promise.resolve(factory())
+            .then(api => { real = api })
+
+  return exported
+}
+
+export const withCountDown = (options) => {
+  const { interval, timeout, onTick } = options
+  let past = 0
+
+  return new Promise((resolve, reject) => {
+    const timer = setInterval(() => {
+      past += interval
+
+      try {
+        onTick({ past, total: timeout })
+      } catch (e) { console.error(e) }
+
+      if (past >= timeout)  clearInterval(timer)
+    }, interval)
+
+    const p = delay(() => {}, timeout)
+    .then(() => clearInterval(timer))
+
+    resolve(p)
+  })
 }

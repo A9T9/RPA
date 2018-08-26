@@ -32,6 +32,23 @@ function workerMessageHandler(msg: WorkerMessage): void {
   }
 }
 
+interface Region {
+  matchedRect: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+  order: number;
+  score: number;
+}
+
+interface ImageSearchResult {
+  containsGreenPinkBoxes: boolean;
+  errorCode: number;
+  regions: Region[]
+}
+
 /**
  * Schedules a template matching task for the web worker.
  * @param image Image where the search will be running.
@@ -45,12 +62,16 @@ function postImageSearchAsync(
   pattern: ImageData,
   minSimilarity: number,
   allowSizeVariation: boolean
-): Promise<Array<teamdocs.FindResult>> {
+): Promise<ImageSearchResult> {
   const jobData: ImageSearchJobData = {
       image,
       pattern,
-      minSimilarity,
-      allowSizeVariation
+      options: {
+        minSimilarity,
+        allowSizeVariation,
+        enableGreenPinkBoxes: false,
+        requireGreenPinkBoxes: false
+      }
   };
   return worker.postJobAsync(JobType.ImageSearch, jobData);
 }
@@ -79,12 +100,14 @@ export function searchImage (req: SearchImageRequest): Promise<Array<teamdocs.Fi
       minSimilarity,
       allowSizeVariation
     )
-    .then(regions => {
+    .then(result => {
+      const { containsGreenPinkBoxes, errorCode, regions } = result
+
       return regions.map(r => ({
-        left:   r.left / req.scaleDownRatio + req.offsetX,
-        top:    r.top / req.scaleDownRatio + req.offsetY,
-        width:  r.width / req.scaleDownRatio,
-        height: r.height / req.scaleDownRatio,
+        left:   r.matchedRect.left / req.scaleDownRatio + req.offsetX,
+        top:    r.matchedRect.top / req.scaleDownRatio + req.offsetY,
+        width:  r.matchedRect.width / req.scaleDownRatio,
+        height: r.matchedRect.height / req.scaleDownRatio,
         score:  r.score
       }))
     })

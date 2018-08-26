@@ -1,7 +1,8 @@
 import ipcPromise from './ipc_promise'
+import { getIpcCache } from './ipc_cache'
 import Ext from '../web_extension'
 import log from '../log'
-import { retry, withTimeout } from '../utils'
+import { retry, withTimeout, mockAPIWith } from '../utils'
 
 const TIMEOUT = -1
 
@@ -132,23 +133,31 @@ export const csInit = () => {
 
   // try this process in case we're in none-src frame
   try {
-    let connected     = false
-    const checkReady  = () => {
-      if (connected)  return Promise.resolve(true)
-      return Promise.reject(new Error('cs not connected with bg yet'))
+    // let connected     = false
+    // const checkReady  = () => {
+    //   if (connected)  return Promise.resolve(true)
+    //   return Promise.reject(new Error('cs not connected with bg yet'))
+    // }
+    const reconnect   = () => {
+      return withTimeout(500, () => {
+        return Ext.runtime.sendMessage({
+          type: 'RECONNECT'
+        })
+        .then(cuid => {
+          log('got existing cuid', cuid)
+          if (cuid) return openBgWithCs(cuid).ipcCs()
+          throw new Error('failed to reconnect')
+        })
+      })
     }
     const connectBg   = () => {
-      return withTimeout(1000, (cancelTimeout) => {
+      return withTimeout(1000, () => {
         return Ext.runtime.sendMessage({
           type: 'CONNECT',
           cuid: cuid
         })
         .then(done => {
-          if (done) {
-            connected = true
-            cancelTimeout()
-            return true
-          }
+          if (done) return openBgWithCs(cuid).ipcCs()
           throw new Error('not done')
         })
       })
@@ -159,11 +168,27 @@ export const csInit = () => {
       timeout: 5000
     })
 
-    tryConnect().catch(e => {
-      log.error(e)
-    })
-
-    return openBgWithCs(cuid).ipcCs(checkReady)
+    // Note: Strategy here
+    // 1. Try to recover connection with background (get the existing cuid)
+    // 2. If cuid not found, try to create new connection (cuid) with background
+    // 3. Both of these two steps above are async, but this api itself is synchronous,
+    //    so we have to create a mock API and return it first
+    return mockAPIWith(
+      () => {
+        return reconnect()
+        .catch(() => tryConnect())
+        .catch(e => {
+          log.error('Failed to create cs ipc')
+          throw e
+        })
+      },
+      {
+        ask: () => Promise.reject(new Error('mock ask')),
+        onAsk: (...args) => { log('mock onAsk', ...args) },
+        destroy: () => {}
+      },
+      ['ask']
+    )
   } catch (e) {
     log.error(e.stack)
   }
@@ -173,10 +198,27 @@ export const csInit = () => {
 // it accepts a `fn` function to handle CONNECT message from content scripts
 export const bgInit = (fn) => {
   Ext.runtime.onMessage.addListener((req, sender, sendResponse) => {
-    if (req.type === 'CONNECT' && req.cuid) {
-      fn(sender.tab.id, openBgWithCs(req.cuid).ipcBg(sender.tab.id))
-      sendResponse(true)
+    switch (req.type) {
+      case 'CONNECT': {
+        if (req.cuid) {
+          fn(sender.tab.id, req.cuid, openBgWithCs(req.cuid).ipcBg(sender.tab.id))
+          sendResponse(true)
+        }
+        break
+      }
+
+      case 'RECONNECT': {
+        const cuid = getIpcCache().getCuid(sender.tab.id)
+
+        if (cuid) {
+          getIpcCache().enable(sender.tab.id)
+        }
+
+        sendResponse(cuid || null)
+        break
+      }
     }
+
     return true
   })
 }

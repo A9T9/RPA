@@ -1,3 +1,6 @@
+imagesearch-testextension
 node_modules
 dist
+dist_*
+*_ext.zip
 public/bundle.js

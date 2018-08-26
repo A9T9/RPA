@@ -16,6 +16,7 @@ module.exports = {
     'key-spacing': 'off',
     'semi': 'off',
     'indent': 'off',
-    'no-unused-vars': 'off'
+    'no-unused-vars': 'off',
+    'camelcase': 'off'
   }
 }

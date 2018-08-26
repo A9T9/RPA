@@ -47,6 +47,7 @@
             // Ignore this message
             if (chrome.runtime.lastError &&
                 !reg.test(chrome.runtime.lastError.message)) {
+              console.error(`${chrome.runtime.lastError.message}, ${method}, ${JSON.stringify(args)}`)
               return reject(chrome.runtime.lastError)
             }
             resolve(result)

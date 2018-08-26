@@ -35,6 +35,7 @@ import {
   setTestSuites,
   setEditing,
   setPlayerState,
+  setTimeoutStatus,
   updateConfig,
   addLog,
   addScreenshot,
@@ -209,9 +210,12 @@ const downloadTextFile = (text, fileName) => {
 
 const genPlayerPlayCallback = ({ options }) => (err, reason) => {
   if (options.savelog) {
-    const logTitle   = err ? `Status=Error: ${err.message}` : `Status=OK`
-    const logContent = store.getState().logs.map(renderLog)
-    const text       = [logTitle, '###', ...logContent].join('\n')
+    const logs        = store.getState().logs
+    const errorLog    = logs.find(log => log.type === 'error' && !(log.options && log.options.ignored))
+    const error       = err || (errorLog && { message: errorLog.text })
+    const logTitle    = error ? `Status=Error: ${error.message}` : `Status=OK`
+    const logContent  = logs.map(renderLog)
+    const text        = [logTitle, '###', ...logContent].join('\n')
     downloadTextFile(text, decodeURIComponent(options.savelog))
   }
 
@@ -251,15 +255,7 @@ const bindIpcEvent = () => {
       case 'TIMEOUT_STATUS':
         if (store.getState().status !== C.APP_STATUS.PLAYER)  return false
 
-        store.dispatch(setPlayerState({
-          timeoutStatus: args
-        }))
-
-        // Note: show in badge the timeout left
-        csIpc.ask('PANEL_UPDATE_BADGE', {
-          type: 'play',
-          text: (args.total - args.past) / 1000 + 's'
-        })
+        store.dispatch(setTimeoutStatus(args))
         return true
 
       case 'RUN_TEST_CASE': {
@@ -387,6 +383,15 @@ const bindIpcEvent = () => {
 
       case 'UPDATE_ACTIVE_TAB': {
         updatePageTitle(args)
+        return true
+      }
+
+      case 'ADD_LOG': {
+        if (!args)          return false
+        if (args.info)      store.dispatch(addLog('info', args.info, args.options))
+        if (args.warning)   store.dispatch(addLog('warning', args.warning))
+        if (args.error)     store.dispatch(addLog('error', args.error))
+
         return true
       }
     }

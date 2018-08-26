@@ -1,5 +1,5 @@
 import glob2reg from 'kd-glob-to-regexp'
-import { delay, until, toRegExp, insertScript, retry, ensureExtName } from './utils'
+import { delay, until, toRegExp, insertScript, retry, ensureExtName, withCountDown } from './utils'
 import { scrollLeft, scrollTop, domText, isVisible, cssSelector } from './dom_utils'
 import { postMessage } from './ipc/cs_postmessage'
 import Ext from './web_extension'
@@ -238,7 +238,7 @@ export const getFrameByLocator = (str, helpers) => {
     helpers.hackAlertConfirmPrompt(doc)
   }
 
-  // Note: can't reurn the contentWindow directly, because Promise 'resolve' will
+  // Note: can't return the contentWindow directly, because Promise 'resolve' will
   // try to test its '.then' method, which will cause a cross origin violation
   // so, we wrap it in an object
   return { frame: frameDom.contentWindow }
@@ -246,31 +246,6 @@ export const getFrameByLocator = (str, helpers) => {
 
 export const run = (command, csIpc, helpers) => {
   const { cmd, target, value, extra } = command
-  const delayWithTimeoutStatus = (type, timeout, promise) => {
-    return new Promise((resolve, reject) => {
-      let past = 0
-
-      const timer = setInterval(() => {
-        past += 1000
-        csIpc.ask('CS_TIMEOUT_STATUS', {
-          type,
-          total: timeout,
-          past
-        })
-
-        if (past >= timeout) {
-          clearInterval(timer)
-        }
-      }, 1000)
-
-      const p = promise.then(val => {
-        clearInterval(timer)
-        return val
-      })
-
-      resolve(p)
-    })
-  }
   const wrap = (fn, genOptions) => (...args) => {
     const options = genOptions(...args)
 
@@ -282,12 +257,30 @@ export const run = (command, csIpc, helpers) => {
       }
     })
   }
+  const getElementByLocatorWithLogForEfp = (locator) => {
+    const el = getElementByLocator(locator)
+
+    if (isElementFromPoint(locator)) {
+      let elXpath = 'unkown'
+
+      try {
+        elXpath = helpers.xpath(el)
+      } catch (e) {}
+
+      const msg = `${locator} => xpath "${elXpath}"`
+
+      console.log(msg, el)
+      csIpc.ask('CS_ADD_LOG', { info: msg })
+    }
+
+    return el
+  }
   const __getFrameByLocator = wrap(getFrameByLocator, (locator) => ({
     errorMsg: (msg) => {
       return `timeout reached when looking for frame '${locator}'`
     }
   }))
-  const __getElementByLocator = wrap(getElementByLocator, (locator) => ({
+  const __getElementByLocator = wrap(getElementByLocatorWithLogForEfp, (locator) => ({
     errorMsg: (msg) => {
       if (/element is found but not visible yet/.test(msg)) {
         return `element is found but not visible yet for '${locator}' (use !WaitForVisible = false to disable waiting for visible)`
@@ -555,24 +548,6 @@ export const run = (command, csIpc, helpers) => {
       })
     }
 
-    case 'pause': {
-      const n = parseInt(target)
-
-      if (!target || !target.length || n === 0) {
-        return {
-          control: {
-            type: 'pause'
-          }
-        }
-      }
-
-      if (isNaN(n) || n < 0) {
-        throw new Error('target of pause command must be a positive integer')
-      }
-
-      return delayWithTimeoutStatus('pause', n, delay(() => true, n))
-    }
-
     case 'verifyText': {
       return __getElementByLocator(target)
       .then(el => {
@@ -794,13 +769,6 @@ export const run = (command, csIpc, helpers) => {
     case 'waitForPageToLoad':
       return true
 
-    case 'store':
-      return {
-        vars: {
-          [value]: target
-        }
-      }
-
     case 'storeTitle': {
       return {
         vars: {
@@ -915,21 +883,6 @@ export const run = (command, csIpc, helpers) => {
 
         return true
       })
-    }
-
-    case 'echo': {
-      const extra = (function () {
-        if (value === '#shownotification')  return { options: { notification: true } }
-        if (value)                          return { options: { color: value } }
-        return {}
-      })()
-
-      return {
-        log: {
-          info: target,
-          ...extra
-        }
-      }
     }
 
     case 'sendKeys': {
@@ -1156,10 +1109,6 @@ export const run = (command, csIpc, helpers) => {
         url: window.location.origin
       })
       .then(() => true)
-    }
-
-    case 'throwError': {
-      throw new Error(target)
     }
 
     case 'if':

@@ -1,4 +1,4 @@
-# 📌 New: Kantu user forum launched - https://forum.a9t9.com
+# 📌 Questions? Suggestions? - Meet us in the Kantu user forum at https://forum.a9t9.com
 
 Please post all questions and suggestions in our public user forum at https://forum.a9t9.com - the Kantu [selenium ide forum](https://forum.a9t9.com/c/kantu) is monitored by active users, tech support and the Kantu developers, so we would like to concentrate the discussion "over there".
 
@@ -28,7 +28,7 @@ Kantu for Chrome and Firefox - a modern Selenium IDE and Web Macro Recorder
 
 # Building the Chrome Extension
 
-We use Node V8.11.1 and Node V5.6.0.
+We use Node V8.11.1 and NPM V5.6.0.
 
 You can [install Kantu directly from the Chrome or Firefox stores](https://a9t9.com/kantu/), which is the easiest and the recommended way of using the Kantu Selenium IDE. But of course developers can also build it directly from the source code with this command line:
 

@@ -474,6 +474,20 @@ export function setPlayerState (obj) {
   }
 }
 
+export function setTimeoutStatus (args) {
+  return (dispatch) => {
+    dispatch(setPlayerState({
+      timeoutStatus: args
+    }))
+
+    // Note: show in badge the timeout left
+    csIpc.ask('PANEL_UPDATE_BADGE', {
+      type: 'play',
+      text: (args.total - args.past) / 1000 + 's'
+    })
+  }
+}
+
 export function addPlayerErrorCommandIndex (index) {
   return {
     type: T.PLAYER_ADD_ERROR_COMMAND_INDEX,
@@ -608,7 +622,20 @@ export function playerPlay (options) {
 
 export function listCSV () {
   return (dispatch, getState) => {
-    getCSVMan().list().then(list => {
+    const man = getCSVMan()
+
+    man.list().then(list => {
+      return Promise.all(list.map(item => {
+        return man.getLink(item.fileName)
+        .then(url => ({
+          url,
+          name:       item.fileName,
+          size:       item.size,
+          createTime: new Date(item.lastModified)
+        }))
+      }))
+    })
+    .then(list => {
       dispatch({
         type: T.SET_CSV_LIST,
         data: list
