@@ -14,9 +14,9 @@ As beta tester, we will email you (hidden) install links for new Kantu versions 
 The link goes to a Mailchimp signup form. 
 
 
-# Kantu-for-Chrome
+# How to install Kantu:
 
-Kantu for Chrome and Firefox - a modern Selenium IDE and Web Macro Recorder 
+Kantu for Chrome and Firefox is a modern Selenium IDE and Web Macro Recorder. You find the latest version always in the Chrome and Firefox web "stores": 
 
 - [Kantu for Chrome plus Selenium IDE in the Google Chrome Webstore](https://chrome.google.com/webstore/detail/kantu-browser-automation/gcbalfbdmfieckjlnblleoemohcganoc)
 

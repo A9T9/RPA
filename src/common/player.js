@@ -338,7 +338,7 @@ export class Player {
                 extra: this.state.extra
               })
 
-              return oldLoopsCursor === this.state.loopsCursor
+              return oldLoopsCursor !== this.state.loopsCursor
             }))
             .then((isLoopsCursorChanged) => {
               // __handle may change postDelay
