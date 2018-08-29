@@ -257,8 +257,8 @@ export const run = (command, csIpc, helpers) => {
       }
     })
   }
-  const getElementByLocatorWithLogForEfp = (locator) => {
-    const el = getElementByLocator(locator)
+  const getElementByLocatorWithLogForEfp = (locator, shouldWaitForVisible) => {
+    const el = getElementByLocator(locator, shouldWaitForVisible)
 
     if (isElementFromPoint(locator)) {
       let elXpath = 'unkown'
