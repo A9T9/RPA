@@ -34,7 +34,7 @@ You can [install Kantu directly from the Chrome or Firefox stores](https://a9t9.
 
 ```
 npm i
-npm run build (or build_ff for Firefox)
+npm run build (or build-ff for Firefox)
 ```
 
 Once done, the ready-to-use extension code appears in the /dist directory (Chrome) or /dist_ff directory (Firefox).
