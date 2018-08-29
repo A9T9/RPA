@@ -16,7 +16,7 @@ The link goes to a Mailchimp signup form.
 
 # How to install Kantu:
 
-Kantu for Chrome and Firefox is a modern Selenium IDE and Web Macro Recorder. You find the latest version always in the Chrome and Firefox web "stores": 
+Kantu for Chrome and Firefox is a modern Selenium IDE and Web Macro Recorder. You find the latest version always in the Chrome and Firefox web "stores". You can use it completely free for private and commercial purposes: 
 
 - [Kantu for Chrome plus Selenium IDE in the Google Chrome Webstore](https://chrome.google.com/webstore/detail/kantu-browser-automation/gcbalfbdmfieckjlnblleoemohcganoc)
 
