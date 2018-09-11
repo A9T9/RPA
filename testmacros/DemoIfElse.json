@@ -1,5 +1,5 @@
 {
-  "CreationDate": "2018-1-26",
+  "CreationDate": "2018-9-11",
   "Commands": [
     {
       "Command": "store",
@@ -144,6 +144,56 @@
     {
       "Command": "echo",
       "Target": "test case completed",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "onError",
+      "Target": "#goto",
+      "Value": "fixerror"
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext",
+      "Value": "this line works"
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometextXXXXX",
+      "Value": "this line has the wrong ID..."
+    },
+    {
+      "Command": "echo",
+      "Target": "this line is never reached, because of the error above",
+      "Value": "blue"
+    },
+    {
+      "Command": "gotoLabel",
+      "Target": "end-part2",
+      "Value": ""
+    },
+    {
+      "Command": "label",
+      "Target": "fixerror",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "here we can have code that handles the error..",
+      "Value": "green"
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext",
+      "Value": "Fix Error Section: This command works."
+    },
+    {
+      "Command": "label",
+      "Target": "end-part2",
       "Value": ""
     }
   ]

@@ -1,6 +1,46 @@
 {
-  "CreationDate": "2018-1-26",
+  "CreationDate": "2018-9-11",
   "Commands": [
+    {
+      "Command": "comment",
+      "Target": "WaitForVisible is not part of implicit waiting",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/waitforvisible",
+      "Value": ""
+    },
+    {
+      "Command": "waitForVisible",
+      "Target": "css=#div1 > h1",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "css=#div1 > h1",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "20",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "waitForVisible",
+      "Target": "css=#div2 > h1",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "css=#div2 > h1",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Implicit waiting: Wait for elements to be loaded  or <timeout_wait> is reached",
+      "Value": ""
+    },
     {
       "Command": "open",
       "Target": "https://a9t9.com/demo/webtest/implicitwaiting/",
@@ -23,8 +63,8 @@
     },
     {
       "Command": "echo",
-      "Target": "The next element (target) is not available yet... Kantu waits for it up to ${!TIMEOUT_STEP} seconds to appear.",
-      "Value": ""
+      "Target": "The next element (target) is not available yet... Kantu waits for it up to ${!TIMEOUT_WAIT} seconds to appear.",
+      "Value": "blue"
     },
     {
       "Command": "click",

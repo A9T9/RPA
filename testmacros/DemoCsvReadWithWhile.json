@@ -1,5 +1,5 @@
 {
-  "CreationDate": "2018-1-26",
+  "CreationDate": "2018-9-11",
   "Commands": [
     {
       "Command": "store",
@@ -12,78 +12,8 @@
       "Value": "!replayspeed"
     },
     {
-      "Command": "echo",
-      "Target": "First create some test data CSV file (3 lines)",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Donald",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Knuth",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "team@a9t9.com",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "csvSave",
-      "Target": "ReadCSVTestData.csv",
-      "Value": ""
-    },
-    {
-      "Command": "store",
-      "Target": "Ashu",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Zarathushtra",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Zarathushtra2018@gmail.com",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "csvSave",
-      "Target": "ReadCSVTestData.csv",
-      "Value": ""
-    },
-    {
-      "Command": "store",
-      "Target": "Yasna",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Haptanghaiti",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "store",
-      "Target": "Happy123456@unknownstartup.com",
-      "Value": "!csvLine"
-    },
-    {
-      "Command": "csvSave",
-      "Target": "ReadCSVTestData.csv",
-      "Value": ""
-    },
-    {
-      "Command": "echo",
-      "Target": "--- Read CSV Test starts here ---",
-      "Value": ""
-    },
-    {
-      "Command": "label",
-      "Target": "TESTSTART",
+      "Command": "comment",
+      "Target": "The file ReadCSVTestData.csv is pre-installed with Kantu.",
       "Value": ""
     },
     {

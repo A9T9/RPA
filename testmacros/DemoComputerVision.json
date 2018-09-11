@@ -1,0 +1,125 @@
+{
+  "CreationDate": "2018-9-11",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://ocr.space/",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "OCR.space is our own OCR API service, this demo is a test that our QA uses internally, too :-)",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Verify the 3rd party \"Share\" banner shows",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "true",
+      "Value": "!errorignore"
+    },
+    {
+      "Command": "visualSearch",
+      "Target": "democv_share.png@0.50",
+      "Value": "matches"
+    },
+    {
+      "Command": "if",
+      "Target": "${matches} == 0",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Browser width too small for \"share\" banner to show",
+      "Value": "blue"
+    },
+    {
+      "Command": "endif",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "false",
+      "Value": "!errorignore"
+    },
+    {
+      "Command": "type",
+      "Target": "id=imageUrl",
+      "Value": "https://a9t9.com/Content/Images/kantu-chrome-loop.png"
+    },
+    {
+      "Command": "select",
+      "Target": "id=ocrLanguage",
+      "Value": "label=English"
+    },
+    {
+      "Command": "comment",
+      "Target": "viewport is default, but we add it here for test. Try \"full\" to see the differenc",
+      "Value": "label=English"
+    },
+    {
+      "Command": "visionLimitSearchArea",
+      "Target": "viewport",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "we could use \"click link=Start OCR!\" but we use the image of the button instead",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "democv_startocr.png@0.60",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "#efp is short for \"#ElementFromPoint (${imageX},(${imageY})",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "#efp",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Wait for OCR to be completed",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "30",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "democv_ocrdone.png",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "10",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "click",
+      "Target": "link=Show Overlay",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Visually verify that the overlay is correct",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "democv_checkoverlay.png@0.60",
+      "Value": ""
+    }
+  ]
+}

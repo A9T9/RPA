@@ -1,6 +1,11 @@
 {
-  "CreationDate": "2018-1-26",
+  "CreationDate": "2018-9-11",
   "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
     {
       "Command": "open",
       "Target": "https://a9t9.com/kantu/demo/storeeval",
@@ -93,6 +98,21 @@
     },
     {
       "Command": "echo",
+      "Target": "page title = ${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "page title = ${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "page title = ${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
       "Target": "Now test some extraction with storeValue",
       "Value": ""
     },
@@ -122,18 +142,148 @@
       "Value": "y"
     },
     {
+      "Command": "storeChecked",
+      "Target": "name=vehicle",
+      "Value": "hasbike"
+    },
+    {
+      "Command": "storeChecked",
+      "Target": "xpath=(//input[@name='vehicle'])[2]",
+      "Value": "hascar"
+    },
+    {
+      "Command": "storeChecked",
+      "Target": "xpath=(//input[@name='vehicle'])[3]",
+      "Value": "hasboat"
+    },
+    {
+      "Command": "echo",
+      "Target": "User has bike:${hasbike}, car:${hascar}, boat:${hasboat}",
+      "Value": "green"
+    },
+    {
+      "Command": "comment",
+      "Target": "Search and extract directly from the page SOURCE",
+      "Value": "y"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=[\\$\\£\\€](\\d+(?:\\.\\d{1,2})?)",
+      "Value": "match1"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=[\\$\\£\\€](\\d+(?:\\.\\d{1,2})?)@2",
+      "Value": "match2"
+    },
+    {
+      "Command": "comment",
+      "Target": "You can also extract without regex with the * symbol",
+      "Value": "match2b"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "$*<",
+      "Value": "match2b"
+    },
+    {
+      "Command": "echo",
+      "Target": "Coffee costs ${match1} and tea ${match2}",
+      "Value": "blue"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=_width: (\\d+)",
+      "Value": "match1"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=_width: (\\d+)@1,1",
+      "Value": "match1group1"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=_width: (\\d+)@2",
+      "Value": "match2"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=_width: (\\d+)@2,1",
+      "Value": "match2group1"
+    },
+    {
+      "Command": "echo",
+      "Target": "match1 = [${MATCH1}] (group1 = [${match1group1}]) match2 =  [${MATCH2}]  (group1 = [${MATCH2GROUP1}])",
+      "Value": "blue"
+    },
+    {
+      "Command": "comment",
+      "Target": "Extract Google Analytics ID",
+      "Value": ""
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "UA-*,",
+      "Value": "ga_option1"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=UA-[0-9]+-[0-9]+",
+      "Value": "ga_option2"
+    },
+    {
+      "Command": "echo",
+      "Target": "Google Analytics ID = ${ga_option2}",
+      "Value": "pink"
+    },
+    {
+      "Command": "comment",
+      "Target": "Some assertion test for QA",
+      "Value": ""
+    },
+    {
+      "Command": "if",
+      "Target": "${match2group1} != 22",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Regex Extraction failed for Match2(1):  ${match2group1}",
+      "Value": ""
+    },
+    {
+      "Command": "endif",
+      "Target": "",
+      "Value": ""
+    },
+    {
       "Command": "echo",
       "Target": "Last but not least, taking a screenshot is another way to extract data",
       "Value": ""
     },
     {
       "Command": "captureScreenshot",
-      "Target": "myscreenshot-${mytitle}",
+      "Target": "myscreenshot_${mytitle}",
       "Value": ""
     },
     {
-      "Command": "echo",
-      "Target": "Tip: To save extracted data to CSV files use the csvSave command. See the DemoCsvSave macro for details.",
+      "Command": "storeImage",
+      "Target": "//*[@id=\"page-header\"]/div/div/h1",
+      "Value": "pagetitle.png"
+    },
+    {
+      "Command": "comment",
+      "Target": "Export images to download folder",
+      "Value": ""
+    },
+    {
+      "Command": "localStorageExport",
+      "Target": "myscreenshot_${mytitle}.png",
+      "Value": ""
+    },
+    {
+      "Command": "localStorageExport",
+      "Target": "pagetitle.png",
       "Value": ""
     }
   ]

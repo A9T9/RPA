@@ -1,0 +1,78 @@
+{
+  "creationDate": "2018-09-11",
+  "name": "DemoTestSuite",
+  "macros": [
+    {
+      "macro": "DemoAutofill",
+      "loops": 1
+    },
+    {
+      "macro": "DemoCanvas",
+      "loops": 1
+    },
+    {
+      "macro": "DemoComputerVision",
+      "loops": 1
+    },
+    {
+      "macro": "DemoCsvReadWithLoop",
+      "loops": 3
+    },
+    {
+      "macro": "DemoCsvReadWithWhile",
+      "loops": 1
+    },
+    {
+      "macro": "DemoCsvSave",
+      "loops": 1
+    },
+    {
+      "macro": "DemoDialogboxes",
+      "loops": 1
+    },
+    {
+      "macro": "DemoDownload",
+      "loops": 1
+    },
+    {
+      "macro": "DemoDragDrop",
+      "loops": 1
+    },
+    {
+      "macro": "DemoExtract",
+      "loops": 1
+    },
+    {
+      "macro": "DemoFrames",
+      "loops": 1
+    },
+    {
+      "macro": "DemoTakeScreenshots",
+      "loops": 1
+    },
+    {
+      "macro": "DemoIfElse",
+      "loops": 1
+    },
+    {
+      "macro": "DemoIframe",
+      "loops": 1
+    },
+    {
+      "macro": "DemoImplicitWaiting",
+      "loops": 1
+    },
+    {
+      "macro": "DemoStoreEval",
+      "loops": 1
+    },
+    {
+      "macro": "DemoTabs",
+      "loops": 1
+    },
+    {
+      "macro": "DemoVisualUITest",
+      "loops": 1
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "creationDate": "2018-09-11",
+  "name": "DemoLoopsInsideTestSuite",
+  "macros": [
+    {
+      "macro": "DemoDragDrop",
+      "loops": 3
+    },
+    {
+      "macro": "DemoIfElse",
+      "loops": 3
+    },
+    {
+      "macro": "DemoStoreEval",
+      "loops": 3
+    }
+  ]
+}

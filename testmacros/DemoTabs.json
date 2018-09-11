@@ -1,5 +1,5 @@
 {
-  "CreationDate": "2018-1-26",
+  "CreationDate": "2018-9-11",
   "Commands": [
     {
       "Command": "open",
@@ -60,6 +60,26 @@
       "Command": "type",
       "Target": "id=sometext1",
       "Value": "Now back in tab 1 - test done!"
+    },
+    {
+      "Command": "comment",
+      "Target": "We can also open new tabs",
+      "Value": ""
+    },
+    {
+      "Command": "selectWindow",
+      "Target": "tab=open",
+      "Value": "https://a9t9.com"
+    },
+    {
+      "Command": "selectWindow",
+      "Target": "tab=open",
+      "Value": "https://ocr.space"
+    },
+    {
+      "Command": "type",
+      "Target": "id=imageUrl",
+      "Value": "Kantu Tab Test done"
     }
   ]
 }

@@ -1,6 +1,11 @@
 {
-  "CreationDate": "2018-1-26",
+  "CreationDate": "2018-9-11",
   "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
     {
       "Command": "open",
       "Target": "https://a9t9.com/kantu/demo/csvsave",
@@ -72,8 +77,23 @@
       "Value": ""
     },
     {
+      "Command": "comment",
+      "Target": "Append content of !csvLine to CSV file (or create file if none exists)",
+      "Value": ""
+    },
+    {
       "Command": "csvSave",
       "Target": "CurrencyConverterData",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "If needed, you can download (save) the CSV data from the CSV tab to the the download folder",
+      "Value": ""
+    },
+    {
+      "Command": "localStorageExport",
+      "Target": "currencyconverterdata.csv",
       "Value": ""
     }
   ]

@@ -1,0 +1,90 @@
+{
+  "CreationDate": "2018-9-11",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "200",
+      "Value": "!timeout_download"
+    },
+    {
+      "Command": "store",
+      "Target": "10",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "storeEval",
+      "Target": "var d=new Date(); d.getFullYear() + '-' +((d.getMonth()+1))+'-' +d.getDate();",
+      "Value": "todaydate"
+    },
+    {
+      "Command": "echo",
+      "Target": "Today is ${todaydate}",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/filedownload",
+      "Value": ""
+    },
+    {
+      "Command": "onDownload",
+      "Target": "KantuTest1_${todaydate}.exe",
+      "Value": "true"
+    },
+    {
+      "Command": "store",
+      "Target": "${!runtime}",
+      "Value": "starttime"
+    },
+    {
+      "Command": "click",
+      "Target": "link=USA (East coast)*",
+      "Value": ""
+    },
+    {
+      "Command": "storeEval",
+      "Target": "parseFloat(\"${!runtime}\")-parseFloat(\"${starttime}\")",
+      "Value": "downloadtime"
+    },
+    {
+      "Command": "echo",
+      "Target": "Download1 (USA) took ${downloadtime} seconds",
+      "Value": "blue"
+    },
+    {
+      "Command": "onDownload",
+      "Target": "KantuTest2_${todaydate}.exe",
+      "Value": "true"
+    },
+    {
+      "Command": "store",
+      "Target": "${!runtime}",
+      "Value": "starttime"
+    },
+    {
+      "Command": "click",
+      "Target": "link=*Asia*",
+      "Value": ""
+    },
+    {
+      "Command": "storeEval",
+      "Target": "parseFloat(\"${!runtime}\")-parseFloat(\"${starttime}\")",
+      "Value": "downloadtime"
+    },
+    {
+      "Command": "echo",
+      "Target": "Download2 (Asia) took ${downloadtime} seconds",
+      "Value": "green"
+    },
+    {
+      "Command": "echo",
+      "Target": "All done...",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "link=OnDownload command",
+      "Value": ""
+    }
+  ]
+}

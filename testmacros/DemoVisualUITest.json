@@ -1,0 +1,110 @@
+{
+  "CreationDate": "2018-9-11",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/",
+      "Value": ""
+    },
+    {
+      "Command": "resize",
+      "Target": "1024@768",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "uitest_logo_wide_dpi_96.png@0.70",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "uitest_download_dpi_96.png@0.70",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "uitest_share_dpi_96.png@0.70",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Resize to iPhone6 screen size",
+      "Value": ""
+    },
+    {
+      "Command": "resize",
+      "Target": "375@768",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "uitest_logo_mobile_dpi_96.png",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Missing menu is critical, so we use ASSERT (instead of just VERIFY)",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "uitest_hamburger_dpi_96.png",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Check that Share buttons do not show",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "At this point, page is surely loaded => reduce wait for (normally missing) image",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "2",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "visualSearch",
+      "Target": "uitest_share_dpi_96.png@0.70",
+      "Value": "count"
+    },
+    {
+      "Command": "if",
+      "Target": "${count} > 0",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Share buttons should NOT show on mobile phones",
+      "Value": ""
+    },
+    {
+      "Command": "endif",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Restore default wait (not really needed here, since macro stops now anyway)",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "10",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "comment",
+      "Target": "Done, enlarge browser again",
+      "Value": ""
+    },
+    {
+      "Command": "resize",
+      "Target": "1024@768",
+      "Value": ""
+    }
+  ]
+}

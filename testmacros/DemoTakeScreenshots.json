@@ -1,5 +1,5 @@
 {
-  "CreationDate": "2018-1-26",
+  "CreationDate": "2018-9-11",
   "Commands": [
     {
       "Command": "open",
@@ -8,7 +8,7 @@
     },
     {
       "Command": "captureEntirePageScreenshot",
-      "Target": "a9t9 blog",
+      "Target": "a9t9blog",
       "Value": ""
     },
     {
@@ -38,8 +38,18 @@
     },
     {
       "Command": "captureScreenshot",
-      "Target": "article2-just-viewport",
+      "Target": "article2_just_viewport",
       "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "take screenshot of an _element_ with storeImage",
+      "Value": ""
+    },
+    {
+      "Command": "storeImage",
+      "Target": "link=The Autonomous Technology (A9T9) Blog",
+      "Value": "blogtitle"
     }
   ]
 }

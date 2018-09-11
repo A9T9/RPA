@@ -1,6 +1,21 @@
 {
-  "CreationDate": "2018-1-26",
+  "CreationDate": "2018-9-11",
   "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "store",
+      "Target": "15",
+      "Value": "!TIMEOUT_WAIT"
+    },
+    {
+      "Command": "store",
+      "Target": "60",
+      "Value": "!TIMEOUT_PAGELOAD"
+    },
     {
       "Command": "open",
       "Target": "https://docs.google.com/forms/d/e/1FAIpQLScPXRMtYI_KYL8J6fivHUV0hQKB7j1RtqTrBBUtEr8VMmyCqw/viewform",
@@ -90,6 +105,11 @@
       "Command": "captureScreenshot",
       "Target": "AutoFill3rdPage${!LOOP}",
       "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "DemoAutofill macro completed (shown as notifcation because of #shownotification in the 3rd column)",
+      "Value": "#shownotification"
     }
   ]
 }

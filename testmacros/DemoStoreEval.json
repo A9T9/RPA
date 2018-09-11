@@ -1,5 +1,5 @@
 {
-  "CreationDate": "2018-1-26",
+  "CreationDate": "2018-9-11",
   "Commands": [
     {
       "Command": "store",
@@ -44,6 +44,31 @@
     {
       "Command": "assertTitle",
       "Target": "123",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Use sourceSearch to assert we have the right Google Analytics Code",
+      "Value": ""
+    },
+    {
+      "Command": "sourceSearch",
+      "Target": "UA-86195842-1",
+      "Value": "matches"
+    },
+    {
+      "Command": "if",
+      "Target": "${matches} == 0",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Google Analytics ID is wrong!",
+      "Value": ""
+    },
+    {
+      "Command": "endif",
+      "Target": "",
       "Value": ""
     },
     {
@@ -175,6 +200,41 @@
       "Command": "type",
       "Target": "id=sometext",
       "Value": "${output}"
+    },
+    {
+      "Command": "if",
+      "Target": "parseFloat(\"${!runtime}\") > 15",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Runtime too slow, test failed",
+      "Value": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Runtime Ok, test passed!",
+      "Value": "green"
+    },
+    {
+      "Command": "endif",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "With @POS you click on the (in this case) 3rd link with the same name. Great for looping over a list of links with the same name.",
+      "Value": "green"
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "link=This link@POS=3",
+      "Value": ""
     }
   ]
 }
