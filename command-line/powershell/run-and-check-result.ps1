@@ -1,5 +1,5 @@
 ###########################################################################
-#Script to run Kantu macros and check on their result via the command line
+#Script to run Kantu macros and check on their result via the command line 
 ###########################################################################
 
 #max time allowed for macro to complete (change this value of your macros takes longer to run)
