@@ -1,0 +1,62 @@
+{
+  "Name": "cmdlinetest3",
+  "CreationDate": "2018-12-3",
+  "Commands": [
+    {
+      "Command": "comment",
+      "Target": "if we run this macro via the command line, the previous macro was in the tab LEFT if the new tab",
+      "Value": ""
+    },
+    {
+      "Command": "selectWindow",
+      "Target": "tab=-1",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "clean up: now that we are back in the right tab, close  the new tab",
+      "Value": ""
+    },
+    {
+      "Command": "selectWindow",
+      "Target": "tab=closeallother",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=entry.336178899",
+      "Value": "The values of var1, 2 and 3 are ${!cmd_var1}, ${!cmd_var2} and ${!cmd_var3}"
+    },
+    {
+      "Command": "comment",
+      "Target": "Check that the value of var1 is as expected",
+      "Value": ""
+    },
+    {
+      "Command": "if",
+      "Target": "!(\"${!cmd_var1}\"  == \"111\")",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Value of VAR1 is wrong (${!cmd_var1}). Expected value is 111",
+      "Value": ""
+    },
+    {
+      "Command": "endif",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "//*[@id=\"mG61Hd\"]/div/div[2]/div[3]/div[1]/div/div",
+      "Value": ""
+    },
+    {
+      "Command": "verifyText",
+      "Target": "/html/body/div[1]/div[2]/div[1]/div[2]/div[2]",
+      "Value": "Thank you for testing Kantu! This is just a test form. All submissions are ignored and deleted."
+    }
+  ],
+  "id": "1543855423251.153f76"
+}
