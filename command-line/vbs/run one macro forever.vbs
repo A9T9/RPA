@@ -85,7 +85,7 @@ function PlayAndWait (macro)
     
     path_downloaddir  = "D:\test\" 	'	#where the kantu log file is stored ("downloaded") - *THIS MUST BE THE BROWSER DOWNLOAD FOLDER* (= what is specified in the browser settings)
 	
-    path_autorun_html = "D:\test\dc.html" 'the autorun page as exported by Kantu. A page for any macro will do, as we use the &macro= switch anyway.
+    path_autorun_html = "D:\test\c.html" 'the autorun page as exported by Kantu. A page for any macro will do, as we use the &macro= switch anyway.
 
 
     	'	IF YOU WANT TO KILL browser , uncomment next line

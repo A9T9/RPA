@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head profile="http://selenium-ide.openqa.org/profiles/test-case">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<link rel="selenium.base" href="" />
+<title>DemoFrames</title>
+</head>
+<body>
+<table cellpadding="1" cellspacing="1" border="1">
+<thead>
+<tr><td rowspan="1" colspan="3">DemoFrames</td></tr>
+</thead><tbody>
+
+      <tr>
+        <td>open</td>
+        <td>https://a9t9.com/demo/webtest/frames/</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>echo</td>
+        <td>Reduce replay speed so we can better see what is going on...</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>store</td>
+        <td>medium</td>
+        <td>!replayspeed</td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>index=0</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>click</td>
+        <td>name=mytext1</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>type</td>
+        <td>name=mytext1</td>
+        <td>Frame1 (index=0)</td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>relative=top</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>index=1</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>click</td>
+        <td>name=mytext2</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>type</td>
+        <td>name=mytext2</td>
+        <td>Frame2 (index=1)</td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>relative=top</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>index=2</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>click</td>
+        <td>name=mytext3</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>type</td>
+        <td>name=mytext3</td>
+        <td>Frame3 (index=2)</td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>relative=top</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>index=3</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>click</td>
+        <td>name=mytext4</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>type</td>
+        <td>name=mytext4</td>
+        <td>Frame4 (index=3)</td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>relative=top</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>index=4</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>click</td>
+        <td>name=mytext5</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>type</td>
+        <td>name=mytext5</td>
+        <td>Frame5 (index=4)</td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>relative=top</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>index=2</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>type</td>
+        <td>name=mytext3</td>
+        <td>now testing iframe inside this frame</td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>index=0</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>click</td>
+        <td>//*[@id="mG61Hd"]/div/div[2]/div[2]/div[1]/div[2]/div/content/div/div/label/div/div[1]/div[3]/div</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>click</td>
+        <td>css=input.quantumWizTextinputSimpleinputInput.exportInput</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>type</td>
+        <td>css=input.quantumWizTextinputSimpleinputInput.exportInput</td>
+        <td>iframe in frame: works!</td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>relative=top</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>selectFrame</td>
+        <td>index=2</td>
+        <td></td>
+      </tr>
+    
+
+      <tr>
+        <td>type</td>
+        <td>name=mytext3</td>
+        <td>Test completed!</td>
+      </tr>
+    
+</tbody></table>
+<script>
+(function() {
+  var isExtensionLoaded = function () {
+    const $root = document.documentElement
+    return !!$root && !!$root.getAttribute('data-kantu')
+  }
+  var increaseCountInUrl = function (max) {
+    var url   = new URL(window.location.href)
+    var count = 1 + (url.searchParams.get('reload') || 0)
+
+    url.searchParams.set('reload', count)
+    var nextUrl = url.toString()
+
+    var shouldStop = count > max
+    return [shouldStop, !shouldStop ? nextUrl : null]
+  }
+  var run = function () {
+    try {
+      var evt = new CustomEvent('kantuSaveAndRunMacro', { detail: { html: document.documentElement.outerHTML, storageMode: 'browser' } })
+
+      window.dispatchEvent(evt)
+      setInterval(() => window.dispatchEvent(evt), 1000);
+
+      if (window.location.protocol === 'file:') {
+        var onInvokeSuccess = function () {
+          clearTimeout(timer)
+          clearTimeout(reloadTimer)
+          window.removeEventListener('kantuInvokeSuccess', onInvokeSuccess)
+        }
+        var timer = setTimeout(function () {
+          alert('Error #203: It seems you need to turn on *Allow access to file URLs* for Kantu in your browser extension settings.')
+        }, 8000)
+
+        window.addEventListener('kantuInvokeSuccess', onInvokeSuccess)
+      }
+    } catch (e) {
+      alert('Kantu Bookmarklet error: ' + e.toString());
+    }
+  }
+  var reloadTimer = null
+  var main = function () {
+    if (isExtensionLoaded())  return run()
+
+    var MAX_TRY   = 3
+    var INTERVAL  = 1000
+    var tuple     = increaseCountInUrl(MAX_TRY)
+
+    if (tuple[0]) {
+      return alert('Error #204: It seems Kantu is not installed yet - or you need to turn on *Allow access to file URLs* for Kantu in your browser extension settings.')
+    } else {
+      reloadTimer = setTimeout(function () {
+        window.location.href = tuple[1]
+      }, INTERVAL)
+    }
+  }
+
+  main()
+})();
+</script>
+</body>
+</html>
+  
