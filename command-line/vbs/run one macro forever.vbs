@@ -1,12 +1,12 @@
 Option Explicit
 
-	'	set here what browser to use
+	'set here what browser to use
 Const Use_Chrome = 0	'	1 means to use Chrome    0 means to use firefox
 
-	'	set this path to report txt file
+	'set this path to report txt file
 Const testreport = "d:\test\testreport.txt"
 
-	'	 max time in seconds allowed for macro to complete (change this value if  your macros takes longer to run)
+	'max time in seconds allowed for macro to complete (change this value if  your macros takes longer to run)
 Const timeout_seconds = 60	
 
 Const ForReading = 1, ForWriting = 2, ForAppending = 8
