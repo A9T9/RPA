@@ -8,9 +8,9 @@
 
 function PlayAndWait ([string]$macro)
 {
-$timeout_seconds = 60 #max time in seconds allowed for macro to complete (change this value if  your macros takes longer to run)
-$path_downloaddir = "D:\test\" #where the kantu log file is stored ("downloaded")
-$path_autorun_html = "D:/test/dc.html"
+$timeout_seconds = 60 #max time in seconds allowed for macro to complete. Change this value if  your macros takes longer to run.
+$path_downloaddir = "D:\test\" #Where the script finds the kantu log files => *THIS MUST BE THE BROWSER DOWNLOAD FOLDER*, as specified in the browser settings
+$path_autorun_html = "D:/test/dc.html" #Any autorun page exported from Kantu. A page for any macro will do, as we use the &macro= switch anyway.
 
 #Optional: Kill Chrome instances (if any open)
 #taskkill /F /IM chrome.exe /T 
