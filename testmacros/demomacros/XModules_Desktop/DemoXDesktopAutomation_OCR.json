@@ -1,0 +1,81 @@
+{
+  "Name": "DemoXDesktopAutomation_OCR",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "comment",
+      "Target": "For more information please see https://ui.vision/x/desktop-automation#ocr",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Running DESKTOP image search now",
+      "Value": "#shownotification"
+    },
+    {
+      "Command": "XDesktopAutomation",
+      "Target": "true",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Limit the search area for better performance",
+      "Value": ""
+    },
+    {
+      "Command": "run",
+      "Target": "sub/Sub_XDesktopAutomation_Area",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "eng",
+      "Value": "!ocrlanguage"
+    },
+    {
+      "Command": "comment",
+      "Target": "Log button can be greyed out - try both options",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "ocr=Logs@pos=1",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "ocr=Clear@pos=1",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "\"Clear\" button pressed by macro. The button was found at ${!OCRX}, ${!OCRY})",
+      "Value": "blue"
+    },
+    {
+      "Command": "XClick",
+      "Target": "ocr=Screenshots@pos=1",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "ocr=Visual@pos=1",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Check the right tab is selected",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "desktop_checktab_dpi_96.png@0.65",
+      "Value": ""
+    }
+  ]
+}

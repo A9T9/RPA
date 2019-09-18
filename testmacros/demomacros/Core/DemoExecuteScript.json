@@ -1,0 +1,236 @@
+{
+  "Name": "DemoExecuteScript",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/executescript",
+      "Value": ""
+    },
+    {
+      "Command": "assertText",
+      "Target": "//*[@id=\"content\"]/div[2]/div/h2[1]",
+      "Value": "Input box to display some results"
+    },
+    {
+      "Command": "verifyText",
+      "Target": "//*[@id=\"content\"]/div[2]/div/h2[1]",
+      "Value": "Input box to display some results"
+    },
+    {
+      "Command": "verifyTitle",
+      "Target": "Selenium IDE executeScript Demo Page",
+      "Value": ""
+    },
+    {
+      "Command": "assertTitle",
+      "Target": "Selenium IDE executeScript Demo Page",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "executeScript can run Javascript... and store the result in a variable (optional)",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript",
+      "Target": "document.title = \"123\";",
+      "Value": ""
+    },
+    {
+      "Command": "assertTitle",
+      "Target": "123",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Use sourceSearch to assert we have the right Google Analytics Code",
+      "Value": ""
+    },
+    {
+      "Command": "sourceSearch",
+      "Target": "UA-86195842-1",
+      "Value": "matches"
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${matches} == 0",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Google Analytics ID is wrong!",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "First some basic calculations with STORE",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "15",
+      "Value": "AAA"
+    },
+    {
+      "Command": "store",
+      "Target": "10",
+      "Value": "BBB"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return (Number (${AAA}) - Number (${BBB}) )",
+      "Value": "CCC"
+    },
+    {
+      "Command": "echo",
+      "Target": "${CCC}",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript",
+      "Target": "document.title = ${CCC};",
+      "Value": ""
+    },
+    {
+      "Command": "assertTitle",
+      "Target": "5",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "SELenium IDe",
+      "Value": "AAA"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return ${AAA}.toUpperCase()",
+      "Value": "CCC"
+    },
+    {
+      "Command": "echo",
+      "Target": "${CCC}",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext",
+      "Value": "${CCC}"
+    },
+    {
+      "Command": "echo",
+      "Target": "Generate TODAYs date in in YYYY-MM-DD format ",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "var d= new Date(); var m=((d.getMonth()+1)<10)?'0'+(d.getMonth()+1):(d.getMonth()+1); d.getFullYear()+\"-\"+m+\"-\"+d.getDate(); return m",
+      "Value": "mydate"
+    },
+    {
+      "Command": "echo",
+      "Target": "Today is ${mydate}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Pick a random item from a list, useful for data-driven testing",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return new Array ('cat','dog','fish','dog','deer','frog','whale','dog','seal','horse','elephant')",
+      "Value": "names"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return ${names}.length",
+      "Value": "len"
+    },
+    {
+      "Command": "echo",
+      "Target": "array length = ${len}",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return Math.floor(Math.random()*${len})",
+      "Value": "num"
+    },
+    {
+      "Command": "echo",
+      "Target": "num=${num}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "The next command picks the random item",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return ${names}[${num}]",
+      "Value": "myrandomname"
+    },
+    {
+      "Command": "store",
+      "Target": "Today is ${mydate}, and we draw a ${myrandomname}",
+      "Value": "output"
+    },
+    {
+      "Command": "echo",
+      "Target": "To is ${mydate}, and we draw a ${myrandomname}",
+      "Value": "${output}"
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext",
+      "Value": "${output}"
+    },
+    {
+      "Command": "if_v2",
+      "Target": "parseFloat(${!runtime}) > 20",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Runtime too slow (${!runtime} seconds), test failed",
+      "Value": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Runtime Ok, test passed!",
+      "Value": "green"
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "With @POS you click on the (in this case) 3rd link with the same name. Great for looping over a list of links with the same name.",
+      "Value": "green"
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "linkText=This link@POS=3",
+      "Value": ""
+    }
+  ]
+}

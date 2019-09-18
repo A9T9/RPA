@@ -1,0 +1,201 @@
+{
+  "Name": "DemoIfElse",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/executeScript",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "How to use gotoIf and label(s) for flow control. For a while/endWhile demo, see the DemoSaveCSV macro.",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript",
+      "Target": "return (new Date().getHours())",
+      "Value": "mytime"
+    },
+    {
+      "Command": "echo",
+      "Target": "mytime = ${mytime}",
+      "Value": ""
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${mytime}  > 16",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Good afternoon!",
+      "Value": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Good morning!",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "true",
+      "Value": "!errorignore"
+    },
+    {
+      "Command": "storeAttribute",
+      "Target": "//input[@id='sometext-WRONG-ID-TEST']@size",
+      "Value": "boxsize"
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${!LastCommandOK}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Boxsize is ${boxsize}",
+      "Value": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "storeAttribute",
+      "Target": "//input[@id='sometext']@size",
+      "Value": "boxsize"
+    },
+    {
+      "Command": "echo",
+      "Target": "Old ID not found, with new ID we have: Boxsize = ${boxsize}",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "false",
+      "Value": "!errorignore"
+    },
+    {
+      "Command": "echo",
+      "Target": "input box size =${boxsize}",
+      "Value": ""
+    },
+    {
+      "Command": "gotoIf_v2",
+      "Target": "${boxsize} > 70",
+      "Value": "BOX-TOO-BIG"
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext",
+      "Value": "This box is ${boxsize} chars wide"
+    },
+    {
+      "Command": "executeScript",
+      "Target": "document.title = ${boxsize};",
+      "Value": ""
+    },
+    {
+      "Command": "gotoLabel",
+      "Target": "END",
+      "Value": ""
+    },
+    {
+      "Command": "label",
+      "Target": "BOX-TOO-BIG",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Input box too big. This is just a test of gotoIf",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript",
+      "Target": "document.title = \"Just a gotoIf test. This line should not be reached unless you edit the macro\"",
+      "Value": ""
+    },
+    {
+      "Command": "label",
+      "Target": "END",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "test case completed",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "onError",
+      "Target": "#goto",
+      "Value": "fixerror"
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext",
+      "Value": "this line works"
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometextXXXXX",
+      "Value": "this line has the wrong ID..."
+    },
+    {
+      "Command": "echo",
+      "Target": "this line is never reached, because of the error above",
+      "Value": "blue"
+    },
+    {
+      "Command": "gotoLabel",
+      "Target": "end-part2",
+      "Value": ""
+    },
+    {
+      "Command": "label",
+      "Target": "fixerror",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "here we can have code that handles the error..",
+      "Value": "green"
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext",
+      "Value": "Fix Error Section: This command works."
+    },
+    {
+      "Command": "label",
+      "Target": "end-part2",
+      "Value": ""
+    }
+  ]
+}

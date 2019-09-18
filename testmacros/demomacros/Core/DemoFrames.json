@@ -1,0 +1,181 @@
+{
+  "Name": "DemoFrames",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/webtest/frames/",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Reduce replay speed so we can better see what is going on...",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "medium",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=0",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "name=mytext1",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=mytext1",
+      "Value": "Frame1 (index=0)"
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "relative=top",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=1",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "name=mytext2",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=mytext2",
+      "Value": "Frame2 (index=1)"
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "relative=top",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=2",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "name=mytext3",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=mytext3",
+      "Value": "Frame3 (index=2)"
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "relative=top",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=3",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "name=mytext4",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=mytext4",
+      "Value": "Frame4 (index=3)"
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "relative=top",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=4",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "name=mytext5",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=mytext5",
+      "Value": "Frame5 (index=4)"
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "relative=top",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=2",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=mytext3",
+      "Value": "now testing iframe inside this frame"
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=0",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//span[contains(text(),\"UI.Vision IDE\")]",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "css=input.quantumWizTextinputSimpleinputInput.exportInput",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "css=input.quantumWizTextinputSimpleinputInput.exportInput",
+      "Value": "iframe in frame: works!"
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "css=span.quantumWizButtonPaperbuttonLabel.exportLabel",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=entry.1572386418",
+      "Value": "This is a single line test..."
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "//*[@id=\"mG61Hd\"]/div/div[2]/div[3]/div[1]/div[1]/div[2]/div[2]",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "relative=top",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=2",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=mytext3",
+      "Value": "Test completed!"
+    }
+  ]
+}

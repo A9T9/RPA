@@ -1,0 +1,66 @@
+{
+  "Name": "Sub_XDesktopAutomation_Area",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "comment",
+      "Target": "SUBROUTINE used by DemoXDesktopAutomation and DemoXDesktopAutomation_OCR",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "It uses two anchor images to define the new search area",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "desktop_area_topleft_dpi_96.png@0.6",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Area top left corner = bottom left corner of found image ",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return ${!imagex}-${!imagewidth}/2",
+      "Value": "x1"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return ${!imagey}+${!imageheight}/2",
+      "Value": "y1"
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "desktop_area_bottomright_dpi_96.png@0.4",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Area bottom right corner = top right corner of found image ",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return ${!imagex}+${!imagewidth}/2",
+      "Value": "x2"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return ${!imagey}-${!imageheight}/2",
+      "Value": "y2"
+    },
+    {
+      "Command": "echo",
+      "Target": "x1=${x1}, y1=${y1}, x2=${x2}, y2=${y2}",
+      "Value": "blue"
+    },
+    {
+      "Command": "visionLimitSearchArea",
+      "Target": "area=${x1},${y1},${x2},${y2}",
+      "Value": ""
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "Name": "DemoXRun",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "echo",
+      "Target": "This demo macro uses hard-coded paths for the default calculator app. But the correct path depends on your operating system version and language. So the default path in this macro might be wrong and needs to be adjusted.",
+      "Value": "blue"
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${!os}==\"mac\"",
+      "Value": ""
+    },
+    {
+      "Command": "XRun",
+      "Target": "/Applications/Calculator.app/Contents/MacOS/Calculator",
+      "Value": ""
+    },
+    {
+      "Command": "elseif",
+      "Target": "${!os}==\"linux\"",
+      "Value": ""
+    },
+    {
+      "Command": "XRun",
+      "Target": "/snap/bin/gnome-calculator",
+      "Value": ""
+    },
+    {
+      "Command": "elseif",
+      "Target": "${!os}==\"windows\"",
+      "Value": ""
+    },
+    {
+      "Command": "XRun",
+      "Target": "C:\\Windows\\System32\\calc.exe",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "You find the example PowerShell script for this demo in the UI.Vision docs for \"XRunAndWait\"",
+      "Value": "-executionpolicy bypass -File  c:\\test\\test1.ps1  c:\\test\\test.txt Hello"
+    },
+    {
+      "Command": "comment",
+      "Target": "XRunAndWait // Powershell.exe ",
+      "Value": "-executionpolicy bypass -File  c:\\test\\test1.ps1  c:\\test\\test.txt Hello"
+    },
+    {
+      "Command": "comment",
+      "Target": "echo // Exitcode = ${!xrun_exitcode}  (Note: The exit code is only captured if you use XRunAndWait)",
+      "Value": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "This should never happen",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Calculator app launched ",
+      "Value": ""
+    }
+  ]
+}

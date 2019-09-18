@@ -1,0 +1,76 @@
+{
+  "Name": "DemoImplicitWaiting",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "comment",
+      "Target": "waitForElementVisible is not part of implicit waiting",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/waitforelementvisible",
+      "Value": ""
+    },
+    {
+      "Command": "waitForElementVisible",
+      "Target": "css=#div1 > h1",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "css=#div1 > h1",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "20",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "waitForElementVisible",
+      "Target": "css=#div2 > h1",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "css=#div2 > h1",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Implicit waiting: Wait for elements to be loaded  or <timeout_wait> is reached",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/webtest/implicitwaiting/",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "15",
+      "Value": "!TIMEOUT_WAIT"
+    },
+    {
+      "Command": "assertText",
+      "Target": "/html/body/header/center/p[2]",
+      "Value": "Use the select box to start the timer..."
+    },
+    {
+      "Command": "select",
+      "Target": "id=minutesSelect",
+      "Value": "label=5 Seconds"
+    },
+    {
+      "Command": "echo",
+      "Target": "The next element (target) is not available yet... Kantu waits for it up to ${!TIMEOUT_WAIT} seconds to appear.",
+      "Value": "blue"
+    },
+    {
+      "Command": "click",
+      "Target": "/html/body/header/center/img",
+      "Value": ""
+    }
+  ]
+}

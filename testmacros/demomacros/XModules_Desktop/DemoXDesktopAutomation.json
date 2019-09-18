@@ -1,0 +1,116 @@
+{
+  "Name": "DemoXDesktopAutomation",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "echo",
+      "Target": "Running DESKTOP image search now",
+      "Value": "#shownotification"
+    },
+    {
+      "Command": "XDesktopAutomation",
+      "Target": "true",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Limit the search area for better performance",
+      "Value": ""
+    },
+    {
+      "Command": "run",
+      "Target": "sub/Sub_XDesktopAutomation_Area",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Log button can be greyed out - try both options",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "true",
+      "Value": "!errorignore"
+    },
+    {
+      "Command": "comment",
+      "Target": "Log button can have white or grey background",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "desktop_logstab_white_dpi_96.png@0.5",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "false",
+      "Value": "!errorignore"
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${!statusOK} == \"false\"",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "desktop_logstab_grey_dpi_96.png@0.5",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Press Clear button",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "desktop_clearbutton_dpi_96.png@0.5",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Log cleared by macro (clear button pressed)",
+      "Value": "blue"
+    },
+    {
+      "Command": "comment",
+      "Target": "Now search and open other tabs",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "desktop_vartab_dpi_96.png@0.5",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "desktop_scrtab_dpi_96.png@0.4",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "desktop_vitab_dpi_96.png@0.4",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Check that the correct tab is selected",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "desktop_checktab_dpi_96.png@0.65",
+      "Value": ""
+    }
+  ]
+}

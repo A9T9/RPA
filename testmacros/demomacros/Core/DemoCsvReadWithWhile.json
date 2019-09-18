@@ -1,0 +1,81 @@
+{
+  "Name": "DemoCsvReadWithWhile",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "180",
+      "Value": "!timeout_macro"
+    },
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "comment",
+      "Target": "The file ReadCSVTestData.csv is pre-installed with Kantu.",
+      "Value": ""
+    },
+    {
+      "Command": "csvRead",
+      "Target": "ReadCSVTestData.csv",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Status = ${!csvReadStatus}, line = ${!csvReadLineNumber}",
+      "Value": ""
+    },
+    {
+      "Command": "while_v2",
+      "Target": "${!csvReadStatus} == \"OK\"",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "status = ${!csvReadStatus}, line = ${!csvReadLineNumber}",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Call subroutine for the actual form filling",
+      "Value": ""
+    },
+    {
+      "Command": "run",
+      "Target": "sub/Sub_DemoCsvRead_FillForm",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return Number(${!csvReadLineNumber})+1",
+      "Value": "!csvReadLineNumber"
+    },
+    {
+      "Command": "store",
+      "Target": "true",
+      "Value": "!errorIgnore"
+    },
+    {
+      "Command": "echo",
+      "Target": "Reading CSV line No.  ${!csvReadLineNumber} ",
+      "Value": "!errorIgnore"
+    },
+    {
+      "Command": "csvRead",
+      "Target": "ReadCSVTestData.csv",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "false",
+      "Value": "!errorIgnore"
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    }
+  ]
+}

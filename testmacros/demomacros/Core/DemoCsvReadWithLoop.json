@@ -1,0 +1,31 @@
+{
+  "Name": "DemoCsvReadWithLoop",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "comment",
+      "Target": "The file ReadCSVTestData.csv is pre-installed with Kantu.",
+      "Value": ""
+    },
+    {
+      "Command": "csvRead",
+      "Target": "ReadCSVTestData.csv",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Call subroutine for the actual form filling",
+      "Value": ""
+    },
+    {
+      "Command": "run",
+      "Target": "sub/Sub_DemoCsvRead_FillForm",
+      "Value": ""
+    }
+  ]
+}

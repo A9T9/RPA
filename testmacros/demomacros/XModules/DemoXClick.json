@@ -1,0 +1,211 @@
+{
+  "Name": "DemoXClick",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/draw",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "linkText=Kantu will click this link",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Kantu controls the mouse cursor now",
+      "Value": "#shownotification"
+    },
+    {
+      "Command": "comment",
+      "Target": "Use image search to find the drawing applet",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "draw_box_dpi_96.png",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "x=${!imagex} y=${!imagey}",
+      "Value": "green"
+    },
+    {
+      "Command": "XClick",
+      "Target": "${!imagex},${!imagey}",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "${!imagex}",
+      "Value": "x"
+    },
+    {
+      "Command": "store",
+      "Target": "${!imagey}",
+      "Value": "y"
+    },
+    {
+      "Command": "comment",
+      "Target": "Draw top line --->",
+      "Value": ""
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#down"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return Number (${x}) +50",
+      "Value": "x"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#move"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#up"
+    },
+    {
+      "Command": "comment",
+      "Target": "Draw right line down",
+      "Value": ""
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#down"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return Number (${y}) +50",
+      "Value": "y"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#move"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#up"
+    },
+    {
+      "Command": "comment",
+      "Target": "Draw bottom line <---",
+      "Value": ""
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#down"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return Number (${x}) - 50",
+      "Value": "x"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#move"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#up"
+    },
+    {
+      "Command": "comment",
+      "Target": "Draw left line up",
+      "Value": ""
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#down"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return Number (${y}) - 50",
+      "Value": "y"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#move"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#up"
+    },
+    {
+      "Command": "comment",
+      "Target": "Check that the square was drawn ok",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "draw_square_dpi_96.png",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Now type some text. First click the TEXT icon",
+      "Value": ""
+    },
+    {
+      "Command": "XClickRelative",
+      "Target": "draw_aa_dpi_96_relative.png",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Now click the place where the text should start (80px below the square)",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return Number (${y}) +80",
+      "Value": "y"
+    },
+    {
+      "Command": "echo",
+      "Target": "x=${x}, y=${y}",
+      "Value": "blue"
+    },
+    {
+      "Command": "XClick",
+      "Target": "${x},${y}",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Send keystrokes, and demo the use of the BACKSPACE special key.",
+      "Value": ""
+    },
+    {
+      "Command": "XType",
+      "Target": "Kantuuu${KEY_BACKSPACE}${KEY_BACKSPACE} can draw and write.",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "DemoXClick completed",
+      "Value": "#shownotification"
+    }
+  ]
+}

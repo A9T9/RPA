@@ -1,0 +1,231 @@
+{
+  "Name": "DemoCanvas",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "setWindowSize",
+      "Target": "800x700",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/canvas",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "linkText=LiterallyCanvas",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "First a simple clickAt demo (3 dots)",
+      "Value": ""
+    },
+    {
+      "Command": "clickAt",
+      "Target": "//*[@id=\"literally-canvas\"]/div[1]/div[1]/canvas[2]",
+      "Value": "28,28"
+    },
+    {
+      "Command": "clickAt",
+      "Target": "//*[@id=\"literally-canvas\"]/div[1]/div[1]/canvas[2]",
+      "Value": "58,28"
+    },
+    {
+      "Command": "clickAt",
+      "Target": "//*[@id=\"literally-canvas\"]/div[1]/div[1]/canvas[2]",
+      "Value": "88,28"
+    },
+    {
+      "Command": "comment",
+      "Target": "Just image search the canvas!",
+      "Value": "88,28"
+    },
+    {
+      "Command": "visionLimitSearchArea",
+      "Target": "element://*[@id=\"literally-canvas\"]/div[1]/div[1]/canvas[2]",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "canvas_3dots_verify_dpi_96.png",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/canvas",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "linkText=Mapbox",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Test: Embedded map (Mapbox)",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "id=demo",
+      "Value": ""
+    },
+    {
+      "Command": "visionLimitSearchArea",
+      "Target": "viewport",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "canvas_wyoming_dpi_96.png@0.60",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "#efp is short for \"#ElementFromPoint (${imageX},(${imageY})",
+      "Value": ""
+    },
+    {
+      "Command": "clickAt",
+      "Target": "#efp",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Now verify that the click (= the map) works as expected",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "canvas_wyoming_verify_dpi_96.png@0.5",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Test Google Maps: Find & click Hyde park, and check that its info bubble shows.",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/canvas#maps",
+      "Value": ""
+    },
+    {
+      "Command": "visionLimitSearchArea",
+      "Target": "viewport",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "canvas_hydepark_dpi_96.png@0.60",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=0",
+      "Value": ""
+    },
+    {
+      "Command": "clickAt",
+      "Target": "#efp",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "VISUAL VERIFICATION - we use 3 different options for demo purposes",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "(1) Image comparison",
+      "Value": ""
+    },
+    {
+      "Command": "visualVerify",
+      "Target": "canvas_hydepark_verify_dpi_96.png@0.70",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "(2) OCR: Find text in page screenshot (not to be confused with sourceSearch)",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "ENG",
+      "Value": "!ocrlanguage"
+    },
+    {
+      "Command": "OCRSearch",
+      "Target": "hyde park london",
+      "Value": "matches"
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${matches} == \"0\"",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "The words \"hyde park london\" are not found on the canvas or website",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "(3) Extract text from a certain area (here: the map info box), and then search it for the text",
+      "Value": ""
+    },
+    {
+      "Command": "OCRExtractRelative",
+      "Target": "canvas_hydepark_extract_dpi_96_relative.png@0.70",
+      "Value": "text"
+    },
+    {
+      "Command": "echo",
+      "Target": "Text inside the pink box area is ${text}",
+      "Value": "pink"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return ${text}.replace(/( |\\n|\\r)/gm, \"\"); ",
+      "Value": "text"
+    },
+    {
+      "Command": "echo",
+      "Target": "After we removed space(s) and line break(s): Text = >${text}<",
+      "Value": "green"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "var t = \"hydepark\"; var s = ${text}.toLowerCase();  var  b= s.includes(t); return b;",
+      "Value": "textfound"
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${textfound} == \"false\"",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Text not found on the map. What I found instead is ${text}",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    }
+  ]
+}

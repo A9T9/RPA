@@ -1,0 +1,116 @@
+{
+  "Name": "DemoAutofill",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "store",
+      "Target": "15",
+      "Value": "!TIMEOUT_WAIT"
+    },
+    {
+      "Command": "store",
+      "Target": "60",
+      "Value": "!TIMEOUT_PAGELOAD"
+    },
+    {
+      "Command": "open",
+      "Target": "https://docs.google.com/forms/d/e/1FAIpQLScP-K8zi-9ar0MCq93D3VIFhegSNPveBfdLqiMfTYR9Q1iSKQ/viewform",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//span[contains(text(),\"UI.Vision IDE\")]",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//*[text()[contains(.,'Web Testing')]]",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//span[contains(text(),\"Form Autofilling\")]",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//*[text()[contains(.,\"General Web Automation\")]]",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "This would only work with English as browser language: //content[contains(text(),\"Choose\")]",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "xpath=//*[@id=\"mG61Hd\"]/div/div[2]/div[2]/div[3]/div/div[2]/div[1]/div[1]/div[3]/span",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "xpath=//*[@id=\"mG61Hd\"]/div/div[2]/div[2]/div[3]/div/div[2]/div[2]/div[3]",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Pause for user to see filled out page",
+      "Value": ""
+    },
+    {
+      "Command": "pause",
+      "Target": "500",
+      "Value": ""
+    },
+    {
+      "Command": "captureScreenshot",
+      "Target": "AutoFill1stPage${!LOOP}",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "css=span.quantumWizButtonPaperbuttonLabel.exportLabel",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=entry.1572386418",
+      "Value": "This is a single line test..."
+    },
+    {
+      "Command": "type",
+      "Target": "name=entry.1569542411",
+      "Value": "...and this a multiline test:\nLine2\nLine3"
+    },
+    {
+      "Command": "captureScreenshot",
+      "Target": "AutoFill2ndPage${!LOOP}",
+      "Value": ""
+    },
+    {
+      "Command": "pause",
+      "Target": "1000",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "//*[@id=\"mG61Hd\"]/div/div[2]/div[3]/div[1]/div[1]/div[2]/div[2]",
+      "Value": ""
+    },
+    {
+      "Command": "captureScreenshot",
+      "Target": "AutoFill3rdPage${!LOOP}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "DemoAutofill macro completed (shown as notifcation because of #shownotification in the 3rd column)",
+      "Value": "#shownotification"
+    }
+  ]
+}

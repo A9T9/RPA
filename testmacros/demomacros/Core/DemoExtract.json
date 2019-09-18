@@ -1,0 +1,291 @@
+{
+  "Name": "DemoExtract",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/executescript",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Current page URL = ${!URL}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Current loop value = ${!LOOP}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "This macro shows various methods to extract and save data from a website",
+      "Value": ""
+    },
+    {
+      "Command": "storeAttribute",
+      "Target": "css=img.responsive-img@src",
+      "Value": "mylink"
+    },
+    {
+      "Command": "echo",
+      "Target": "href=${mylink}",
+      "Value": ""
+    },
+    {
+      "Command": "storeAttribute",
+      "Target": "css=img.responsive-img@alt",
+      "Value": "myalttext"
+    },
+    {
+      "Command": "echo",
+      "Target": "alt text = ${myalttext}",
+      "Value": ""
+    },
+    {
+      "Command": "storeAttribute",
+      "Target": "//input[@id='sometext']@size",
+      "Value": "boxsize"
+    },
+    {
+      "Command": "echo",
+      "Target": "input box size =${boxsize}",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "id=sometext",
+      "Value": "This box is ${boxsize} chars wide"
+    },
+    {
+      "Command": "executeScript",
+      "Target": "document.title = ${boxsize};",
+      "Value": ""
+    },
+    {
+      "Command": "assertTitle",
+      "Target": "70",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//*[@id=\"content\"]/div[2]/div/h2[3]",
+      "Value": ""
+    },
+    {
+      "Command": "storeText",
+      "Target": "//*[@id=\"content\"]/div[2]/div/h2[3]",
+      "Value": "myheader"
+    },
+    {
+      "Command": "echo",
+      "Target": "header = ${myheader}",
+      "Value": ""
+    },
+    {
+      "Command": "storeTitle",
+      "Target": "",
+      "Value": "mytitle"
+    },
+    {
+      "Command": "echo",
+      "Target": "page title = ${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "page title = ${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "page title = ${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "page title = ${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Now test some extraction with storeValue",
+      "Value": ""
+    },
+    {
+      "Command": "storeValue",
+      "Target": "id=sometext",
+      "Value": "mytext"
+    },
+    {
+      "Command": "select",
+      "Target": "id=tesla",
+      "Value": "label=Model Y"
+    },
+    {
+      "Command": "storeValue",
+      "Target": "id=tesla",
+      "Value": "mytesla"
+    },
+    {
+      "Command": "echo",
+      "Target": "The text box contains [${mytext}] and the select box has the value [${mytesla}] selected",
+      "Value": ""
+    },
+    {
+      "Command": "verifyValue",
+      "Target": "id=tesla",
+      "Value": "y"
+    },
+    {
+      "Command": "storeChecked",
+      "Target": "name=vehicle",
+      "Value": "hasbike"
+    },
+    {
+      "Command": "storeChecked",
+      "Target": "xpath=(//input[@name='vehicle'])[2]",
+      "Value": "hascar"
+    },
+    {
+      "Command": "storeChecked",
+      "Target": "xpath=(//input[@name='vehicle'])[3]",
+      "Value": "hasboat"
+    },
+    {
+      "Command": "echo",
+      "Target": "User has bike:${hasbike}, car:${hascar}, boat:${hasboat}",
+      "Value": "green"
+    },
+    {
+      "Command": "comment",
+      "Target": "Search and extract directly from the page SOURCE",
+      "Value": "y"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=[\\$\\£\\€](\\d+(?:\\.\\d{1,2})?)",
+      "Value": "match1"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=[\\$\\£\\€](\\d+(?:\\.\\d{1,2})?)@2",
+      "Value": "match2"
+    },
+    {
+      "Command": "comment",
+      "Target": "You can also extract without regex with the * symbol",
+      "Value": "match2b"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "$*<",
+      "Value": "match2b"
+    },
+    {
+      "Command": "echo",
+      "Target": "Coffee costs ${match1} and tea ${match2}",
+      "Value": "blue"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=_width: (\\d+)",
+      "Value": "match1"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=_width: (\\d+)@1,1",
+      "Value": "match1group1"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=_width: (\\d+)@2",
+      "Value": "match2"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=_width: (\\d+)@2,1",
+      "Value": "match2group1"
+    },
+    {
+      "Command": "echo",
+      "Target": "match1 = [${MATCH1}] (group1 = [${match1group1}]) match2 =  [${MATCH2}]  (group1 = [${MATCH2GROUP1}])",
+      "Value": "blue"
+    },
+    {
+      "Command": "comment",
+      "Target": "Extract Google Analytics ID",
+      "Value": ""
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "UA-*,",
+      "Value": "ga_option1"
+    },
+    {
+      "Command": "sourceExtract",
+      "Target": "regex=UA-[0-9]+-[0-9]+",
+      "Value": "ga_option2"
+    },
+    {
+      "Command": "echo",
+      "Target": "Google Analytics ID = ${ga_option2}",
+      "Value": "pink"
+    },
+    {
+      "Command": "comment",
+      "Target": "Some assertion test for QA",
+      "Value": ""
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${match2group1} != 22",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Regex Extraction failed for Match2(1):  ${match2group1}",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Last but not least, taking a screenshot is another way to extract data",
+      "Value": ""
+    },
+    {
+      "Command": "captureScreenshot",
+      "Target": "myscreenshot_${mytitle}",
+      "Value": ""
+    },
+    {
+      "Command": "storeImage",
+      "Target": "//*[@id=\"page-header\"]/div/div/h1",
+      "Value": "pagetitle.png"
+    },
+    {
+      "Command": "comment",
+      "Target": "Export images to download folder",
+      "Value": ""
+    },
+    {
+      "Command": "localStorageExport",
+      "Target": "myscreenshot_${mytitle}.png",
+      "Value": ""
+    },
+    {
+      "Command": "localStorageExport",
+      "Target": "pagetitle.png",
+      "Value": ""
+    }
+  ]
+}

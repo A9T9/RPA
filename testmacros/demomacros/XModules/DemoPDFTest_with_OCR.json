@@ -1,0 +1,231 @@
+{
+  "Name": "DemoPDFTest_with_OCR",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${!browser} !=\"chrome\"",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "This macro works only in Chrome - Firefox does not support automating PDF documents yet.",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "http://download.ui.vision/demo/pdf-test.pdf",
+      "Value": ""
+    },
+    {
+      "Command": "setWindowSize",
+      "Target": "800x700",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Check that PDF is loaded OK",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Option 1: Check with image search",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "pdftest_salesquote.png@0.35",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Option 2: Check with text search  search",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "ENG",
+      "Value": "!ocrlanguage"
+    },
+    {
+      "Command": "OCRSearch",
+      "Target": "sales quote",
+      "Value": "matches"
+    },
+    {
+      "Command": "echo",
+      "Target": "Number of matches: ${matches}",
+      "Value": "green"
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${matches} == \"0\"",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Something wrong, I can not find the text <sales quote>",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Now extract the quote number and check that it is the correct one",
+      "Value": ""
+    },
+    {
+      "Command": "OCRExtractRelative",
+      "Target": "getquotenumber_dpi_96_relative.png@0.30",
+      "Value": "q"
+    },
+    {
+      "Command": "echo",
+      "Target": "Extracted text in pink area: >${q}<",
+      "Value": "blue"
+    },
+    {
+      "Command": "executeScript",
+      "Target": "return ${q}.replace(/( |\\n|\\r)/gm, \"\")",
+      "Value": "q"
+    },
+    {
+      "Command": "echo",
+      "Target": "Remove space(s) and line break(s): Quote Number: >${q}<",
+      "Value": "green"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "var string = ${q}, substring = \"135\";  b= string.includes(substring); return b;",
+      "Value": "textfound"
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${textfound} == true",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Quote number OK",
+      "Value": "green"
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "throwError",
+      "Target": "Wrong quote number",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "The X... commands require the RealUser XModule to be installed",
+      "Value": ""
+    },
+    {
+      "Command": "pause",
+      "Target": "500",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Click on the document to give it the focus. For this, we click on the word \"SALES QUOTE\".",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "ocr=sales quote",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Scroll down to next page",
+      "Value": ""
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${!os}==\"mac\"",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Page scroll in macOS is CMD key + Down",
+      "Value": ""
+    },
+    {
+      "Command": "XType",
+      "Target": "${KEY_CMD+KEY_DOWN}",
+      "Value": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Page scroll in Windows and Linux is PAGE DOWN key",
+      "Value": ""
+    },
+    {
+      "Command": "XType",
+      "Target": "${KEY_PAGE_DOWN}${KEY_PAGE_DOWN}",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Find link image and click it",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Wait 0.5 seconds for the PDF to complete scrolling. Otherwise if the Xclick image is found while the PDF still scrolls, the click goes to the wrong location.",
+      "Value": ""
+    },
+    {
+      "Command": "pause",
+      "Target": "500",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "ocr=website",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Check the right page is loaded (here: check a9t9 logo is there)",
+      "Value": ""
+    },
+    {
+      "Command": "assertElementPresent",
+      "Target": "//*[@id=\"logo\"]/img",
+      "Value": ""
+    }
+  ]
+}

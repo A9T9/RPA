@@ -1,0 +1,76 @@
+{
+  "Name": "DemoIframe",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/iframes",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//*[@id=\"content\"]/div[2]/div/p[1]",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//*[@id=\"content\"]/div[2]/div/h2[1]",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "First iframe: Embedded Google Doc",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "index=0",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//span[contains(text(),\"UI.Vision IDE\")]",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//span[contains(text(),\"Web Testing\")]",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//span[contains(text(),\"Form Autofilling\")]",
+      "Value": ""
+    },
+    {
+      "Command": "click",
+      "Target": "//span[contains(text(),\"General Web Automation\")]",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "css=span.quantumWizButtonPaperbuttonLabel.exportLabel",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "name=entry.1572386418",
+      "Value": "This is a test."
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "//*[@id=\"mG61Hd\"]/div/div[2]/div[3]/div[1]/div[1]/div[2]/div[2]",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Back to main page (top frame)",
+      "Value": ""
+    },
+    {
+      "Command": "selectFrame",
+      "Target": "relative=top",
+      "Value": ""
+    }
+  ]
+}

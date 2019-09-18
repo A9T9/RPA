@@ -1,0 +1,111 @@
+{
+  "Name": "DemoXType",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "medium",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "comment",
+      "Target": "Make sure the browser is in the foreground, so it receives the XTYPE keystrokes",
+      "Value": ""
+    },
+    {
+      "Command": "bringBrowserToForeground",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/xtype",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "To save the page, open the browser save dialog with a shortcut",
+      "Value": ""
+    },
+    {
+      "Command": "if_v2",
+      "Target": "${!os}==\"mac\"",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Save web page in macOS is CMD+S",
+      "Value": ""
+    },
+    {
+      "Command": "XType",
+      "Target": "${KEY_CMD+KEY_S}",
+      "Value": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Save web page in Windows and Linux is CTRL+S",
+      "Value": ""
+    },
+    {
+      "Command": "XType",
+      "Target": "${KEY_CTRL+KEY_S}",
+      "Value": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Generate today's date and time ",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "var d= new Date(); var m=((d.getMonth()+1)<10)?'0'+(d.getMonth()+1):(d.getMonth()+1); m = d.getFullYear()+\"-\"+m+\"-\"+d.getDate(); return m",
+      "Value": "mydate"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return new Date().getHours()+\"-\" + new Date().getMinutes() + \"-\" + new Date().getSeconds()",
+      "Value": "mytime"
+    },
+    {
+      "Command": "echo",
+      "Target": "Today is ${mydate}, and the time is ${mytime}",
+      "Value": "blue"
+    },
+    {
+      "Command": "comment",
+      "Target": "Wait for the dialog to appear before sending the next keystrokes",
+      "Value": ""
+    },
+    {
+      "Command": "pause",
+      "Target": "2000",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Send the new file name to the dialog and press ENTER",
+      "Value": "blue"
+    },
+    {
+      "Command": "XType",
+      "Target": "Page_saved_by_Kantu_${mydate}_${mytime}",
+      "Value": ""
+    },
+    {
+      "Command": "XType",
+      "Target": "${KEY_ENTER}",
+      "Value": ""
+    }
+  ]
+}

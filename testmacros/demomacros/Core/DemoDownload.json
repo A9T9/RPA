@@ -1,0 +1,91 @@
+{
+  "Name": "DemoDownload",
+  "CreationDate": "2019-9-18",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "60",
+      "Value": "!timeout_download"
+    },
+    {
+      "Command": "store",
+      "Target": "10",
+      "Value": "!timeout_wait"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "var d=new Date(); return d.getFullYear() + '-' +((d.getMonth()+1))+'-' +d.getDate();",
+      "Value": "todaydate"
+    },
+    {
+      "Command": "echo",
+      "Target": "Today is ${todaydate}",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/demo/filedownload",
+      "Value": ""
+    },
+    {
+      "Command": "onDownload",
+      "Target": "DownloadTest1_${todaydate}.exe",
+      "Value": "true"
+    },
+    {
+      "Command": "store",
+      "Target": "${!runtime}",
+      "Value": "starttime"
+    },
+    {
+      "Command": "click",
+      "Target": "linkText=XModules for Windows",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return parseFloat(${!runtime})-parseFloat(${starttime})",
+      "Value": "downloadtime"
+    },
+    {
+      "Command": "echo",
+      "Target": "Download1 (Windows version) took ${downloadtime} seconds",
+      "Value": "blue"
+    },
+    {
+      "Command": "onDownload",
+      "Target": "DownloadTest2_${todaydate}.exe",
+      "Value": "true"
+    },
+    {
+      "Command": "store",
+      "Target": "${!runtime}",
+      "Value": "starttime"
+    },
+    {
+      "Command": "click",
+      "Target": "partialLinkText=for macOS",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return parseFloat(${!runtime})-parseFloat(${starttime})",
+      "Value": "downloadtime"
+    },
+    {
+      "Command": "echo",
+      "Target": "Download2 (Mac) took ${downloadtime} seconds",
+      "Value": "green"
+    },
+    {
+      "Command": "echo",
+      "Target": "All done...",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "linkText=OnDownload command",
+      "Value": ""
+    }
+  ]
+}
