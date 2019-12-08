@@ -1,12 +1,48 @@
 import Registry from './registry'
-import { validateStandardName } from '../common/utils'
+import { validateStandardName, and } from '../common/utils'
 
-const keyConstants = [
+const standardKeyConstants = [
   'KEY_LEFT', 'KEY_UP', 'KEY_RIGHT', 'KEY_DOWN',
   'KEY_PGUP', 'KEY_PAGE_UP', 'KEY_PGDN', 'KEY_PAGE_DOWN',
   'KEY_BKSP', 'KEY_BACKSPACE', 'KEY_DEL', 'KEY_DELETE',
   'KEY_ENTER', 'KEY_TAB'
 ]
+
+const metaKeyConstants = [
+  'KEY_CTRL', 'KEY_ALT', 'KEY_SHIFT'
+]
+
+const fnKeyConstants = [
+  'KEY_F1', 'KEY_F2', 'KEY_F3', 'KEY_F4', 'KEY_F5', 'KEY_F6', 'KEY_F7',
+  'KEY_F8', 'KEY_F9', 'KEY_F10', 'KEY_F11', 'KEY_F12', 'KEY_F13', 'KEY_F14', 'KEY_F15'
+]
+
+const numericKeyConstants = [
+  'KEY_Num0', 'KEY_Num1', 'KEY_Num2', 'KEY_Num3', 'KEY_Num4', 'KEY_Num5', 'KEY_Num6', 'KEY_Num7', 'KEY_Num8', 'KEY_Num9'
+]
+
+const letterKeyConstants = [
+  'KEY_A', 'KEY_B', 'KEY_C', 'KEY_D', 'KEY_E', 'KEY_F', 'KEY_G', 'KEY_H',
+  'KEY_I', 'KEY_J', 'KEY_K', 'KEY_L', 'KEY_M', 'KEY_N', 'KEY_O', 'KEY_P',
+  'KEY_Q', 'KEY_R', 'KEY_S', 'KEY_T', 'KEY_U', 'KEY_V', 'KEY_W', 'KEY_X', 'KEY_Y', 'KEY_Z'
+]
+
+const keyConstants = [
+  ...standardKeyConstants,
+  ...metaKeyConstants,
+  ...fnKeyConstants,
+  ...numericKeyConstants,
+  ...letterKeyConstants
+]
+
+const isValidKeyConstant = (str) => {
+  if (keyConstants.indexOf(str) !== -1) return true
+  if (/^KEY_\w+(\+KEY_\w+)*$/.test(str)) {
+    const keys = str.split('+')
+    return and(...keys.map(s => keyConstants.indexOf(s) !== -1))
+  }
+  return false
+}
 
 const DEFAULT_KEY = 'main'
 const cache = {}
@@ -126,7 +162,7 @@ export default function varsFactory (name = DEFAULT_KEY, options = {}, initial =
         return str.replace(reg, (...args) => {
           const variable = (getKey(args) || '').toUpperCase()
           // Note: keep as it is if it's a KEY_XXX variable, which should be handled by command runner
-          if (keyConstants.indexOf(variable) !== -1)  return args[0]
+          if (isValidKeyConstant(variable)) return args[0]
           return decorate(getVar(variable))
         })
       }

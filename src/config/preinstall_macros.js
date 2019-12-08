@@ -1975,7 +1975,7 @@ DemoStoreEval:  {
       "Command": "clickAndWait",
       "Target": "link=This link@POS=3",
       "Value": ""
-    },
+    }
   ]
 },
 DemoTabs: {
@@ -2173,5 +2173,284 @@ DemoVisualUITest:
       "Value": ""
     }
   ]
-}
-}
+},	
+	
+	
+DemoXType:	
+{
+  "CreationDate": "2018-10-24",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    }, 
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/xtype",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Send CTRL+S to open the browser save dialog",
+      "Value": ""
+    },
+    {
+      "Command": "XType",
+      "Target": "${KEY_CTRL+KEY_S}",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Generate today's date and time ",
+      "Value": ""
+    },
+    {
+      "Command": "storeEval",
+      "Target": "var d= new Date(); var m=((d.getMonth()+1)<10)?'0'+(d.getMonth()+1):(d.getMonth()+1); d.getFullYear()+\"-\"+m+\"-\"+d.getDate();",
+      "Value": "mydate"
+    },
+    {
+      "Command": "storeEval",
+      "Target": "new Date().getHours()+\"-\" + new Date().getMinutes() + \"-\" + new Date().getSeconds()",
+      "Value": "mytime"
+    },
+    {
+      "Command": "echo",
+      "Target": "Today is ${mydate}, and the time is ${mytime}",
+      "Value": "blue"
+    },
+    {
+      "Command": "comment",
+      "Target": "Wait for the dialog to appear before sending the next keystrokes",
+      "Value": ""
+    },
+    {
+      "Command": "pause",
+      "Target": "2000",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Send the new file name to the dialog and press ENTER",
+      "Value": "blue"
+    },
+    {
+      "Command": "XType",
+      "Target": "Page_saved_by_Kantu_${mydate}_${mytime}${KEY_ENTER}",
+      "Value": ""
+    }
+  ]
+},
+DemoXClick:	  
+{
+  "CreationDate": "2018-10-24",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "open",
+      "Target": "https://a9t9.com/kantu/demo/draw",
+      "Value": ""
+    },
+    {
+      "Command": "clickAndWait",
+      "Target": "link=Kantu will click this link",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Kantu controls the mouse cursor now",
+      "Value": "#shownotification"
+    },
+    {
+      "Command": "comment",
+      "Target": "Use image search to find the drawing applet",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "draw_box_dpi_96.png",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "x=${!imagex} y=${!imagey}",
+      "Value": "green"
+    },
+    {
+      "Command": "XClick",
+      "Target": "${!imagex},${!imagey}",
+      "Value": ""
+    },
+    {
+      "Command": "store",
+      "Target": "${!imagex}",
+      "Value": "x"
+    },
+    {
+      "Command": "store",
+      "Target": "${!imagey}",
+      "Value": "y"
+    },
+    {
+      "Command": "comment",
+      "Target": "Draw top line --->",
+      "Value": ""
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#down"
+    },
+    {
+      "Command": "storeEval",
+      "Target": "${x}+50",
+      "Value": "x"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#move"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#up"
+    },
+    {
+      "Command": "comment",
+      "Target": "Draw right line down",
+      "Value": ""
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#down"
+    },
+    {
+      "Command": "storeEval",
+      "Target": "${y}+50",
+      "Value": "y"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#move"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#up"
+    },
+    {
+      "Command": "comment",
+      "Target": "Draw bottom line <---",
+      "Value": ""
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#down"
+    },
+    {
+      "Command": "storeEval",
+      "Target": "${x}-50",
+      "Value": "x"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#move"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#up"
+    },
+    {
+      "Command": "comment",
+      "Target": "Draw left line up",
+      "Value": ""
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#down"
+    },
+    {
+      "Command": "storeEval",
+      "Target": "${y}-50",
+      "Value": "y"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#move"
+    },
+    {
+      "Command": "XMove",
+      "Target": "${x},${y}",
+      "Value": "#up"
+    },
+    {
+      "Command": "comment",
+      "Target": "Check that the square was drawn ok",
+      "Value": ""
+    },
+    {
+      "Command": "visualAssert",
+      "Target": "draw_square_dpi_96.png",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Now type some text. First click the TEXT icon",
+      "Value": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "draw_texticon_dpi_96.png",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Now click the place where the text should start (80px below the square)",
+      "Value": ""
+    },
+    {
+      "Command": "storeEval",
+      "Target": "${y}+80",
+      "Value": "y"
+    },
+    {
+      "Command": "echo",
+      "Target": "x=${x}, y=${y}",
+      "Value": "blue"
+    },
+    {
+      "Command": "XClick",
+      "Target": "${x},${y}",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Send keystrokes, and demo the use of the BACKSPACE special key.",
+      "Value": ""
+    },
+    {
+      "Command": "XType",
+      "Target": "Kantuuu${KEY_BACKSPACE}${KEY_BACKSPACE} can draw and write.",
+      "Value": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "DemoXClick completed",
+      "Value": "#shownotification"
+    }
+  ]
+}   
+}	

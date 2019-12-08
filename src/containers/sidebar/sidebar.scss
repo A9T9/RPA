@@ -15,19 +15,17 @@ $bgRunning: #d5d6f9;
   .sidebar-inner {
     position: absolute;
     top: 0;
-    bottom: 0;
+    bottom: 80px;
     right: 0;
     left: 0;
     overflow-y: auto;
   }
 
-  .sidebar-title {
-    padding: 0 10px;
-    height: 44px;
-    line-height: 44px;
-    border-bottom: 2px solid #ccc;
-    background-color: #f9f9f9;
-    font-size: 16px;
+  .no-data {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 14px;
+    color: #aaa;
   }
 
   .sidebar-test-cases {
@@ -171,6 +169,31 @@ $bgRunning: #d5d6f9;
     }
   }
 
+  .sidebar-storage-mode {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 80px;
+    padding: 0 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+
+    .storage-mode-header {
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 5px;
+      font-size: 12px;
+
+      h3 {
+        font-size: 14px;
+      }
+    }
+  }
+
   .ant-tabs {
     min-height: 100%;
   }
@@ -239,5 +262,21 @@ $bgRunning: #d5d6f9;
         background: #ecf6fd;
       }
     }
+  }
+}
+
+.xfile-not-installed-modal {
+
+  &.left-bottom {
+    position: absolute;
+    top: auto !important;
+    bottom: 100px;
+    left: 100px;
+  }
+
+  p {
+    margin-bottom: 20px;
+    font-size: 16px;
+    font-weight: bold;
   }
 }

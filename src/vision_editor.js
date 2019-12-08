@@ -1,12 +1,13 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
 
-import { getVisionMan } from './common/vision_man'
+import storage from './common/storage'
+import { getStorageManager, StorageStrategyType } from './services/storage'
+import { getXFile } from './services/xmodules/xfile'
 import { parseQuery } from './common/utils'
 
-const visionMan = getVisionMan()
-const rootEl    = document.getElementById('root');
-const render    = () => ReactDOM.render(<App />, rootEl)
+const rootEl        = document.getElementById('root');
+const render        = () => ReactDOM.render(<App />, rootEl)
 
 class App extends React.Component {
   state = {
@@ -22,7 +23,9 @@ class App extends React.Component {
 
     document.title = visionFile + ' - Kantu Vision Viewer'
 
-    visionMan.getLink(visionFile)
+    getStorageManager()
+    .getVisionStorage()
+    .getLink(visionFile)
     .then(link => {
       this.setState({
         imageUrl: link,
@@ -42,4 +45,25 @@ class App extends React.Component {
   }
 }
 
-render()
+function restoreConfig () {
+  return storage.get('config')
+  .then((config = {}) => {
+    return {
+      storageMode: StorageStrategyType.Browser,
+      ...config
+    }
+  })
+}
+
+function init () {
+  return Promise.all([
+    restoreConfig(),
+    getXFile().getConfig()
+  ])
+  .then(([config, xFileConfig]) => {
+    getStorageManager(config.storageMode)
+    render()
+  }, render)
+}
+
+init()

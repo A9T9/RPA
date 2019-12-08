@@ -6,14 +6,17 @@ import {HashRouter} from 'react-router-dom'
 import { message, LocaleProvider } from 'antd'
 import enUS from 'antd/lib/locale-provider/en_US'
 
+import config from './config'
 import FileSaver from './common/lib/file_saver'
 import App from './app'
 import { Provider, createStore, reducer } from './redux'
 import { initPlayer } from './init_player'
 import Ext from './common/web_extension'
 import csIpc from './common/ipc/ipc_cs'
-import testCaseModel, { eliminateBaseUrl, commandWithoutBaseUrl } from './models/test_case_model'
-import testSuiteModel from './models/test_suite_model'
+import { getStorageManager, StorageManagerEvent, StorageStrategyType, StorageTarget } from './services/storage'
+import { FlatStorageEvent } from './services/storage/storage'
+import { getXFile } from './services/xmodules/xfile'
+import { eliminateBaseUrl, commandWithoutBaseUrl } from './models/test_case_model'
 import storage from './common/storage'
 import { delay, randomName, dataURItoBlob, loadCsv, loadImage, getScreenDpi } from './common/utils'
 import { fromJSONString, fromHtml } from './common/convert_utils'
@@ -21,9 +24,6 @@ import { parseTestSuite } from './common/convert_suite_utils'
 import * as C from './common/constant'
 import log from './common/log'
 import { renderLog } from './common/macro_log'
-import { getCSVMan } from './common/csv_man'
-import { getScreenshotMan } from './common/screenshot_man'
-import { getVisionMan } from './common/vision_man'
 import { getVarsInstance } from './common/variables'
 import { Player, getPlayer } from './common/player'
 import getSaveTestCase from './components/save_test_case'
@@ -54,7 +54,9 @@ import {
   playerPlay,
   upsertTestCase,
   setVariables,
-  updateUI
+  updateUI,
+  resetEditing,
+  preinstall
 } from './actions'
 
 const store = createStore(
@@ -75,48 +77,78 @@ const render = Component =>
     rootEl
   );
 
+const timestampCache  = {}
+const DURATION        = 2000
+
 // Note: listen to any db changes and restore all data from db to redux store
 // All test cases are stored in indexeddb (dexie)
-const bindDB = () => {
+const bindMacroAndTestSuites = () => {
+  const curStorageMode  = getStorageManager().getCurrentStrategyType()
+  const macroStorage    = getStorageManager().getMacroStorage()
+  const suiteStorage    = getStorageManager().getTestSuiteStorage()
+  const onError         = (errorList) => {
+    errorList
+    .filter(item => item.fileName !== '__Untitled__')
+    .forEach(errorItem => {
+      const key = errorItem.fullFilePath
+
+      if (!timestampCache[key] || new Date() * 1 - timestampCache[key] > DURATION) {
+        timestampCache[key] = new Date() * 1
+        store.dispatch(addLog('warning', errorItem.error.message))
+      }
+    })
+  }
+
   const restoreTestCases = () => {
-    return testCaseModel.list()
-      .then(tcs => {
-        store.dispatch(
-          setTestCases(tcs.map(eliminateBaseUrl))
-        )
-      })
+    return macroStorage.readAll('Text', onError)
+    .then(items => items.map(item => item.content))
+    .then(tcs => {
+      log('restoreTestCases - macroStorage - tcs', tcs)
+
+      store.dispatch(
+        setTestCases(tcs.map(eliminateBaseUrl))
+      )
+    })
   }
 
   const restoreTestSuites = () => {
-    return testSuiteModel.list()
-      .then(tss => {
-        tss.sort((a, b) => {
-          const aname = a.name.toLowerCase()
-          const bname = b.name.toLowerCase()
+    return suiteStorage.readAll('Text', onError)
+    .then(items => items.map(item => item.content))
+    .then(tss => {
+      tss.sort((a, b) => {
+        const aname = a.name.toLowerCase()
+        const bname = b.name.toLowerCase()
 
-          if (aname < bname)  return -1
-          if (aname > bname)  return 1
-          if (aname === bname) {
-            return b.updateTime - a.updateTime
-          }
-        })
-
-        store.dispatch(
-          setTestSuites(tss)
-        )
+        if (aname < bname)  return -1
+        if (aname > bname)  return 1
+        if (aname === bname) {
+          return b.updateTime - a.updateTime
+        }
       })
+
+      log('restoreTestSuites - suiteStorage - tss', tss)
+
+      store.dispatch(
+        setTestSuites(tss)
+      )
+    })
   }
 
-  ;['updating', 'creating', 'deleting'].forEach(eventName => {
-    testCaseModel.table.hook(eventName, () => {
-      log('eventName', eventName)
+  // FIXME: need to unbind previous listeners when bindMacroAndTestSuites is called for more than once
+  ;[FlatStorageEvent.ListChanged, FlatStorageEvent.FilesChanged].forEach(eventName => {
+    macroStorage.off(eventName)
+    macroStorage.on(eventName, () => {
+      if (curStorageMode !== getStorageManager().getCurrentStrategyType())  return
+      log('macroStorage - eventName', eventName)
       setTimeout(restoreTestCases, 50)
     })
   })
 
-  ;['updating', 'creating', 'deleting'].forEach(eventName => {
-    testSuiteModel.table.hook(eventName, () => {
-      log('eventName', eventName)
+  ;[FlatStorageEvent.ListChanged, FlatStorageEvent.FilesChanged].forEach(eventName => {
+    suiteStorage.off(eventName)
+    suiteStorage.on(eventName, () => {
+      if (curStorageMode !== getStorageManager().getCurrentStrategyType())  return
+      log('suiteStorage - eventName', eventName)
       setTimeout(restoreTestSuites, 50)
     })
   })
@@ -182,24 +214,28 @@ const restoreConfig = () => {
         // variable relative
         showCommonInternalVariables: true,
         showAdvancedInternalVariables: false,
+        // xmodules related
+        storageMode: StorageStrategyType.Browser,
         ...config
       }
       store.dispatch(updateConfig(cfg))
+      return cfg
     })
 }
 
 const restoreCSV = () => {
-  getCSVMan({ baseDir: 'spreadsheets' })
+  // Note: just try to init storage. Eg. For browser fs, it will try to create root folder
+  getStorageManager().getCSVStorage()
   store.dispatch(listCSV())
 }
 
 const restoreScreenshots = () => {
-  getScreenshotMan({ baseDir: 'screenshots' })
+  getStorageManager().getScreenshotStorage()
   store.dispatch(listScreenshots())
 }
 
 const restoreVisions = () => {
-  getVisionMan({ baseDir: 'visions' })
+  getStorageManager().getVisionStorage()
   store.dispatch(listVisions())
 }
 
@@ -259,69 +295,101 @@ const bindIpcEvent = () => {
         return true
 
       case 'RUN_TEST_CASE': {
-        const state = store.getState()
-        if (state.status !== C.APP_STATUS.NORMAL) {
+        if (store.getState().status !== C.APP_STATUS.NORMAL) {
           message.error('can only run macros when it is not recording or playing')
           return false
         }
 
         const { testCase, options } = args
-        const tc = state.editor.testCases.find(tc => tc.name === testCase.name)
-        if (!tc) {
-          message.error(`no macro found with name '${testCase.name}'`)
-          return false
-        }
+        const storageMode = testCase.storageMode || StorageStrategyType.Browser
+        const storageMan  = getStorageManager()
 
-        const openTc  = tc.data.commands.find(item => item.cmd.toLowerCase() === 'open')
+        storageMan.isStrategyTypeAvailable(storageMode)
+        .catch(e => {
+          message.error(e.message)
+          throw e
+        })
+        .then(() => {
+          storageMan.setCurrentStrategyType(storageMode)
+          return delay(() => {}, 1000)
+        })
+        .then(() => {
+          const state = store.getState()
+          const tc = state.editor.testCases.find(tc => tc.name === testCase.name)
 
-        store.dispatch(editTestCase(tc.id))
-        store.dispatch(playerPlay({
-          title: testCase.name,
-          extra: {
-            id: tc && tc.id
-          },
-          mode:       Player.C.MODE.STRAIGHT,
-          startIndex: 0,
-          startUrl:   openTc ? openTc.target : null,
-          resources:  tc.data.commands,
-          postDelay:  state.player.playInterval * 1000,
-          callback:   genPlayerPlayCallback({ options })
-        }))
+          if (!tc) {
+            message.error(`no macro found with name '${testCase.name}'`)
+            return false
+          }
 
-        store.dispatch(updateUI({ sidebarTab: 'macros' }))
+          const openTc  = tc.data.commands.find(item => item.cmd.toLowerCase() === 'open')
+
+          store.dispatch(editTestCase(tc.id))
+          store.dispatch(playerPlay({
+            title: testCase.name,
+            extra: {
+              id: tc && tc.id
+            },
+            mode:       Player.C.MODE.STRAIGHT,
+            startIndex: 0,
+            startUrl:   openTc ? openTc.target : null,
+            resources:  tc.data.commands,
+            postDelay:  state.player.playInterval * 1000,
+            callback:   genPlayerPlayCallback({ options })
+          }))
+
+          store.dispatch(updateUI({ sidebarTab: 'macros' }))
+        })
+
         return true
       }
 
       case 'RUN_TEST_SUITE': {
-        const state = store.getState()
-        if (state.status !== C.APP_STATUS.NORMAL) {
+        if (store.getState().status !== C.APP_STATUS.NORMAL) {
           message.error('can only run test suites when it is not recording or playing')
           return false
         }
 
         const { testSuite, options } = args
-        const ts = state.editor.testSuites.find(ts => ts.name === testSuite.name)
-        if (!ts) {
-          message.error(`no macro found with name '${testSuite.name}'`)
-          return false
-        }
+        const storageMode = testSuite.storageMode || StorageStrategyType.Browser
+        const storageMan  = getStorageManager()
 
-        getPlayer({ name: 'testSuite' }).play({
-          title: ts.name,
-          extra: {
-            id: ts.id,
-            name: ts.name
-          },
-          mode: getPlayer().C.MODE.STRAIGHT,
-          startIndex: 0,
-          resources: ts.cases.map(item => ({
-            id:     item.testCaseId,
-            loops:  item.loops
-          })),
-          callback: genPlayerPlayCallback({ options })
+        storageMan.isStrategyTypeAvailable(storageMode)
+        .catch(e => {
+          message.error(e.message)
+          throw e
+        })
+        .then(() => {
+          storageMan.setCurrentStrategyType(storageMode)
+          return delay(() => {}, 1000)
+        })
+        .then(() => {
+          const state = store.getState()
+
+          const ts = state.editor.testSuites.find(ts => ts.name === testSuite.name)
+          if (!ts) {
+            message.error(`no macro found with name '${testSuite.name}'`)
+            return false
+          }
+
+          getPlayer({ name: 'testSuite' }).play({
+            title: ts.name,
+            extra: {
+              id: ts.id,
+              name: ts.name
+            },
+            mode: getPlayer().C.MODE.STRAIGHT,
+            startIndex: 0,
+            resources: ts.cases.map(item => ({
+              id:     item.testCaseId,
+              loops:  item.loops
+            })),
+            callback: genPlayerPlayCallback({ options })
+          })
+
+          store.dispatch(updateUI({ sidebarTab: 'test_suites' }))
         })
 
-        store.dispatch(updateUI({ sidebarTab: 'test_suites' }))
         return true
       }
 
@@ -336,40 +404,55 @@ const bindIpcEvent = () => {
           return false
         }
 
-        store.dispatch(upsertTestCase(testCase))
+        const storageMode = args.storageMode || StorageStrategyType.Browser
+        const storageMan  = getStorageManager()
 
-        return delay(() => {
-          const state = store.getState()
-          const tc = state.editor.testCases.find(tc => tc.name === testCase.name)
-          const openTc  = tc.data.commands.find(item => item.cmd.toLowerCase() === 'open')
-
-          store.dispatch(editTestCase(tc.id))
-          store.dispatch(playerPlay({
-            title: tc.name,
-            extra: {
-              id: tc && tc.id
-            },
-            mode:       Player.C.MODE.STRAIGHT,
-            startIndex: 0,
-            startUrl:   openTc ? openTc.target : null,
-            resources:  tc.data.commands,
-            postDelay:  state.player.playInterval * 1000,
-            callback:   genPlayerPlayCallback({ options })
-          }))
-          return true
-        }, 1000)
+        return storageMan.isStrategyTypeAvailable(storageMode)
         .catch(e => {
-          log.error(e.stack)
+          message.error(e.message)
           throw e
+        })
+        .then(() => {
+          storageMan.setCurrentStrategyType(storageMode)
+          return delay(() => {}, 1000)
+        })
+        .then(() => {
+          store.dispatch(upsertTestCase(testCase))
+
+          return delay(() => {
+            const state = store.getState()
+            const tc = state.editor.testCases.find(tc => tc.name === testCase.name)
+            const openTc  = tc.data.commands.find(item => item.cmd.toLowerCase() === 'open')
+
+            store.dispatch(editTestCase(tc.id))
+            store.dispatch(playerPlay({
+              title: tc.name,
+              extra: {
+                id: tc && tc.id
+              },
+              mode:       Player.C.MODE.STRAIGHT,
+              startIndex: 0,
+              startUrl:   openTc ? openTc.target : null,
+              resources:  tc.data.commands,
+              postDelay:  state.player.playInterval * 1000,
+              callback:   genPlayerPlayCallback({ options })
+            }))
+            return true
+          }, 1000)
+          .catch(e => {
+            log.error(e.stack)
+            throw e
+          })
         })
       }
 
       case 'ADD_VISION_IMAGE': {
         const { dataUrl } = args
         const fileName    = `${randomName()}_dpi_${getScreenDpi()}.png`
-        const man         = getVisionMan()
 
-        man.write(fileName, dataURItoBlob(dataUrl))
+        getStorageManager()
+        .getVisionStorage()
+        .write(fileName, dataURItoBlob(dataUrl))
         .then(restoreVisions)
         .catch(e => log.error(e.stack))
 
@@ -442,111 +525,92 @@ const updatePageTitle = (args) => {
   document.title = `${origTitle} - (Tab: ${args.title})`
 }
 
-const preinstall = () => {
-  log('PREINSTALL_CSV_LIST', PREINSTALL_CSV_LIST)
-  log('PREINSTALL_VISION_LIST', PREINSTALL_VISION_LIST)
+function tryPreinstall () {
+  storage.get('preinstall_info')
+  .then(info => {
+    const status = (() => {
+      if (!info)  return 'fresh'
 
-  // Preinstall macros and test suites
-  storage.get('preinstall')
-  .then(val => {
-    if (val)  return
-    if (!preTcs || !Object.keys(preTcs).length)  return
+      const { askedVersions = [] } = info
+      if (askedVersions.indexOf(config.preinstallVersion) === -1) return 'new_version_available'
 
-    const tcs = Object.keys(preTcs).map(key => {
-      const str = JSON.stringify(preTcs[key])
-      return fromJSONString(str, key)
-    })
-    store.dispatch(addTestCases(tcs))
+      return 'up_to_date'
+    })()
 
-    // Note: test cases need to be save to indexed db before it reflects in store
-    // so it may take some time before we can preinstall test suites
-    setTimeout(() => {
-      const state = store.getState()
+    switch (status) {
+      case 'fresh':
+        return store.dispatch(preinstall())
 
-      const tss   = preTss.map(ts => {
-        return parseTestSuite(JSON.stringify(ts), state.editor.testCases)
-      })
-      store.dispatch(addTestSuites(tss))
+      case 'new_version_available':
+        return store.dispatch(updateUI({ newPreinstallVersion: true }))
 
-      return storage.set('preinstall', 'done')
-    }, 1000)
+      case 'up_to_date':
+      default:
+        return false
+    }
   })
-
-  // Preinstall csv
-  storage.get('preinstall_csv')
-  .then(val => {
-    if (val)  return
-
-    const list = PREINSTALL_CSV_LIST
-    if (list.length === 0)  return
-
-    const man  = getCSVMan()
-    const ps   = list.map(url => {
-      const parts     = url.split('/')
-      const fileName  = parts[parts.length - 1]
-
-      return loadCsv(url)
-      .then(text => {
-        return man.write(fileName, text)
-      })
-    })
-
-    return Promise.resolve(ps)
-    // Note: delay needed for Firefox and slow Chrome
-    .then(() => delay(() => {}, 3000))
-    .then(() => {
-      store.dispatch(listCSV())
-    })
-  })
-  .then(() => storage.set('preinstall_csv', 'done'))
-
-  // Preinstall vision images
-  storage.get('preinstall_vision')
-  .then(val => {
-    if (val)  return
-
-    const list = PREINSTALL_VISION_LIST
-    if (list.length === 0)  return
-
-    const man  = getVisionMan()
-    const ps   = list.map(url => {
-      const parts     = url.split('/')
-      const fileName  = parts[parts.length - 1]
-
-      return loadImage(url)
-      .then(blob => {
-        return man.write(fileName, blob)
-      })
-    })
-
-    return Promise.resolve(ps)
-    // Note: delay needed for Firefox and slow Chrome
-    .then(() => delay(() => {}, 3000))
-    .then(() => {
-      store.dispatch(listVisions())
-    })
-  })
-  .then(() => storage.set('preinstall_vision', 'done'))
 }
 
-bindDB()
-bindIpcEvent()
-bindWindowEvents()
-bindVariableChange()
-initPlayer(store)
-restoreEditing()
-restoreConfig()
-restoreCSV()
-restoreScreenshots()
-restoreVisions()
-initSaveTestCase()
-preinstall()
+function reloadResources () {
+  bindMacroAndTestSuites()
+  restoreCSV()
+  restoreScreenshots()
+  restoreVisions()
 
-csIpc.ask('I_AM_PANEL', {})
+  setTimeout(() => {
+    store.dispatch(resetEditing())
+  }, 200)
+}
 
-document.title = document.title + ' ' + Ext.runtime.getManifest().version
+function bindStorageModeChanged () {
+  getStorageManager().on(StorageManagerEvent.StrategyTypeChanged, (type) => {
+    reloadResources()
+  })
 
-csIpc.ask('PANEL_CURRENT_PLAY_TAB_INFO')
-.then(updatePageTitle)
+  getStorageManager().on(StorageManagerEvent.RootDirChanged, (type) => {
+    reloadResources()
+  })
 
-render(App)
+  getStorageManager().on(StorageManagerEvent.ForceReload, (type) => {
+    reloadResources()
+  })
+}
+
+function init () {
+  bindMacroAndTestSuites()
+  bindIpcEvent()
+  bindWindowEvents()
+  bindVariableChange()
+  bindStorageModeChanged()
+  initPlayer(store)
+  restoreEditing()
+  restoreConfig()
+  restoreCSV()
+  restoreScreenshots()
+  restoreVisions()
+  initSaveTestCase()
+  tryPreinstall()
+
+  csIpc.ask('I_AM_PANEL', {})
+
+  document.title = document.title + ' ' + Ext.runtime.getManifest().version
+
+  csIpc.ask('PANEL_CURRENT_PLAY_TAB_INFO')
+  .then(updatePageTitle)
+
+  render(App)
+}
+
+Promise.all([
+  restoreConfig(),
+  getXFile().getConfig()
+])
+.then(([config, xFileConfig]) => {
+  // Note: This is the first call of getStorageManager
+  // and it must passed in `getMacros` to make test suite work
+  getStorageManager(config.storageMode, {
+    getMacros: () => store.getState().editor.testCases
+  })
+
+  init()
+}, init)

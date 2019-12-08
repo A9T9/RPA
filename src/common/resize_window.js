@@ -153,6 +153,11 @@ export function getWindowSize (winId) {
   })
 }
 
+export function getFocusedWindowSize () {
+  return Ext.windows.getLastFocused()
+  .then(win => getWindowSize(win.id))
+}
+
 function logWindowSize (winSize) {
   log(winSize.window, winSize.viewport)
   log('dx = ', winSize.window.width - winSize.viewport.width)

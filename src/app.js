@@ -2,7 +2,7 @@ import React, { Component } from 'react'
 import { connect } from 'react-redux'
 import { bindActionCreators }  from 'redux'
 import { HashHistory as Router, Route, Link, Switch, Redirect } from 'react-router-dom'
-import { Button } from 'antd'
+import { Button, Modal, message } from 'antd'
 
 import * as actions from './actions'
 import csIpc from './common/ipc/ipc_cs'
@@ -47,6 +47,37 @@ class App extends Component {
     clearInterval(this.timer)
   }
 
+  renderPreinstallModal () {
+    if (!this.props.ui.newPreinstallVersion)  return null
+
+    return (
+      <Modal
+        className="preinstall-modal"
+        visible={true}
+        title="New demo macros avaiable"
+        okText="Yes, overwrite"
+        cancelText="Skip"
+        onOk={() => {
+          this.props.updateUI({ newPreinstallVersion: false })
+
+          return this.props.preinstall(true)
+          .then(() => {
+            message.success('demo macros updated')
+          })
+          .catch(e => {
+            message.error(e.message)
+          })
+        }}
+        onCancel={() => {
+          this.props.updateUI({ newPreinstallVersion: false })
+          this.props.preinstall(false)
+        }}
+      >
+        <p style={{ fontSize: '14px' }}>Do you want to overwrite the demo macros with their latest versions?</p>
+      </Modal>
+    )
+  }
+
   render () {
     return (
       <div className="app with-sidebar" ref={el => { this.$app = el }}>
@@ -64,12 +95,16 @@ class App extends Component {
             <DashboardPage />
           </section>
         </div>
+
+        {this.renderPreinstallModal()}
       </div>
     );
   }
 }
 
 export default connect(
-  state => ({}),
+  state => ({
+    ui: state.ui
+  }),
   dispatch => bindActionCreators({...actions}, dispatch)
 )(App)

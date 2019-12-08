@@ -10,12 +10,13 @@ import 'codemirror/lib/codemirror.css'
 import 'antd/dist/antd.css'
 import './csv_editor.scss'
 
-import { getCSVMan } from './common/csv_man'
+import storage from './common/storage'
+import { getStorageManager, StorageStrategyType } from './services/storage'
+import { getXFile } from './services/xmodules/xfile'
 import { parseQuery } from './common/utils'
 
-const csvMan = getCSVMan()
-const rootEl = document.getElementById('root');
-const render = () => ReactDOM.render(<App />, rootEl)
+const rootEl      = document.getElementById('root');
+const render      = () => ReactDOM.render(<App />, rootEl)
 
 class App extends React.Component {
   state = {
@@ -32,7 +33,9 @@ class App extends React.Component {
   }
 
   saveCSV = () => {
-    return csvMan.overwrite(this.state.csvFile, this.state.sourceTextModified)
+    return getStorageManager()
+    .getCSVStorage()
+    .overwrite(this.state.csvFile, new Blob([this.state.sourceTextModified]))
     .then(
       () => message.success('Successfully saved'),
       e => {
@@ -63,7 +66,9 @@ class App extends React.Component {
 
     document.title = csvFile + ' - Kantu CSV Editor'
 
-    csvMan.read(csvFile)
+    getStorageManager()
+    .getCSVStorage()
+    .read(csvFile, 'Text')
     .then(text => {
       this.setState({
         csvFile,
@@ -100,4 +105,25 @@ class App extends React.Component {
   }
 }
 
-render()
+function restoreConfig () {
+  return storage.get('config')
+  .then((config = {}) => {
+    return {
+      storageMode: StorageStrategyType.Browser,
+      ...config
+    }
+  })
+}
+
+function init () {
+  return Promise.all([
+    restoreConfig(),
+    getXFile().getConfig()
+  ])
+  .then(([config, xFileConfig]) => {
+    getStorageManager(config.storageMode)
+    render()
+  }, render)
+}
+
+init()

@@ -385,13 +385,12 @@ export const retry = (fn, options) => (...args) => {
 }
 
 // refer to https://stackoverflow.com/questions/12168909/blob-from-dataurl
-export function dataURItoBlob (dataURI) {
+export function dataURItoArrayBuffer (dataURI) {
   // convert base64 to raw binary data held in a string
   // doesn't handle URLEncoded DataURIs - see SO answer #6850276 for code that does this
-  var byteString = atob(dataURI.split(',')[1]);
-
-  // separate out the mime component
-  var mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0]
+  var byteString = atob(
+    /^data:/.test(dataURI) ? dataURI.split(',')[1] : dataURI
+  );
 
   // write the bytes of the string to an ArrayBuffer
   var ab = new ArrayBuffer(byteString.length);
@@ -404,9 +403,46 @@ export function dataURItoBlob (dataURI) {
       ia[i] = byteString.charCodeAt(i);
   }
 
+  return ab
+}
+
+export function dataURItoBlob (dataURI) {
+  var ab = dataURItoArrayBuffer(dataURI)
+  // separate out the mime component
+  var mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0]
   // write the ArrayBuffer to a blob, and you're done
   var blob = new Blob([ab], {type: mimeString});
   return blob;
+}
+
+export function blobToDataURL (blob) {
+  return new Promise((resolve, reject) => {
+      let reader = new FileReader()
+      reader.onerror = reject
+      reader.onload = (e) => {
+        const str = reader.result
+        const b64 = 'base64,'
+        const i   = str.indexOf(b64)
+        const ret = str.substr(i + b64.length)
+
+        resolve(ret)
+      }
+      reader.readAsDataURL(blob)
+  })
+}
+
+export function arrayBufferToString (buf) {
+  return String.fromCharCode.apply(null, new Uint16Array(buf))
+}
+
+export function stringToArrayBuffer (str) {
+  var buf = new ArrayBuffer(str.length * 2) // 2 bytes for each char
+  var bufView = new Uint16Array(buf)
+
+  for (var i = 0, strLen = str.length; i < strLen; i++) {
+    bufView[i] = str.charCodeAt(i)
+  }
+  return buf
 }
 
 export const randomName = (length = 6) => {

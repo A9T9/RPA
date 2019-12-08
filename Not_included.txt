@@ -1,20 +1,19 @@
 *** Not included ***
 
 
-The Kantu open-source code published in this repository includes the complete, ready-to-run Kantu core extension. 
+The UI.Visio nRPA (formerly Kantu) open-source code published in this repository includes the complete, ready-to-run core extension. 
 
 The repository and the open-source license does not include:
 
 
 (1) Source code for the C++ Webassembly module used by the Visual UI testing commands. 
 
-Kantu works just fine without this module. In addition, the compiled binary of the module is included in the repo, so the VisualAssert, VisualVerify and VisualSearch commands work out of the box. We use Webassembly for the fast, in-browser image search of these commands. Without the KantuSearch module, everything except those three commands continues to work. 
+UI.Vision Core works just fine without this module. In addition, the compiled binary of the module is included in the repo, so the VisualAssert, VisualVerify and VisualSearch commands work out of the box. We use Webassembly for the fast, in-browser image search of these commands. Without the KantuSearch module, everything except those three commands continues to work. 
 
 Please note that not having the source code of this module is _not_ a security issue, as Webassembly code runs in the browser's sandbox and can _not_ do anything buggy or malicious by design. For more information, see https://webassembly.org/docs/security/ .
 
 
-(2) Source code of the binary KantuX extensions modules. (ROADMAP ITEM - NOT YET AVAILABLE)
+(2) Source code of the binary UI.Vision XModules extensions modules.
 
-The Kantu extension modules are cross-platform desktop software and are installed separately. They communicate with Kantu (the core browser extension) via native messaging. They are not included with the Kantu extension that you find in the Chrome and Firefox stores. You can download them from this website: (FUTURE LINK HERE)
+The UI.Vision XModules are cross-platform desktop software and are installed separately. They communicate with the core browser extension via native messaging. They are not included with the UI.Vision Core extension that you find in the Chrome and Firefox stores. You can download them from this website: https://ui.vision/rpa/x
 
-For more information, please see https://github.com/A9T9/Kantu/issues/42

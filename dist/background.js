@@ -147,693 +147,328 @@
 /******/
 /******/
 /******/ 	// add entry module to deferred list
-/******/ 	deferredModules.push([686,0,1]);
+/******/ 	deferredModules.push([708,0,1]);
 /******/ 	// run deferred modules when ready
 /******/ 	return checkDeferredModules();
 /******/ })
 /************************************************************************/
 /******/ ({
 
-/***/ 146:
+/***/ 103:
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-
-var setStyle = function setStyle($dom, obj) {
-  Object.keys(obj).forEach(function (key) {
-    $dom.style[key] = obj[key];
-  });
-};
-
-var withInput = function withInput(fn) {
-  var $input = document.createElement('textarea');
-  // Note: Firefox requires 'contenteditable' attribute, even on textarea element
-  // without it, execCommand('paste') won't work in Firefox
-  // reference: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Interact_with_the_clipboard#Browser-specific_considerations_2
-  $input.setAttribute('contenteditable', true);
-
-  setStyle($input, {
-    position: 'aboslute',
-    top: '-9999px',
-    left: '-9999px'
-  });
-
-  document.body.appendChild($input);
-
-  var ret = void 0;
-
-  try {
-    ret = fn($input);
-  } finally {
-    document.body.removeChild($input);
-  }
-
-  return ret;
-};
-
-var api = {
-  set: function set(text) {
-    withInput(function ($input) {
-      $input.value = text;
-      $input.select();
-      document.execCommand('copy');
-    });
-  },
-  get: function get() {
-    return withInput(function ($input) {
-      $input.select();
-
-      if (document.execCommand('Paste')) {
-        return $input.value;
-      }
-
-      return 'no luck';
-    });
-  }
-};
-
-/* harmony default export */ __webpack_exports__["a"] = (api);
-
-/***/ }),
-
-/***/ 147:
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* harmony import */ var _common_web_extension__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(3);
-/* harmony import */ var _common_web_extension__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_common_web_extension__WEBPACK_IMPORTED_MODULE_0__);
-
-
-var platform = _common_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.isFirefox() ? 'firefox' : 'chrome';
-
-/* harmony default export */ __webpack_exports__["a"] = ({
-  urlAfterUpgrade: 'https://a9t9.com/kantu/web-automation/' + platform + '/whatsnew',
-  urlAfterInstall: 'https://a9t9.com/kantu/web-automation/' + platform + '/welcome',
-  urlAfterUninstall: 'https://a9t9.com/kantu/web-automation/' + platform + '/why'
-});
-
-/***/ }),
-
-/***/ 30:
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* unused harmony export IpcCache */
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return getIpcCache; });
-/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(2);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-
-
-var IpcCache = function () {
-  function IpcCache() {
-    _classCallCheck(this, IpcCache);
-
-    this.cache = {};
-  }
-
-  _createClass(IpcCache, [{
-    key: 'get',
-    value: function get(tabId) {
-      var _this = this;
-
-      var timeout = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 2000;
-      var before = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : Infinity;
-
-      return Object(_utils__WEBPACK_IMPORTED_MODULE_0__["until"])('ipc by tab id', function () {
-        var ipcObj = _this.cache[tabId];
-        var enabled = ipcObj && ipcObj.status === 1;
-        var ipc = ipcObj && ipcObj.ipc;
-
-        return {
-          pass: enabled && !!ipc && (before === Infinity || before > ipcObj.timestamp),
-          result: ipc
-        };
-      }, 100, timeout);
-    }
-  }, {
-    key: 'set',
-    value: function set(tabId, ipc, cuid) {
-      this.cache[tabId] = {
-        ipc: ipc,
-        cuid: cuid,
-        status: 1,
-        timestamp: new Date().getTime()
-      };
-    }
-  }, {
-    key: 'setStatus',
-    value: function setStatus(tabId, status) {
-      var updateTimestamp = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : false;
-
-      var found = this.cache[tabId];
-      if (!found) return false;
-
-      found.status = status;
-
-      if (updateTimestamp) {
-        found.timestamp = new Date().getTime();
-      }
-
-      return true;
-    }
-  }, {
-    key: 'enable',
-    value: function enable(tabId) {
-      return this.setStatus(tabId, 1, true);
-    }
-  }, {
-    key: 'disable',
-    value: function disable(tabId) {
-      return this.setStatus(tabId, 0);
-    }
-  }, {
-    key: 'getCuid',
-    value: function getCuid(tabId) {
-      var found = this.cache[tabId];
-      if (!found) return null;
-      return found.cuid;
-    }
-  }, {
-    key: 'del',
-    value: function del(tabId) {
-      delete this.cache[tabId];
-    }
-  }]);
-
-  return IpcCache;
-}();
-
-var instance = void 0;
-
-function getIpcCache() {
-  if (instance) return instance;
-  instance = new IpcCache();
-  return instance;
-}
-
-/***/ }),
-
-/***/ 31:
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* unused harmony export VisionMan */
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return getVisionMan; });
-/* harmony import */ var _filesystem__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(16);
-/* harmony import */ var _file_man__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(49);
-/* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(3);
-/* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_web_extension__WEBPACK_IMPORTED_MODULE_2__);
-var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-
-
-
-
-var VisionMan = function (_FileMan) {
-  _inherits(VisionMan, _FileMan);
-
-  function VisionMan() {
-    var opts = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
-    _classCallCheck(this, VisionMan);
-
-    return _possibleConstructorReturn(this, (VisionMan.__proto__ || Object.getPrototypeOf(VisionMan)).call(this, _extends({}, opts, { baseDir: 'visions' })));
-  }
-
-  _createClass(VisionMan, [{
-    key: 'write',
-    value: function write(fileName, blob) {
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].writeFile(this.__filePath(fileName, true), blob);
-    }
-  }, {
-    key: 'read',
-    value: function read(fileName) {
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].readFile(this.__filePath(fileName), 'ArrayBuffer');
-    }
-  }, {
-    key: 'readAsDataURL',
-    value: function readAsDataURL(fileName) {
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].readFile(this.__filePath(fileName), 'DataURL');
-    }
-  }, {
-    key: 'getLink',
-    value: function getLink(fileName) {
-      if (!_web_extension__WEBPACK_IMPORTED_MODULE_2___default.a.isFirefox()) return Promise.resolve(_get(VisionMan.prototype.__proto__ || Object.getPrototypeOf(VisionMan.prototype), 'getLink', this).call(this, fileName));
-
-      // Note: Except for Chrome, the filesystem API we use is a polyfill from idb.filesystem.js
-      // idb.filesystem.js works great but the only problem is that you can't use 'filesystem:' schema to retrieve that file
-      // so here, we have to convert the file to data url
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].readFile(this.__filePath(fileName), 'DataURL');
-    }
-  }]);
-
-  return VisionMan;
-}(_file_man__WEBPACK_IMPORTED_MODULE_1__[/* default */ "a"]);
-
-var man = void 0;
-
-function getVisionMan() {
-  var opts = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
-  if (opts) {
-    man = new VisionMan(opts);
-  }
-
-  if (!man) {
-    throw new Error('vision manager not initialized');
-  }
-
-  return man;
-}
-
-/***/ }),
-
-/***/ 32:
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-
-// EXTERNAL MODULE: ./src/common/web_extension.js
-var web_extension = __webpack_require__(3);
-var web_extension_default = /*#__PURE__*/__webpack_require__.n(web_extension);
-
-// CONCATENATED MODULE: ./src/common/storage/ext_storage.js
-var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
-function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
-
-
-
-var local = web_extension_default.a.storage.local;
-
-/* harmony default export */ var ext_storage = ({
-  get: function get(key) {
-    return local.get(key).then(function (obj) {
-      return obj[key];
-    });
-  },
-
-  set: function set(key, value) {
-    return local.set(_defineProperty({}, key, value)).then(function () {
-      return true;
-    });
-  },
-
-  remove: function remove(key) {
-    return local.remove(key).then(function () {
-      return true;
-    });
-  },
-
-  clear: function clear() {
-    return local.clear().then(function () {
-      return true;
-    });
-  },
-
-  addListener: function addListener(fn) {
-    web_extension_default.a.storage.onChanged.addListener(function (changes, areaName) {
-      var list = Object.keys(changes).map(function (key) {
-        return _extends({}, changes[key], { key: key });
-      });
-      fn(list);
-    });
-  }
-});
-// CONCATENATED MODULE: ./src/common/storage/index.js
-
-
-
-/* harmony default export */ var storage = __webpack_exports__["a"] = (ext_storage);
-
-/***/ }),
-
-/***/ 37:
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* unused harmony export ScreenshotMan */
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return getScreenshotMan; });
-/* harmony import */ var _filesystem__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(16);
-/* harmony import */ var _file_man__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(49);
-/* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(3);
-/* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_web_extension__WEBPACK_IMPORTED_MODULE_2__);
-var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-
-
-
-
-var ScreenshotMan = function (_FileMan) {
-  _inherits(ScreenshotMan, _FileMan);
-
-  function ScreenshotMan() {
-    var opts = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
-    _classCallCheck(this, ScreenshotMan);
-
-    return _possibleConstructorReturn(this, (ScreenshotMan.__proto__ || Object.getPrototypeOf(ScreenshotMan)).call(this, _extends({}, opts, { baseDir: 'screenshots' })));
-  }
-
-  _createClass(ScreenshotMan, [{
-    key: 'write',
-    value: function write(fileName, blob) {
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].writeFile(this.__filePath(fileName, true), blob);
-    }
-  }, {
-    key: 'read',
-    value: function read(fileName) {
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].readFile(this.__filePath(fileName), 'ArrayBuffer');
-    }
-  }, {
-    key: 'readAsDataURL',
-    value: function readAsDataURL(fileName) {
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].readFile(this.__filePath(fileName), 'DataURL');
-    }
-  }, {
-    key: 'getLink',
-    value: function getLink(fileName) {
-      if (!_web_extension__WEBPACK_IMPORTED_MODULE_2___default.a.isFirefox()) return Promise.resolve(_get(ScreenshotMan.prototype.__proto__ || Object.getPrototypeOf(ScreenshotMan.prototype), 'getLink', this).call(this, fileName) + '?' + new Date().getTime());
-
-      // Note: Except for Chrome, the filesystem API we use is a polyfill from idb.filesystem.js
-      // idb.filesystem.js works great but the only problem is that you can't use 'filesystem:' schema to retrieve that file
-      // so here, we have to convert the file to data url
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].readFile(this.__filePath(fileName), 'DataURL');
-    }
-  }]);
-
-  return ScreenshotMan;
-}(_file_man__WEBPACK_IMPORTED_MODULE_1__[/* default */ "a"]);
-
-var man = void 0;
-
-function getScreenshotMan() {
-  var opts = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
-  if (opts) {
-    man = new ScreenshotMan(opts);
-  }
-
-  if (!man) {
-    throw new Error('screenshot manager not initialized');
-  }
-
-  return man;
-}
-
-/***/ }),
-
-/***/ 4:
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* unused harmony export logFactory */
-var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
-var logFactory = function logFactory(enabled) {
-  var isEnabled = !!enabled;
-
-  var obj = ['log', 'info', 'warn', 'error'].reduce(function (prev, method) {
-    prev[method] = function () {
-      var _console;
-
-      for (var _len = arguments.length, args = Array(_len), _key = 0; _key < _len; _key++) {
-        args[_key] = arguments[_key];
-      }
-
-      if (!isEnabled) return;
-      (_console = console)[method].apply(_console, [new Date().toISOString(), ' - '].concat(args));
-    };
-    return prev;
-  }, {});
-
-  return _extends(obj.log, obj, {
-    enable: function enable() {
-      isEnabled = true;
-    },
-    disable: function disable() {
-      isEnabled = false;
-    }
-  });
-};
-
-/* harmony default export */ __webpack_exports__["a"] = (logFactory("production" !== 'production'));
-
-/***/ }),
-
-/***/ 416:
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-/* unused harmony export withDebugger */
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return setFileInputFiles; });
+/* unused harmony export DownloadMan */
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return getDownloadMan; });
 /* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(3);
 /* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_web_extension__WEBPACK_IMPORTED_MODULE_0__);
-/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(2);
+/* harmony import */ var _log__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(4);
+/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(2);
 var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 
 
-var PROTOCOL_VERSION = '1.2';
-var ClEANUP_TIMEOUT = 0;
 
-var withDebugger = function () {
-  var state = {
-    connected: null,
-    cleanupTimer: null
-  };
 
-  var setState = function setState(obj) {
-    _extends(state, obj);
-  };
+var DownloadMan = function () {
+  function DownloadMan() {
+    var _this = this;
 
-  var cancelCleanup = function cancelCleanup() {
-    if (state.cleanupTimer) clearTimeout(state.cleanupTimer);
-    setState({ cleanupTimer: null });
-  };
+    _classCallCheck(this, DownloadMan);
 
-  var isSameDebuggee = function isSameDebuggee(a, b) {
-    return a && b && a.tabId && b.tabId && a.tabId === b.tabId;
-  };
+    this.activeDownloads = [];
+    this.eventsBound = false;
 
-  return function (debuggee, fn) {
-    var attach = function attach(debuggee) {
-      if (isSameDebuggee(state.connected, debuggee)) {
-        cancelCleanup();
-        return Promise.resolve();
+    this.filterActiveDownloads = function (predicate) {
+      _this.activeDownloads = _this.activeDownloads.filter(predicate);
+
+      if (_this.activeDownloads.length === 0) {
+        _this.unbindEvents();
+      }
+    };
+
+    this.createdListener = function (downloadItem) {
+      if (!_this.isActive()) return;
+      Object(_log__WEBPACK_IMPORTED_MODULE_1__[/* default */ "a"])('download on created', downloadItem);
+
+      var item = _this.activeDownloads.find(function (item) {
+        return !item.id;
+      });
+      if (!item) return;
+
+      // Note: 3 things to do on download created
+      // 1. record download id
+      // 2. Start timer for timeout
+      // 3. Start interval timer for count down message
+      _extends(item, _extends({
+        id: downloadItem.id
+      }, !item.wait && item.timeout > 0 ? {} : {
+        timeoutTimer: setTimeout(function () {
+          item.reject(new Error('download timeout ' + item.timeout / 1000 + 's'));
+          _this.filterActiveDownloads(function (d) {
+            return item.uid !== d.uid;
+          });
+        }, item.timeout),
+
+        countDownTimer: setInterval(function () {
+          if (!_this.countDownHandler) return;
+
+          var _item$past = item.past,
+              past = _item$past === undefined ? 0 : _item$past;
+
+          var newPast = past + 1000;
+
+          _this.countDownHandler({
+            total: item.timeout,
+            past: newPast
+          });
+          _extends(item, { past: newPast });
+        }, 1000)
+      }));
+    };
+
+    this.changedListener = function (downloadDelta) {
+      if (!_this.isActive()) return;
+      Object(_log__WEBPACK_IMPORTED_MODULE_1__[/* default */ "a"])('download on changed', downloadDelta);
+
+      var item = _this.findById(downloadDelta.id);
+      if (!item) return;
+
+      if (downloadDelta.state) {
+        var fn = function fn() {};
+        var done = false;
+
+        switch (downloadDelta.state.current) {
+          case 'complete':
+            fn = function fn() {
+              return item.resolve(true);
+            };
+            done = true;
+            break;
+
+          case 'interrupted':
+            fn = function fn() {
+              return item.reject(new Error('download interrupted'));
+            };
+            done = true;
+            break;
+        }
+
+        // Remove this download item from our todo list if it's done
+        if (done) {
+          clearTimeout(item.timeoutTimer);
+          clearInterval(item.countDownTimer);
+          _this.filterActiveDownloads(function (item) {
+            return item.id !== downloadDelta.id;
+          });
+        }
+
+        // resolve or reject that promise object
+        fn();
+      }
+    };
+
+    this.determineFileNameListener = function (downloadItem, suggest) {
+      if (!_this.isActive()) return;
+
+      Object(_log__WEBPACK_IMPORTED_MODULE_1__[/* default */ "a"])('download on determine', downloadItem);
+
+      var item = _this.findById(downloadItem.id);
+      if (!item) return;
+
+      var tmpName = item.fileName.trim();
+      var fileName = tmpName === '' || tmpName === '*' ? null : tmpName;
+
+      if (fileName) {
+        return suggest({
+          filename: fileName,
+          conflictAction: 'uniquify'
+        });
+      }
+    };
+  }
+
+  _createClass(DownloadMan, [{
+    key: 'isActive',
+
+
+    /*
+     * Private methods
+     */
+
+    value: function isActive() {
+      return this.activeDownloads.length > 0;
+    }
+  }, {
+    key: 'findById',
+    value: function findById(id) {
+      return this.activeDownloads.find(function (item) {
+        return item.id === id;
+      });
+    }
+  }, {
+    key: 'bindEvents',
+    value: function bindEvents() {
+      if (this.eventsBound) return;
+
+      _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onCreated.addListener(this.createdListener);
+      _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onChanged.addListener(this.changedListener);
+
+      // Note: only chrome supports api `chrome.downloads.onDeterminingFilename`
+      if (_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onDeterminingFilename) {
+        _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onDeterminingFilename.addListener(this.determineFileNameListener);
       }
 
-      return detach(state.connected).then(function () {
-        return _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.debugger.attach(debuggee, PROTOCOL_VERSION);
-      }).then(function () {
-        return setState({ connected: debuggee });
+      this.eventsBound = true;
+    }
+  }, {
+    key: 'unbindEvents',
+    value: function unbindEvents() {
+      if (!this.eventsBound) return;
+
+      if (_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onCreated.removeListener) {
+        _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onCreated.removeListener(this.createdListener);
+      }
+
+      if (_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onChanged.removeListener) {
+        _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onChanged.removeListener(this.changedListener);
+      }
+
+      if (_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onDeterminingFilename && _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onDeterminingFilename.removeListener) {
+        _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onDeterminingFilename.removeListener(this.determineFileNameListener);
+      }
+
+      this.eventsBound = false;
+    }
+
+    /*
+     * Public methods
+     */
+
+  }, {
+    key: 'reset',
+    value: function reset() {
+      this.activeDownloads.forEach(function (item) {
+        if (item.timeoutTimer) clearTimeout(item.timeoutTimer);
+        if (item.countDownTimer) clearInterval(item.countDownTimer);
       });
-    };
-    var detach = function detach(debuggee) {
-      if (!debuggee) return Promise.resolve();
+      this.activeDownloads = [];
+      this.unbindEvents();
+    }
+  }, {
+    key: 'prepareDownload',
+    value: function prepareDownload(fileName) {
+      var _this2 = this;
 
-      return _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.debugger.detach(debuggee).then(function () {
-        if (state.cleanupTimer) clearTimeout(state.cleanupTimer);
+      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 
-        setState({
-          connected: null,
-          cleanupTimer: null
+      var downloadToCreate = this.activeDownloads.find(function (item) {
+        return !item.id;
+      });
+      if (downloadToCreate) throw new Error('only one not-created download allowed at a time');
+
+      this.bindEvents();
+
+      var opts = _extends({
+        timeoutForStart: 10000,
+        timeout: 60000,
+        wait: false
+      }, options);
+
+      var promise = new Promise(function (resolve, reject) {
+        var uid = Math.floor(Math.random() * 1000) + new Date() * 1;
+
+        // Note: we need to cache promise object, so have to wait for next tick
+        setTimeout(function () {
+          _this2.activeDownloads.push({
+            uid: uid,
+            resolve: resolve,
+            reject: reject,
+            fileName: fileName,
+            promise: promise,
+            timeoutForStart: opts.timeoutForStart,
+            timeout: opts.timeout,
+            wait: opts.wait
+          });
+        }, 0);
+      });
+
+      return promise;
+    }
+  }, {
+    key: 'waitForDownloadIfAny',
+    value: function waitForDownloadIfAny() {
+      var _this3 = this;
+
+      var downloadToCreate = this.activeDownloads.find(function (item) {
+        return !item.id;
+      });
+      if (downloadToCreate) {
+        return Object(_utils__WEBPACK_IMPORTED_MODULE_2__["until"])('download start', function () {
+          return {
+            pass: !!downloadToCreate.id,
+            result: true
+          };
+        }, 50, downloadToCreate.timeoutForStart).then(function () {
+          return _this3.waitForDownloadIfAny();
         });
-      }, function (e) {
-        return console.error('error in detach', e.stack);
+      }
+
+      // Note: check if id exists, because it means this download item is created
+      var downloadToComplete = this.activeDownloads.find(function (item) {
+        return item.wait && item.id;
       });
-    };
-    var scheduleDetach = function scheduleDetach() {
-      var timer = setTimeout(function () {
-        return detach(debuggee);
-      }, ClEANUP_TIMEOUT);
-      setState({ cleanupTimer: timer });
-    };
-    var sendCommand = function sendCommand(cmd, params) {
-      return _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.debugger.sendCommand(debuggee, cmd, params);
-    };
-    var onEvent = function onEvent(callback) {
-      _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.debugger.onEvent.addListener(callback);
-    };
-    var onDetach = function onDetach(callback) {
-      _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.debugger.onDetach.addListener(callback);
-    };
-
-    return new Promise(function (resolve, reject) {
-      var done = function done(error, result) {
-        scheduleDetach();
-
-        if (error) return reject(error);else return resolve(result);
-      };
-
-      return attach(debuggee).then(function () {
-        fn({ sendCommand: sendCommand, onEvent: onEvent, onDetach: onDetach, done: done });
-      }, function (e) {
-        return reject(e);
+      if (!downloadToComplete) return Promise.resolve(true);
+      return downloadToComplete.promise.then(function () {
+        return _this3.waitForDownloadIfAny();
       });
-    });
+    }
+  }, {
+    key: 'onCountDown',
+    value: function onCountDown(fn) {
+      this.countDownHandler = fn;
+    }
+  }, {
+    key: 'hasPendingDownload',
+    value: function hasPendingDownload() {
+      var downloadToCreate = this.activeDownloads.find(function (item) {
+        return !item.id;
+      });
+      return !!downloadToCreate;
+    }
+  }]);
+
+  return DownloadMan;
+}();
+
+var getDownloadMan = function () {
+  var instance = void 0;
+
+  return function () {
+    if (!instance) {
+      instance = new DownloadMan();
+    }
+
+    return instance;
   };
 }();
 
-var __getDocument = function __getDocument(_ref) {
-  var sendCommand = _ref.sendCommand,
-      done = _ref.done;
-  return function () {
-    return sendCommand('DOM.getDocument').then(function (obj) {
-      return obj.root;
-    });
-  };
-};
-
-var __querySelector = function __querySelector(_ref2) {
-  var sendCommand = _ref2.sendCommand,
-      done = _ref2.done;
-  return Object(_utils__WEBPACK_IMPORTED_MODULE_1__["partial"])(function (selector, nodeId) {
-    return sendCommand('DOM.querySelector', { nodeId: nodeId, selector: selector }).then(function (res) {
-      return res && res.nodeId;
-    });
-  });
-};
-
-var __setFileInputFiles = function __setFileInputFiles(_ref3) {
-  var sendCommand = _ref3.sendCommand,
-      done = _ref3.done;
-  return Object(_utils__WEBPACK_IMPORTED_MODULE_1__["partial"])(function (files, nodeId) {
-    return sendCommand('DOM.setFileInputFiles', { nodeId: nodeId, files: files }).then(function () {
-      return true;
-    });
-  });
-};
-
-var setFileInputFiles = function setFileInputFiles(_ref4) {
-  var tabId = _ref4.tabId,
-      selector = _ref4.selector,
-      files = _ref4.files;
-
-  return withDebugger({ tabId: tabId }, function (api) {
-    var go = Object(_utils__WEBPACK_IMPORTED_MODULE_1__["composePromiseFn"])(__setFileInputFiles(api)(files), __querySelector(api)(selector), function (node) {
-      return node.nodeId;
-    }, __getDocument(api));
-
-    return go().then(function (res) {
-      return api.done(null, res);
-    });
-  });
-};
-
 /***/ }),
 
-/***/ 417:
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", { value: true });
-const worker_connection_1 = __webpack_require__(687);
-const image_helper_1 = __webpack_require__(689);
-let isModuleReady = false;
-let worker = new worker_connection_1.WorkerConnection("/worker.js", workerMessageHandler);
-/**
- * Listens regular messages from the worker.
- * @param msg Received worker message.
- */
-function workerMessageHandler(msg) {
-    switch (msg.type) {
-        case 0 /* Init */:
-            isModuleReady = true;
-            break;
-        default:
-            console.error("Unsupported worker message: ", msg);
-            break;
-    }
-}
-/**
- * Schedules a template matching task for the web worker.
- * @param image Image where the search will be running.
- * @param pattern Image which will searched.
- * @param minSimilarity Minimum similarity score to accept a match.
- * @param allowSizeVariation Allows size variation during image search.
- * @returns Promise object with matches regions.
- */
-function postImageSearchAsync(image, pattern, minSimilarity, allowSizeVariation) {
-    const jobData = {
-        image,
-        pattern,
-        options: {
-            minSimilarity,
-            allowSizeVariation,
-            enableGreenPinkBoxes: false,
-            requireGreenPinkBoxes: false
-        }
-    };
-    return worker.postJobAsync(2 /* ImageSearch */, jobData);
-}
-function searchImageBestOne(req) {
-    return searchImage(req)
-        .then(results => results[0]);
-}
-exports.searchImageBestOne = searchImageBestOne;
-function searchImage(req) {
-    if (!isModuleReady) {
-        throw new Error('Module is not ready yet.');
-    }
-    const minSimilarity = Math.max(0.1, Math.min(1.0, req.minSimilarity));
-    const { allowSizeVariation } = req;
-    return Promise.all([
-        image_helper_1.ImageHelper.loadImageDataAsync(req.targetImageUrl),
-        image_helper_1.ImageHelper.loadImageDataAsync(req.patternImageUrl)
-    ])
-        .then(([screenshotImageData, patternImageData]) => {
-        return postImageSearchAsync(screenshotImageData, patternImageData, minSimilarity, allowSizeVariation)
-            .then(result => {
-            const { containsGreenPinkBoxes, errorCode, regions } = result;
-            return regions.map(r => ({
-                left: r.matchedRect.left / req.scaleDownRatio + req.offsetX,
-                top: r.matchedRect.top / req.scaleDownRatio + req.offsetY,
-                width: r.matchedRect.width / req.scaleDownRatio,
-                height: r.matchedRect.height / req.scaleDownRatio,
-                score: r.score
-            }));
-        });
-    });
-}
-exports.searchImage = searchImage;
-
-
-/***/ }),
-
-/***/ 418:
+/***/ 156:
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* unused harmony export resizeWindow */
-/* unused harmony export resizeViewport */
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return resizeViewportOfTab; });
-/* unused harmony export getWindowSize */
+__webpack_require__.r(__webpack_exports__);
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "resizeWindow", function() { return resizeWindow; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "resizeViewport", function() { return resizeViewport; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "resizeViewportOfTab", function() { return resizeViewportOfTab; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "getWindowSize", function() { return getWindowSize; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "getFocusedWindowSize", function() { return getFocusedWindowSize; });
 /* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(3);
 /* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_web_extension__WEBPACK_IMPORTED_MODULE_0__);
 /* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(2);
@@ -1001,6 +636,12 @@ function getWindowSize(winId) {
   });
 }
 
+function getFocusedWindowSize() {
+  return _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.windows.getLastFocused().then(function (win) {
+    return getWindowSize(win.id);
+  });
+}
+
 function logWindowSize(winSize) {
   Object(_log__WEBPACK_IMPORTED_MODULE_2__[/* default */ "a"])(winSize.window, winSize.viewport);
   Object(_log__WEBPACK_IMPORTED_MODULE_2__[/* default */ "a"])('dx = ', winSize.window.width - winSize.viewport.width);
@@ -1009,7 +650,460 @@ function logWindowSize(winSize) {
 
 /***/ }),
 
-/***/ 55:
+/***/ 162:
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+
+var setStyle = function setStyle($dom, obj) {
+  Object.keys(obj).forEach(function (key) {
+    $dom.style[key] = obj[key];
+  });
+};
+
+var createTextarea = function createTextarea() {
+  // [legacy code] Used to use textarea for copy/paste
+  //
+  // const $input = document.createElement('textarea')
+  // // Note: Firefox requires 'contenteditable' attribute, even on textarea element
+  // // without it, execCommand('paste') won't work in Firefox
+  // // reference: https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Interact_with_the_clipboard#Browser-specific_considerations_2
+  // $input.setAttribute('contenteditable', true)
+  // $input.id = 'clipboard_textarea'
+
+  // Note: 2018-09-01, Firefox 61.0.2: Only able to paste clipboard into textarea for one time.
+  // Switching to contenteditable div works fine
+  var $input = document.createElement('div');
+  $input.setAttribute('contenteditable', true);
+  $input.id = 'clipboard_textarea';
+
+  setStyle($input, {
+    position: 'aboslute',
+    top: '-9999px',
+    left: '-9999px'
+  });
+
+  document.body.appendChild($input);
+  return $input;
+};
+
+var getTextArea = function getTextArea() {
+  var $el = document.getElementById('clipboard_textarea');
+  if ($el) return $el;
+  return createTextarea();
+};
+
+var withInput = function withInput(fn) {
+  var $input = getTextArea();
+  var ret = void 0;
+
+  try {
+    ret = fn($input);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    $input.innerHTML = '';
+  }
+
+  return ret;
+};
+
+var api = {
+  set: function set(text) {
+    withInput(function ($input) {
+      $input.innerText = text;
+      $input.focus();
+      document.execCommand('selectAll', false, null);
+      document.execCommand('copy');
+    });
+  },
+  get: function get() {
+    return withInput(function ($input) {
+      $input.blur();
+      $input.focus();
+
+      var res = document.execCommand('paste');
+
+      if (res) {
+        return $input.innerText;
+      }
+
+      return 'no luck';
+    });
+  }
+};
+
+/* harmony default export */ __webpack_exports__["a"] = (api);
+
+/***/ }),
+
+/***/ 32:
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* unused harmony export IpcCache */
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return getIpcCache; });
+/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(2);
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+
+
+var IpcCache = function () {
+  function IpcCache() {
+    _classCallCheck(this, IpcCache);
+
+    this.cache = {};
+  }
+
+  _createClass(IpcCache, [{
+    key: 'get',
+    value: function get(tabId) {
+      var _this = this;
+
+      var timeout = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 2000;
+      var before = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : Infinity;
+
+      return Object(_utils__WEBPACK_IMPORTED_MODULE_0__["until"])('ipc by tab id', function () {
+        var ipcObj = _this.cache[tabId];
+        var enabled = ipcObj && ipcObj.status === 1;
+        var ipc = ipcObj && ipcObj.ipc;
+
+        return {
+          pass: enabled && !!ipc && (before === Infinity || before > ipcObj.timestamp),
+          result: ipc
+        };
+      }, 100, timeout);
+    }
+  }, {
+    key: 'set',
+    value: function set(tabId, ipc, cuid) {
+      this.cache[tabId] = {
+        ipc: ipc,
+        cuid: cuid,
+        status: 1,
+        timestamp: new Date().getTime()
+      };
+    }
+  }, {
+    key: 'setStatus',
+    value: function setStatus(tabId, status) {
+      var updateTimestamp = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : false;
+
+      var found = this.cache[tabId];
+      if (!found) return false;
+
+      found.status = status;
+
+      if (updateTimestamp) {
+        found.timestamp = new Date().getTime();
+      }
+
+      return true;
+    }
+  }, {
+    key: 'enable',
+    value: function enable(tabId) {
+      return this.setStatus(tabId, 1, true);
+    }
+  }, {
+    key: 'disable',
+    value: function disable(tabId) {
+      return this.setStatus(tabId, 0);
+    }
+  }, {
+    key: 'getCuid',
+    value: function getCuid(tabId) {
+      var found = this.cache[tabId];
+      if (!found) return null;
+      return found.cuid;
+    }
+  }, {
+    key: 'del',
+    value: function del(tabId) {
+      delete this.cache[tabId];
+    }
+  }]);
+
+  return IpcCache;
+}();
+
+var instance = void 0;
+
+function getIpcCache() {
+  if (instance) return instance;
+  instance = new IpcCache();
+  return instance;
+}
+
+/***/ }),
+
+/***/ 4:
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* unused harmony export logFactory */
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
+var logFactory = function logFactory(enabled) {
+  var isEnabled = !!enabled;
+
+  var obj = ['log', 'info', 'warn', 'error'].reduce(function (prev, method) {
+    prev[method] = function () {
+      var _console;
+
+      for (var _len = arguments.length, args = Array(_len), _key = 0; _key < _len; _key++) {
+        args[_key] = arguments[_key];
+      }
+
+      if (!isEnabled) return;
+      (_console = console)[method].apply(_console, [new Date().toISOString(), ' - '].concat(args));
+    };
+    return prev;
+  }, {});
+
+  return _extends(obj.log, obj, {
+    enable: function enable() {
+      isEnabled = true;
+    },
+    disable: function disable() {
+      isEnabled = false;
+    }
+  });
+};
+
+/* harmony default export */ __webpack_exports__["a"] = (logFactory("production" !== 'production'));
+
+/***/ }),
+
+/***/ 446:
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+/* unused harmony export withDebugger */
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return setFileInputFiles; });
+/* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(3);
+/* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_web_extension__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(2);
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
+
+
+
+var PROTOCOL_VERSION = '1.2';
+var ClEANUP_TIMEOUT = 0;
+
+var withDebugger = function () {
+  var state = {
+    connected: null,
+    cleanupTimer: null
+  };
+
+  var setState = function setState(obj) {
+    _extends(state, obj);
+  };
+
+  var cancelCleanup = function cancelCleanup() {
+    if (state.cleanupTimer) clearTimeout(state.cleanupTimer);
+    setState({ cleanupTimer: null });
+  };
+
+  var isSameDebuggee = function isSameDebuggee(a, b) {
+    return a && b && a.tabId && b.tabId && a.tabId === b.tabId;
+  };
+
+  return function (debuggee, fn) {
+    var attach = function attach(debuggee) {
+      if (isSameDebuggee(state.connected, debuggee)) {
+        cancelCleanup();
+        return Promise.resolve();
+      }
+
+      return detach(state.connected).then(function () {
+        return _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.debugger.attach(debuggee, PROTOCOL_VERSION);
+      }).then(function () {
+        return setState({ connected: debuggee });
+      });
+    };
+    var detach = function detach(debuggee) {
+      if (!debuggee) return Promise.resolve();
+
+      return _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.debugger.detach(debuggee).then(function () {
+        if (state.cleanupTimer) clearTimeout(state.cleanupTimer);
+
+        setState({
+          connected: null,
+          cleanupTimer: null
+        });
+      }, function (e) {
+        return console.error('error in detach', e.stack);
+      });
+    };
+    var scheduleDetach = function scheduleDetach() {
+      var timer = setTimeout(function () {
+        return detach(debuggee);
+      }, ClEANUP_TIMEOUT);
+      setState({ cleanupTimer: timer });
+    };
+    var sendCommand = function sendCommand(cmd, params) {
+      return _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.debugger.sendCommand(debuggee, cmd, params);
+    };
+    var onEvent = function onEvent(callback) {
+      _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.debugger.onEvent.addListener(callback);
+    };
+    var onDetach = function onDetach(callback) {
+      _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.debugger.onDetach.addListener(callback);
+    };
+
+    return new Promise(function (resolve, reject) {
+      var done = function done(error, result) {
+        scheduleDetach();
+
+        if (error) return reject(error);else return resolve(result);
+      };
+
+      return attach(debuggee).then(function () {
+        fn({ sendCommand: sendCommand, onEvent: onEvent, onDetach: onDetach, done: done });
+      }, function (e) {
+        return reject(e);
+      });
+    });
+  };
+}();
+
+var __getDocument = function __getDocument(_ref) {
+  var sendCommand = _ref.sendCommand,
+      done = _ref.done;
+  return function () {
+    return sendCommand('DOM.getDocument').then(function (obj) {
+      return obj.root;
+    });
+  };
+};
+
+var __querySelector = function __querySelector(_ref2) {
+  var sendCommand = _ref2.sendCommand,
+      done = _ref2.done;
+  return Object(_utils__WEBPACK_IMPORTED_MODULE_1__["partial"])(function (selector, nodeId) {
+    return sendCommand('DOM.querySelector', { nodeId: nodeId, selector: selector }).then(function (res) {
+      return res && res.nodeId;
+    });
+  });
+};
+
+var __setFileInputFiles = function __setFileInputFiles(_ref3) {
+  var sendCommand = _ref3.sendCommand,
+      done = _ref3.done;
+  return Object(_utils__WEBPACK_IMPORTED_MODULE_1__["partial"])(function (files, nodeId) {
+    return sendCommand('DOM.setFileInputFiles', { nodeId: nodeId, files: files }).then(function () {
+      return true;
+    });
+  });
+};
+
+var setFileInputFiles = function setFileInputFiles(_ref4) {
+  var tabId = _ref4.tabId,
+      selector = _ref4.selector,
+      files = _ref4.files;
+
+  return withDebugger({ tabId: tabId }, function (api) {
+    var go = Object(_utils__WEBPACK_IMPORTED_MODULE_1__["composePromiseFn"])(__setFileInputFiles(api)(files), __querySelector(api)(selector), function (node) {
+      return node.nodeId;
+    }, __getDocument(api));
+
+    return go().then(function (res) {
+      return api.done(null, res);
+    });
+  });
+};
+
+/***/ }),
+
+/***/ 447:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const worker_connection_1 = __webpack_require__(709);
+const image_helper_1 = __webpack_require__(711);
+let isModuleReady = false;
+let worker = new worker_connection_1.WorkerConnection("/worker.js", workerMessageHandler);
+/**
+ * Listens regular messages from the worker.
+ * @param msg Received worker message.
+ */
+function workerMessageHandler(msg) {
+    switch (msg.type) {
+        case 0 /* Init */:
+            isModuleReady = true;
+            break;
+        default:
+            console.error("Unsupported worker message: ", msg);
+            break;
+    }
+}
+/**
+ * Schedules a template matching task for the web worker.
+ * @param image Image where the search will be running.
+ * @param pattern Image which will searched.
+ * @param minSimilarity Minimum similarity score to accept a match.
+ * @param allowSizeVariation Allows size variation during image search.
+ * @returns Promise object with matches regions.
+ */
+function postImageSearchAsync(image, pattern, minSimilarity, allowSizeVariation) {
+    const jobData = {
+        image,
+        pattern,
+        options: {
+            minSimilarity,
+            allowSizeVariation,
+            enableGreenPinkBoxes: false,
+            requireGreenPinkBoxes: false
+        }
+    };
+    return worker.postJobAsync(2 /* ImageSearch */, jobData);
+}
+function searchImageBestOne(req) {
+    return searchImage(req)
+        .then(results => results[0]);
+}
+exports.searchImageBestOne = searchImageBestOne;
+function searchImage(req) {
+    if (!isModuleReady) {
+        throw new Error('Module is not ready yet.');
+    }
+    const minSimilarity = Math.max(0.1, Math.min(1.0, req.minSimilarity));
+    const { allowSizeVariation } = req;
+    return Promise.all([
+        image_helper_1.ImageHelper.loadImageDataAsync(req.targetImageUrl),
+        image_helper_1.ImageHelper.loadImageDataAsync(req.patternImageUrl)
+    ])
+        .then(([screenshotImageData, patternImageData]) => {
+        return postImageSearchAsync(screenshotImageData, patternImageData, minSimilarity, allowSizeVariation)
+            .then(result => {
+            const { containsGreenPinkBoxes, errorCode, regions } = result;
+            return regions.map(r => ({
+                offsetLeft: r.matchedRect.left / req.scaleDownRatio,
+                offsetTop: r.matchedRect.top / req.scaleDownRatio,
+                // Page Left
+                left: r.matchedRect.left / req.scaleDownRatio + req.offsetX,
+                // Page Top
+                top: r.matchedRect.top / req.scaleDownRatio + req.offsetY,
+                width: r.matchedRect.width / req.scaleDownRatio,
+                height: r.matchedRect.height / req.scaleDownRatio,
+                score: r.score
+            }));
+        });
+    });
+}
+exports.searchImage = searchImage;
+
+
+/***/ }),
+
+/***/ 57:
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -1026,13 +1120,12 @@ function logWindowSize(winSize) {
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "f", function() { return saveFullScreen; });
 /* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(3);
 /* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_web_extension__WEBPACK_IMPORTED_MODULE_0__);
-/* harmony import */ var _filesystem__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(16);
-/* harmony import */ var _common_screenshot_man__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(37);
-/* harmony import */ var _common_utils__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(2);
+/* harmony import */ var _services_storage__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(5);
+/* harmony import */ var _services_storage__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_services_storage__WEBPACK_IMPORTED_MODULE_1__);
+/* harmony import */ var _common_utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(2);
 var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
 var _slicedToArray = function () { function sliceIterator(arr, i) { var _arr = []; var _n = true; var _d = false; var _e = undefined; try { for (var _i = arr[Symbol.iterator](), _s; !(_n = (_s = _i.next()).done); _n = true) { _arr.push(_s.value); if (i && _arr.length === i) break; } } catch (err) { _d = true; _e = err; } finally { try { if (!_n && _i["return"]) _i["return"](); } finally { if (_d) throw _e; } } return _arr; } return function (arr, i) { if (Array.isArray(arr)) { return arr; } else if (Symbol.iterator in Object(arr)) { return sliceIterator(arr, i); } else { throw new TypeError("Invalid attempt to destructure non-iterable instance"); } }; }();
-
 
 
 
@@ -1125,12 +1218,12 @@ function createCaptureScreenWithCachedScreenshotRatio() {
 }
 
 function captureScreenBlob(tabId) {
-  return captureScreen(tabId).then(_common_utils__WEBPACK_IMPORTED_MODULE_3__["dataURItoBlob"]);
+  return captureScreen(tabId).then(_common_utils__WEBPACK_IMPORTED_MODULE_2__["dataURItoBlob"]);
 }
 
 function saveScreen(tabId, fileName) {
   return captureScreenBlob(tabId).then(function (screenBlob) {
-    return Object(_common_screenshot_man__WEBPACK_IMPORTED_MODULE_2__[/* getScreenshotMan */ "a"])().overwrite(fileName, screenBlob).then(function (url) {
+    return Object(_services_storage__WEBPACK_IMPORTED_MODULE_1__["getStorageManager"])().getScreenshotStorage().overwrite(fileName, screenBlob).then(function (url) {
       return {
         url: url,
         fileName: fileName
@@ -1287,7 +1380,7 @@ function captureFullScreen(tabId) {
         });
       };
     });
-    var convert = opts.blob ? _common_utils__WEBPACK_IMPORTED_MODULE_3__["dataURItoBlob"] : function (x) {
+    var convert = opts.blob ? _common_utils__WEBPACK_IMPORTED_MODULE_2__["dataURItoBlob"] : function (x) {
       return x;
     };
 
@@ -1305,7 +1398,7 @@ function captureScreenInSelectionSimple(tabId, _ref6) {
   var opts = _extends({
     blob: false
   }, options);
-  var convert = opts.blob ? _common_utils__WEBPACK_IMPORTED_MODULE_3__["dataURItoBlob"] : function (x) {
+  var convert = opts.blob ? _common_utils__WEBPACK_IMPORTED_MODULE_2__["dataURItoBlob"] : function (x) {
     return x;
   };
   var ratio = devicePixelRatio;
@@ -1334,7 +1427,7 @@ function captureScreenInSelection(tabId, _ref7, _ref8) {
   var opts = _extends({
     blob: false
   }, options);
-  var convert = opts.blob ? _common_utils__WEBPACK_IMPORTED_MODULE_3__["dataURItoBlob"] : function (x) {
+  var convert = opts.blob ? _common_utils__WEBPACK_IMPORTED_MODULE_2__["dataURItoBlob"] : function (x) {
     return x;
   };
   var ratio = devicePixelRatio;
@@ -1419,7 +1512,7 @@ var captureClientAPI = {
 
     window.scrollTo(x, y);
 
-    return Object(_common_utils__WEBPACK_IMPORTED_MODULE_3__["delay"])(function () {
+    return Object(_common_utils__WEBPACK_IMPORTED_MODULE_2__["delay"])(function () {
       return {
         x: window.scrollX,
         y: window.scrollY
@@ -1447,7 +1540,7 @@ var captureClientAPI = {
 
 function saveFullScreen(tabId, fileName, clientAPI) {
   return captureFullScreen(tabId, clientAPI, { blob: true }).then(function (screenBlob) {
-    return Object(_common_screenshot_man__WEBPACK_IMPORTED_MODULE_2__[/* getScreenshotMan */ "a"])().overwrite(fileName, screenBlob).then(function (url) {
+    return Object(_services_storage__WEBPACK_IMPORTED_MODULE_1__["getStorageManager"])().getScreenshotStorage().overwrite(fileName, screenBlob).then(function (url) {
       return {
         url: url,
         fileName: fileName
@@ -1458,7 +1551,7 @@ function saveFullScreen(tabId, fileName, clientAPI) {
 
 /***/ }),
 
-/***/ 59:
+/***/ 62:
 /***/ (function(module, exports, __webpack_require__) {
 
 var _require = __webpack_require__(2),
@@ -1740,7 +1833,7 @@ module.exports = ipcPromise;
 
 /***/ }),
 
-/***/ 686:
+/***/ 708:
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
@@ -1748,24 +1841,28 @@ __webpack_require__.r(__webpack_exports__);
 /* WEBPACK VAR INJECTION */(function(process) {/* harmony import */ var _common_web_extension__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(3);
 /* harmony import */ var _common_web_extension__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_common_web_extension__WEBPACK_IMPORTED_MODULE_0__);
 /* harmony import */ var _common_utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(2);
-/* harmony import */ var _common_ipc_ipc_bg_cs__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(72);
-/* harmony import */ var _common_constant__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(7);
+/* harmony import */ var _common_ipc_ipc_bg_cs__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(79);
+/* harmony import */ var _common_constant__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(8);
 /* harmony import */ var _common_log__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(4);
-/* harmony import */ var _common_clipboard__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(146);
-/* harmony import */ var _common_capture_screenshot__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(55);
-/* harmony import */ var _common_storage__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(32);
-/* harmony import */ var _common_debugger__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(416);
-/* harmony import */ var _common_download_man__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(93);
-/* harmony import */ var _config__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(147);
-/* harmony import */ var _common_screenshot_man__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(37);
-/* harmony import */ var _common_imagesearch_adaptor_ts__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(417);
-/* harmony import */ var _common_imagesearch_adaptor_ts__WEBPACK_IMPORTED_MODULE_12___default = /*#__PURE__*/__webpack_require__.n(_common_imagesearch_adaptor_ts__WEBPACK_IMPORTED_MODULE_12__);
-/* harmony import */ var _common_vision_man__WEBPACK_IMPORTED_MODULE_13__ = __webpack_require__(31);
-/* harmony import */ var _common_resize_window__WEBPACK_IMPORTED_MODULE_14__ = __webpack_require__(418);
-/* harmony import */ var _common_ipc_ipc_cache__WEBPACK_IMPORTED_MODULE_15__ = __webpack_require__(30);
+/* harmony import */ var _common_clipboard__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(162);
+/* harmony import */ var _common_capture_screenshot__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(57);
+/* harmony import */ var _common_storage__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(29);
+/* harmony import */ var _common_debugger__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(446);
+/* harmony import */ var _common_download_man__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(103);
+/* harmony import */ var _config__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(73);
+/* harmony import */ var _common_imagesearch_adaptor_ts__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(447);
+/* harmony import */ var _common_imagesearch_adaptor_ts__WEBPACK_IMPORTED_MODULE_11___default = /*#__PURE__*/__webpack_require__.n(_common_imagesearch_adaptor_ts__WEBPACK_IMPORTED_MODULE_11__);
+/* harmony import */ var _services_storage__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(5);
+/* harmony import */ var _services_storage__WEBPACK_IMPORTED_MODULE_12___default = /*#__PURE__*/__webpack_require__.n(_services_storage__WEBPACK_IMPORTED_MODULE_12__);
+/* harmony import */ var _services_xmodules_xfile__WEBPACK_IMPORTED_MODULE_13__ = __webpack_require__(27);
+/* harmony import */ var _services_xmodules_xfile__WEBPACK_IMPORTED_MODULE_13___default = /*#__PURE__*/__webpack_require__.n(_services_xmodules_xfile__WEBPACK_IMPORTED_MODULE_13__);
+/* harmony import */ var _common_resize_window__WEBPACK_IMPORTED_MODULE_14__ = __webpack_require__(156);
+/* harmony import */ var _common_ipc_ipc_cache__WEBPACK_IMPORTED_MODULE_15__ = __webpack_require__(32);
 var _slicedToArray = function () { function sliceIterator(arr, i) { var _arr = []; var _n = true; var _d = false; var _e = undefined; try { for (var _i = arr[Symbol.iterator](), _s; !(_n = (_s = _i.next()).done); _n = true) { _arr.push(_s.value); if (i && _arr.length === i) break; } } catch (err) { _d = true; _e = err; } finally { try { if (!_n && _i["return"]) _i["return"](); } finally { if (_d) throw _e; } } return _arr; } return function (arr, i) { if (Array.isArray(arr)) { return arr; } else if (Symbol.iterator in Object(arr)) { return sliceIterator(arr, i); } else { throw new TypeError("Invalid attempt to destructure non-iterable instance"); } }; }();
 
 var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
+function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr2 = Array(arr.length); i < arr.length; i++) { arr2[i] = arr[i]; } return arr2; } else { return Array.from(arr); } }
 
 
 
@@ -1804,7 +1901,8 @@ var state = {
   },
   pullback: false,
   // Note: heartBeatSecret = -1, means no heart beat available, and panel should not retry on heart beat lost
-  heartBeatSecret: 0
+  heartBeatSecret: 0,
+  xClickNeedCalibrationInfo: null
 };
 
 var updateHeartBeatSecret = function updateHeartBeatSecret() {
@@ -1912,7 +2010,7 @@ var getPlayTab = function getPlayTab(url) {
 
 var showPanelWindow = function showPanelWindow() {
   return activateTab(state.tabIds.panel, true).catch(function () {
-    _common_storage__WEBPACK_IMPORTED_MODULE_7__[/* default */ "a"].get('config').then(function (config) {
+    _common_storage__WEBPACK_IMPORTED_MODULE_7__["default"].get('config').then(function (config) {
       config = config || {};
       return (config.size || {})[config.showSidebar ? 'with_sidebar' : 'standard'];
     }).then(function (size) {
@@ -2084,7 +2182,7 @@ var closeAllWindows = function closeAllWindows() {
 };
 
 var isTimeToBackup = function isTimeToBackup() {
-  return _common_storage__WEBPACK_IMPORTED_MODULE_7__[/* default */ "a"].get('config').then(function (config) {
+  return _common_storage__WEBPACK_IMPORTED_MODULE_7__["default"].get('config').then(function (config) {
     var enableAutoBackup = config.enableAutoBackup,
         lastBackupActionTime = config.lastBackupActionTime,
         autoBackupInterval = config.autoBackupInterval;
@@ -2150,6 +2248,26 @@ var isTabActiveAndFocused = function isTabActiveAndFocused(tabId) {
     }
   }).catch(function (e) {
     return false;
+  });
+};
+
+var getCurrentStorageManager = function getCurrentStorageManager() {
+  var restoreConfig = function restoreConfig() {
+    return _common_storage__WEBPACK_IMPORTED_MODULE_7__["default"].get('config').then(function () {
+      var config = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+
+      return _extends({
+        storageMode: _services_storage__WEBPACK_IMPORTED_MODULE_12__["StorageStrategyType"].Browser
+      }, config);
+    });
+  };
+
+  return Promise.all([restoreConfig(), Object(_services_xmodules_xfile__WEBPACK_IMPORTED_MODULE_13__["getXFile"])().getConfig()]).then(function (_ref2) {
+    var _ref3 = _slicedToArray(_ref2, 2),
+        config = _ref3[0],
+        xFileConfig = _ref3[1];
+
+    return Object(_services_storage__WEBPACK_IMPORTED_MODULE_12__["getStorageManager"])(config.storageMode);
   });
 };
 
@@ -2250,10 +2368,10 @@ var bindEvents = function bindEvents() {
             var oldTabId = state.tabIds.firstRecord;
             var newTabId = activeInfo.tabId;
 
-            return Promise.all([_common_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.tabs.get(oldTabId), _common_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.tabs.get(newTabId)]).then(function (_ref2) {
-              var _ref3 = _slicedToArray(_ref2, 2),
-                  oldTab = _ref3[0],
-                  newTab = _ref3[1];
+            return Promise.all([_common_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.tabs.get(oldTabId), _common_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.tabs.get(newTabId)]).then(function (_ref4) {
+              var _ref5 = _slicedToArray(_ref4, 2),
+                  oldTab = _ref5[0],
+                  newTab = _ref5[1];
 
               var result = [];
 
@@ -2441,6 +2559,7 @@ var onRequest = function onRequest(cmd, args) {
       {
         Object(_common_log__WEBPACK_IMPORTED_MODULE_4__[/* default */ "a"])('start to play...');
         state.status = _common_constant__WEBPACK_IMPORTED_MODULE_3__[/* APP_STATUS */ "a"].PLAYER;
+        state.xClickNeedCalibrationInfo = null;
 
         togglePlayingBadge(true);
         // Note: reset download manager to clear any previous downloads
@@ -2763,9 +2882,9 @@ var onRequest = function onRequest(cmd, args) {
             }, function (e) {
               return openUrlInTab();
             });
-          }).then(function (_ref4) {
-            var tab = _ref4.tab,
-                hasOpenedUrl = _ref4.hasOpenedUrl;
+          }).then(function (_ref6) {
+            var tab = _ref6.tab,
+                hasOpenedUrl = _ref6.hasOpenedUrl;
 
             // const p = args.shouldNotActivateTab ? Promise.resolve() : activateTab(tab.id, true)
             var p = Promise.resolve();
@@ -2833,9 +2952,9 @@ var onRequest = function onRequest(cmd, args) {
             return !!x;
           });
         }).then(function (list) {
-          return Promise.all(list.map(function (_ref5) {
-            var ipc = _ref5.ipc,
-                type = _ref5.type;
+          return Promise.all(list.map(function (_ref7) {
+            var ipc = _ref7.ipc,
+                type = _ref7.type;
 
             return ipc.ask('FIND_DOM', { locator: args.locator }).then(function (result) {
               return { result: result, type: type, ipc: ipc };
@@ -2954,7 +3073,7 @@ var onRequest = function onRequest(cmd, args) {
     case 'PANEL_RESIZE_PLAY_TAB':
       {
         return getPlayTab().then(function (tab) {
-          return Object(_common_resize_window__WEBPACK_IMPORTED_MODULE_14__[/* resizeViewportOfTab */ "a"])(tab.id, args);
+          return Object(_common_resize_window__WEBPACK_IMPORTED_MODULE_14__["resizeViewportOfTab"])(tab.id, args);
         });
       }
 
@@ -2988,17 +3107,25 @@ var onRequest = function onRequest(cmd, args) {
         var patternDpi = Object(_common_utils__WEBPACK_IMPORTED_MODULE_1__["dpiFromFileName"])(visionFileName) || 96;
         var screenDpi = Object(_common_utils__WEBPACK_IMPORTED_MODULE_1__["getScreenDpi"])();
         var dpiScale = patternDpi / screenDpi;
-        var man = Object(_common_vision_man__WEBPACK_IMPORTED_MODULE_13__[/* getVisionMan */ "a"])();
+        var pStorageMan = getCurrentStorageManager();
         var getPatternImage = function getPatternImage(fileName) {
-          return man.exists(fileName).then(function (existed) {
-            if (!existed) throw new Error(command + ': No input image found for file name \'' + fileName + '\'');
-            return man.readAsDataURL(fileName);
+          return pStorageMan.then(function (storageMan) {
+            var visionStorage = storageMan.getVisionStorage();
+
+            return visionStorage.exists(fileName).then(function (existed) {
+              if (!existed) throw new Error(command + ': No input image found for file name \'' + fileName + '\'');
+              return visionStorage.read(fileName, 'DataURL');
+            }).then(function (dataUrl) {
+              return dataUrl.substr(0, 5) !== 'data:' ? 'data:image/png;base64,' + dataUrl : dataUrl;
+            });
           });
         };
         var saveDataUrlToLastScreenshot = function saveDataUrlToLastScreenshot(dataUrl) {
-          return Object(_common_screenshot_man__WEBPACK_IMPORTED_MODULE_11__[/* getScreenshotMan */ "a"])().overwrite(Object(_common_utils__WEBPACK_IMPORTED_MODULE_1__["ensureExtName"])('.png', _common_constant__WEBPACK_IMPORTED_MODULE_3__[/* LAST_SCREENSHOT_FILE_NAME */ "d"]), Object(_common_utils__WEBPACK_IMPORTED_MODULE_1__["dataURItoBlob"])(dataUrl)).then(function () {
-            getPanelTabIpc().then(function (panelIpc) {
-              return panelIpc.ask('RESTORE_SCREENSHOTS');
+          return pStorageMan.then(function (storageMan) {
+            return storageMan.getScreenshotStorage().overwrite(Object(_common_utils__WEBPACK_IMPORTED_MODULE_1__["ensureExtName"])('.png', _common_constant__WEBPACK_IMPORTED_MODULE_3__[/* LAST_SCREENSHOT_FILE_NAME */ "d"]), Object(_common_utils__WEBPACK_IMPORTED_MODULE_1__["dataURItoBlob"])(dataUrl)).then(function () {
+              getPanelTabIpc().then(function (panelIpc) {
+                return panelIpc.ask('RESTORE_SCREENSHOTS');
+              });
             });
           });
         };
@@ -3006,10 +3133,10 @@ var onRequest = function onRequest(cmd, args) {
           var capture = function capture(ipc, tabId) {
             switch (searchArea) {
               case 'viewport':
-                return Promise.all([ipc.ask('SCREENSHOT_PAGE_INFO'), Object(_common_capture_screenshot__WEBPACK_IMPORTED_MODULE_6__[/* captureScreen */ "c"])(tabId)]).then(function (_ref6) {
-                  var _ref7 = _slicedToArray(_ref6, 2),
-                      pageInfo = _ref7[0],
-                      dataUrl = _ref7[1];
+                return Promise.all([ipc.ask('SCREENSHOT_PAGE_INFO'), Object(_common_capture_screenshot__WEBPACK_IMPORTED_MODULE_6__[/* captureScreen */ "c"])(tabId)]).then(function (_ref8) {
+                  var _ref9 = _slicedToArray(_ref8, 2),
+                      pageInfo = _ref9[0],
+                      dataUrl = _ref9[1];
 
                   saveDataUrlToLastScreenshot(dataUrl);
 
@@ -3047,17 +3174,18 @@ var onRequest = function onRequest(cmd, args) {
                       throw new Error('!storedImageRect should not be empty');
                     }
 
-                    var _man = Object(_common_screenshot_man__WEBPACK_IMPORTED_MODULE_11__[/* getScreenshotMan */ "a"])();
                     var fileName = Object(_common_utils__WEBPACK_IMPORTED_MODULE_1__["ensureExtName"])('.png', _common_constant__WEBPACK_IMPORTED_MODULE_3__[/* LAST_SCREENSHOT_FILE_NAME */ "d"]);
 
-                    return _man.readAsDataURL(fileName).then(function (dataUrl) {
-                      return {
-                        dataUrl: dataUrl,
-                        offset: {
-                          x: storedImageRect.x,
-                          y: storedImageRect.y
-                        }
-                      };
+                    return getCurrentStorageManager().then(function (storageManager) {
+                      return storageManager.getScreenshotStorage().read(fileName, 'DataURL').then(function (dataUrl) {
+                        return {
+                          dataUrl: dataUrl,
+                          offset: {
+                            x: storedImageRect.x,
+                            y: storedImageRect.y
+                          }
+                        };
+                      });
                     });
                   }
 
@@ -3090,15 +3218,15 @@ var onRequest = function onRequest(cmd, args) {
           throw new Error('confidence should be between 0.1 and 1.0');
         }
 
-        return Promise.all([getPatternImage(visionFileName), getTargetImage()]).then(function (_ref8) {
-          var _ref9 = _slicedToArray(_ref8, 2),
-              patternImageUrl = _ref9[0],
-              targetImageInfo = _ref9[1];
+        return Promise.all([getPatternImage(visionFileName), getTargetImage()]).then(function (_ref10) {
+          var _ref11 = _slicedToArray(_ref10, 2),
+              patternImageUrl = _ref11[0],
+              targetImageInfo = _ref11[1];
 
           var targetImageUrl = targetImageInfo.dataUrl;
           var offset = targetImageInfo.offset;
 
-          return Object(_common_imagesearch_adaptor_ts__WEBPACK_IMPORTED_MODULE_12__["searchImage"])({
+          return Object(_common_imagesearch_adaptor_ts__WEBPACK_IMPORTED_MODULE_11__["searchImage"])({
             patternImageUrl: patternImageUrl,
             targetImageUrl: targetImageUrl,
             minSimilarity: minSimilarity,
@@ -3120,6 +3248,49 @@ var onRequest = function onRequest(cmd, args) {
       {
         clearInterval(state.timer);
         return true;
+      }
+
+    case 'PANEL_TOGGLE_HIGHLIGHT_VIEWPORT':
+      {
+        return getPlayTabIpc().then(function (ipc) {
+          return ipc.ask('TOGGLE_HIGHLIGHT_VIEWPORT', args);
+        });
+      }
+
+    case 'PANEL_XCLICK_NEED_CALIBRATION':
+      {
+        var last = state.xClickNeedCalibrationInfo;
+        var getWindowInfo = function getWindowInfo(win, tabId) {
+          return {
+            id: win.id,
+            top: win.top,
+            left: win.left,
+            width: win.width,
+            height: win.height,
+            activeTabId: tabId
+          };
+        };
+        var isWindowInfoEqual = function isWindowInfoEqual(a, b) {
+          return _common_utils__WEBPACK_IMPORTED_MODULE_1__["and"].apply(undefined, _toConsumableArray('id, top, left, width, height, activeTabId'.split(/,\s*/g).map(function (key) {
+            return a[key] === b[key];
+          })));
+        };
+        // Note: we take every request as it will do calibration
+        // and next request should get `false` (no need for more calibration, unless there are window change or window resize)
+        return getPlayTab().then(function (tab) {
+          if (!tab) throw new Error('no play tab found for calibration');
+
+          return _common_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.windows.get(tab.windowId).then(function (win) {
+            var winInfo = getWindowInfo(win, tab.id);
+
+            Object(_common_log__WEBPACK_IMPORTED_MODULE_4__[/* default */ "a"])('CALIBRATION NEED???', last, winInfo);
+
+            // Note: cache last value
+            state.xClickNeedCalibrationInfo = winInfo;
+
+            return !isWindowInfoEqual(winInfo, last || {});
+          });
+        });
       }
 
     case 'CS_STORE_SCREENSHOT_IN_SELECTION':
@@ -3146,14 +3317,14 @@ var onRequest = function onRequest(cmd, args) {
               }
             });
           }).then(function (dataUrl) {
-            var man = Object(_common_screenshot_man__WEBPACK_IMPORTED_MODULE_11__[/* getScreenshotMan */ "a"])();
+            return getCurrentStorageManager().then(function (storageManager) {
+              return storageManager.getScreenshotStorage().overwrite(fileName, Object(_common_utils__WEBPACK_IMPORTED_MODULE_1__["dataURItoBlob"])(dataUrl)).then(function () {
+                getPanelTabIpc().then(function (panelIpc) {
+                  return panelIpc.ask('RESTORE_SCREENSHOTS');
+                });
 
-            return man.overwrite(fileName, Object(_common_utils__WEBPACK_IMPORTED_MODULE_1__["dataURItoBlob"])(dataUrl)).then(function () {
-              getPanelTabIpc().then(function (panelIpc) {
-                return panelIpc.ask('RESTORE_SCREENSHOTS');
+                return fileName;
               });
-
-              return fileName;
             });
           });
         });
@@ -3269,7 +3440,7 @@ var onRequest = function onRequest(cmd, args) {
 
           return panelIpc.ask('RECORD_ADD_COMMAND', args);
         }).then(function () {
-          return _common_storage__WEBPACK_IMPORTED_MODULE_7__[/* default */ "a"].get('config');
+          return _common_storage__WEBPACK_IMPORTED_MODULE_7__["default"].get('config');
         }).then(function (config) {
           if (config.recordNotification && state.status === _common_constant__WEBPACK_IMPORTED_MODULE_3__[/* APP_STATUS */ "a"].RECORDER) {
             notifyRecordCommand(args);
@@ -3457,7 +3628,7 @@ var onRequest = function onRequest(cmd, args) {
 
     case 'CS_INVOKE':
       {
-        return _common_storage__WEBPACK_IMPORTED_MODULE_7__[/* default */ "a"].get('config').then(function (config) {
+        return _common_storage__WEBPACK_IMPORTED_MODULE_7__["default"].get('config').then(function (config) {
           var isTestCase = !!args.testCase;
           var isTestSuite = !!args.testSuite;
           var from = args.testCase && args.testCase.from || args.testSuite && args.testSuite.from;
@@ -3517,7 +3688,7 @@ var onRequest = function onRequest(cmd, args) {
 
     case 'CS_IMPORT_HTML_AND_INVOKE':
       {
-        return _common_storage__WEBPACK_IMPORTED_MODULE_7__[/* default */ "a"].get('config').then(function (config) {
+        return _common_storage__WEBPACK_IMPORTED_MODULE_7__["default"].get('config').then(function (config) {
           var isFileSchema = /^file:\/\//.test(args.sender.url);
           var isHttpSchema = /^https?:\/\//.test(args.sender.url);
 
@@ -3570,8 +3741,8 @@ var initOnInstalled = function initOnInstalled() {
   if (typeof process !== 'undefined' && "production" === 'production') {
     _common_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.runtime.setUninstallURL(_config__WEBPACK_IMPORTED_MODULE_10__[/* default */ "a"].urlAfterUninstall);
 
-    _common_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.runtime.onInstalled.addListener(function (_ref10) {
-      var reason = _ref10.reason;
+    _common_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.runtime.onInstalled.addListener(function (_ref12) {
+      var reason = _ref12.reason;
 
       switch (reason) {
         case 'install':
@@ -3619,17 +3790,17 @@ initPlayTab();
 initDownloadMan();
 
 window.clip = _common_clipboard__WEBPACK_IMPORTED_MODULE_5__[/* default */ "a"];
-/* WEBPACK VAR INJECTION */}.call(this, __webpack_require__(46)))
+/* WEBPACK VAR INJECTION */}.call(this, __webpack_require__(41)))
 
 /***/ }),
 
-/***/ 687:
+/***/ 709:
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", { value: true });
-const job_1 = __webpack_require__(688);
+const job_1 = __webpack_require__(710);
 /**
  * Wrapper for enqueued jobs.
  */
@@ -3734,7 +3905,7 @@ exports.WorkerConnection = WorkerConnection;
 
 /***/ }),
 
-/***/ 688:
+/***/ 710:
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3786,7 +3957,7 @@ exports.JobFactory = JobFactory;
 
 /***/ }),
 
-/***/ 689:
+/***/ 711:
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3800,7 +3971,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const math_helper_1 = __webpack_require__(690);
+const math_helper_1 = __webpack_require__(712);
 /**
  * Implements common image operations
  */
@@ -3914,7 +4085,7 @@ exports.ImageHelper = ImageHelper;
 
 /***/ }),
 
-/***/ 690:
+/***/ 712:
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3950,54 +4121,35 @@ exports.MathHelper = MathHelper;
 
 /***/ }),
 
-/***/ 7:
+/***/ 73:
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return APP_STATUS; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "c", function() { return INSPECTOR_STATUS; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "g", function() { return RECORDER_STATUS; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "f", function() { return PLAYER_STATUS; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "e", function() { return PLAYER_MODE; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "b", function() { return CONTENT_SCRIPT_STATUS; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "h", function() { return TEST_CASE_STATUS; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "d", function() { return LAST_SCREENSHOT_FILE_NAME; });
+/* harmony import */ var _common_web_extension__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(3);
+/* harmony import */ var _common_web_extension__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_common_web_extension__WEBPACK_IMPORTED_MODULE_0__);
 
-var mk = function mk(list) {
-  return list.reduce(function (prev, key) {
-    prev[key] = key;
-    return prev;
-  }, {});
-};
 
-var APP_STATUS = mk(['NORMAL', 'INSPECTOR', 'RECORDER', 'PLAYER']);
+var platform = _common_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.isFirefox() ? 'firefox' : 'chrome';
 
-var INSPECTOR_STATUS = mk(['PENDING', 'INSPECTING', 'STOPPED']);
-
-var RECORDER_STATUS = mk(['PENDING', 'RECORDING', 'STOPPED']);
-
-var PLAYER_STATUS = mk(['PLAYING', 'PAUSED', 'STOPPED']);
-
-var PLAYER_MODE = mk(['TEST_CASE', 'TEST_SUITE']);
-
-var CONTENT_SCRIPT_STATUS = mk(['NORMAL', 'RECORDING', 'INSPECTING', 'PLAYING']);
-
-var TEST_CASE_STATUS = mk(['NORMAL', 'SUCCESS', 'ERROR']);
-
-var LAST_SCREENSHOT_FILE_NAME = '__lastscreenshot';
+/* harmony default export */ __webpack_exports__["a"] = ({
+  preinstallVersion: '3.3.1',
+  urlAfterUpgrade: 'https://a9t9.com/kantu/web-automation/' + platform + '/whatsnew',
+  urlAfterInstall: 'https://a9t9.com/kantu/web-automation/' + platform + '/welcome',
+  urlAfterUninstall: 'https://a9t9.com/kantu/web-automation/' + platform + '/why'
+});
 
 /***/ }),
 
-/***/ 72:
+/***/ 79:
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
 /* unused harmony export openBgWithCs */
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "b", function() { return csInit; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return bgInit; });
-/* harmony import */ var _ipc_promise__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(59);
+/* harmony import */ var _ipc_promise__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(62);
 /* harmony import */ var _ipc_promise__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_ipc_promise__WEBPACK_IMPORTED_MODULE_0__);
-/* harmony import */ var _ipc_cache__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(30);
+/* harmony import */ var _ipc_cache__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(32);
 /* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(3);
 /* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_web_extension__WEBPACK_IMPORTED_MODULE_2__);
 /* harmony import */ var _log__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(4);
@@ -4243,308 +4395,41 @@ var bgInit = function bgInit(fn) {
 
 /***/ }),
 
-/***/ 93:
+/***/ 8:
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* unused harmony export DownloadMan */
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return getDownloadMan; });
-/* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(3);
-/* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_web_extension__WEBPACK_IMPORTED_MODULE_0__);
-/* harmony import */ var _log__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(4);
-/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(2);
-var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return APP_STATUS; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "c", function() { return INSPECTOR_STATUS; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "g", function() { return RECORDER_STATUS; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "f", function() { return PLAYER_STATUS; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "e", function() { return PLAYER_MODE; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "b", function() { return CONTENT_SCRIPT_STATUS; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "h", function() { return TEST_CASE_STATUS; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "d", function() { return LAST_SCREENSHOT_FILE_NAME; });
 
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+var mk = function mk(list) {
+  return list.reduce(function (prev, key) {
+    prev[key] = key;
+    return prev;
+  }, {});
+};
 
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+var APP_STATUS = mk(['NORMAL', 'INSPECTOR', 'RECORDER', 'PLAYER']);
 
+var INSPECTOR_STATUS = mk(['PENDING', 'INSPECTING', 'STOPPED']);
 
+var RECORDER_STATUS = mk(['PENDING', 'RECORDING', 'STOPPED']);
 
+var PLAYER_STATUS = mk(['PLAYING', 'PAUSED', 'STOPPED']);
 
+var PLAYER_MODE = mk(['TEST_CASE', 'TEST_SUITE']);
 
-var DownloadMan = function () {
-  function DownloadMan() {
-    var _this = this;
+var CONTENT_SCRIPT_STATUS = mk(['NORMAL', 'RECORDING', 'INSPECTING', 'PLAYING']);
 
-    _classCallCheck(this, DownloadMan);
+var TEST_CASE_STATUS = mk(['NORMAL', 'SUCCESS', 'ERROR']);
 
-    this.activeDownloads = [];
-    this.eventsBound = false;
-
-    this.filterActiveDownloads = function (predicate) {
-      _this.activeDownloads = _this.activeDownloads.filter(predicate);
-
-      if (_this.activeDownloads.length === 0) {
-        _this.unbindEvents();
-      }
-    };
-
-    this.createdListener = function (downloadItem) {
-      if (!_this.isActive()) return;
-      Object(_log__WEBPACK_IMPORTED_MODULE_1__[/* default */ "a"])('download on created', downloadItem);
-
-      var item = _this.activeDownloads.find(function (item) {
-        return !item.id;
-      });
-      if (!item) return;
-
-      // Note: 3 things to do on download created
-      // 1. record download id
-      // 2. Start timer for timeout
-      // 3. Start interval timer for count down message
-      _extends(item, _extends({
-        id: downloadItem.id
-      }, !item.wait && item.timeout > 0 ? {} : {
-        timeoutTimer: setTimeout(function () {
-          item.reject(new Error('download timeout ' + item.timeout / 1000 + 's'));
-          _this.filterActiveDownloads(function (d) {
-            return item.uid !== d.uid;
-          });
-        }, item.timeout),
-
-        countDownTimer: setInterval(function () {
-          if (!_this.countDownHandler) return;
-
-          var _item$past = item.past,
-              past = _item$past === undefined ? 0 : _item$past;
-
-          var newPast = past + 1000;
-
-          _this.countDownHandler({
-            total: item.timeout,
-            past: newPast
-          });
-          _extends(item, { past: newPast });
-        }, 1000)
-      }));
-    };
-
-    this.changedListener = function (downloadDelta) {
-      if (!_this.isActive()) return;
-      Object(_log__WEBPACK_IMPORTED_MODULE_1__[/* default */ "a"])('download on changed', downloadDelta);
-
-      var item = _this.findById(downloadDelta.id);
-      if (!item) return;
-
-      if (downloadDelta.state) {
-        var fn = function fn() {};
-        var done = false;
-
-        switch (downloadDelta.state.current) {
-          case 'complete':
-            fn = function fn() {
-              return item.resolve(true);
-            };
-            done = true;
-            break;
-
-          case 'interrupted':
-            fn = function fn() {
-              return item.reject(new Error('download interrupted'));
-            };
-            done = true;
-            break;
-        }
-
-        // Remove this download item from our todo list if it's done
-        if (done) {
-          clearTimeout(item.timeoutTimer);
-          clearInterval(item.countDownTimer);
-          _this.filterActiveDownloads(function (item) {
-            return item.id !== downloadDelta.id;
-          });
-        }
-
-        // resolve or reject that promise object
-        fn();
-      }
-    };
-
-    this.determineFileNameListener = function (downloadItem, suggest) {
-      if (!_this.isActive()) return;
-
-      Object(_log__WEBPACK_IMPORTED_MODULE_1__[/* default */ "a"])('download on determine', downloadItem);
-
-      var item = _this.findById(downloadItem.id);
-      if (!item) return;
-
-      var tmpName = item.fileName.trim();
-      var fileName = tmpName === '' || tmpName === '*' ? null : tmpName;
-
-      if (fileName) {
-        return suggest({
-          filename: fileName,
-          conflictAction: 'uniquify'
-        });
-      }
-    };
-  }
-
-  _createClass(DownloadMan, [{
-    key: 'isActive',
-
-
-    /*
-     * Private methods
-     */
-
-    value: function isActive() {
-      return this.activeDownloads.length > 0;
-    }
-  }, {
-    key: 'findById',
-    value: function findById(id) {
-      return this.activeDownloads.find(function (item) {
-        return item.id === id;
-      });
-    }
-  }, {
-    key: 'bindEvents',
-    value: function bindEvents() {
-      if (this.eventsBound) return;
-
-      _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onCreated.addListener(this.createdListener);
-      _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onChanged.addListener(this.changedListener);
-
-      // Note: only chrome supports api `chrome.downloads.onDeterminingFilename`
-      if (_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onDeterminingFilename) {
-        _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onDeterminingFilename.addListener(this.determineFileNameListener);
-      }
-
-      this.eventsBound = true;
-    }
-  }, {
-    key: 'unbindEvents',
-    value: function unbindEvents() {
-      if (!this.eventsBound) return;
-
-      if (_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onCreated.removeListener) {
-        _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onCreated.removeListener(this.createdListener);
-      }
-
-      if (_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onChanged.removeListener) {
-        _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onChanged.removeListener(this.changedListener);
-      }
-
-      if (_web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onDeterminingFilename && _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onDeterminingFilename.removeListener) {
-        _web_extension__WEBPACK_IMPORTED_MODULE_0___default.a.downloads.onDeterminingFilename.removeListener(this.determineFileNameListener);
-      }
-
-      this.eventsBound = false;
-    }
-
-    /*
-     * Public methods
-     */
-
-  }, {
-    key: 'reset',
-    value: function reset() {
-      this.activeDownloads.forEach(function (item) {
-        if (item.timeoutTimer) clearTimeout(item.timeoutTimer);
-        if (item.countDownTimer) clearInterval(item.countDownTimer);
-      });
-      this.activeDownloads = [];
-      this.unbindEvents();
-    }
-  }, {
-    key: 'prepareDownload',
-    value: function prepareDownload(fileName) {
-      var _this2 = this;
-
-      var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
-
-      var downloadToCreate = this.activeDownloads.find(function (item) {
-        return !item.id;
-      });
-      if (downloadToCreate) throw new Error('only one not-created download allowed at a time');
-
-      this.bindEvents();
-
-      var opts = _extends({
-        timeoutForStart: 10000,
-        timeout: 60000,
-        wait: false
-      }, options);
-
-      var promise = new Promise(function (resolve, reject) {
-        var uid = Math.floor(Math.random() * 1000) + new Date() * 1;
-
-        // Note: we need to cache promise object, so have to wait for next tick
-        setTimeout(function () {
-          _this2.activeDownloads.push({
-            uid: uid,
-            resolve: resolve,
-            reject: reject,
-            fileName: fileName,
-            promise: promise,
-            timeoutForStart: opts.timeoutForStart,
-            timeout: opts.timeout,
-            wait: opts.wait
-          });
-        }, 0);
-      });
-
-      return promise;
-    }
-  }, {
-    key: 'waitForDownloadIfAny',
-    value: function waitForDownloadIfAny() {
-      var _this3 = this;
-
-      var downloadToCreate = this.activeDownloads.find(function (item) {
-        return !item.id;
-      });
-      if (downloadToCreate) {
-        return Object(_utils__WEBPACK_IMPORTED_MODULE_2__["until"])('download start', function () {
-          return {
-            pass: !!downloadToCreate.id,
-            result: true
-          };
-        }, 50, downloadToCreate.timeoutForStart).then(function () {
-          return _this3.waitForDownloadIfAny();
-        });
-      }
-
-      // Note: check if id exists, because it means this download item is created
-      var downloadToComplete = this.activeDownloads.find(function (item) {
-        return item.wait && item.id;
-      });
-      if (!downloadToComplete) return Promise.resolve(true);
-      return downloadToComplete.promise.then(function () {
-        return _this3.waitForDownloadIfAny();
-      });
-    }
-  }, {
-    key: 'onCountDown',
-    value: function onCountDown(fn) {
-      this.countDownHandler = fn;
-    }
-  }, {
-    key: 'hasPendingDownload',
-    value: function hasPendingDownload() {
-      var downloadToCreate = this.activeDownloads.find(function (item) {
-        return !item.id;
-      });
-      return !!downloadToCreate;
-    }
-  }]);
-
-  return DownloadMan;
-}();
-
-var getDownloadMan = function () {
-  var instance = void 0;
-
-  return function () {
-    if (!instance) {
-      instance = new DownloadMan();
-    }
-
-    return instance;
-  };
-}();
+var LAST_SCREENSHOT_FILE_NAME = '__lastscreenshot';
 
 /***/ })
 

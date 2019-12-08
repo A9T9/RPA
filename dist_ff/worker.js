@@ -24,7 +24,7 @@ function notifyModuleInitialized() {
     self.postMessage({
         type: 0 /* WorkerMessageType.Init */,
         data: {
-            moduleVersion: teamdocs.getModuleVersion()
+            moduleVersion: kantusearch.getModuleVersion()
         }
     });
 }
@@ -40,11 +40,11 @@ var Module = {
             // Emscripten generates flat names for exports with namespaces.
             // We'll build an object tree from those flat names and
             // merge into global object (since we're in web worker, global object is "self").
-            self.teamdocs = getNamespaceMembers(Module, "teamdocs");
+            self.kantusearch = getNamespaceMembers(Module, "kantusearch");
 
             notifyModuleInitialized();
         }
     ]
 };
 
-importScripts("teamdocs.js", "worker-main.js");
+importScripts("kantusearch.js", "worker-main.js");

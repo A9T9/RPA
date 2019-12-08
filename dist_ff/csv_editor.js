@@ -56,7 +56,7 @@
 /******/ 	// undefined = chunk not loaded, null = chunk preloaded/prefetched
 /******/ 	// Promise = chunk loading, 0 = chunk loaded
 /******/ 	var installedChunks = {
-/******/ 		6: 0
+/******/ 		3: 0
 /******/ 	};
 /******/
 /******/ 	var deferredModules = [];
@@ -147,85 +147,57 @@
 /******/
 /******/
 /******/ 	// add entry module to deferred list
-/******/ 	deferredModules.push([437,1,0]);
+/******/ 	deferredModules.push([703,0,1]);
 /******/ 	// run deferred modules when ready
 /******/ 	return checkDeferredModules();
 /******/ })
 /************************************************************************/
 /******/ ({
 
-/***/ 435:
-/***/ (function(module, exports, __webpack_require__) {
-
-exports = module.exports = __webpack_require__(79)(undefined);
-// imports
-
-
-// module
-exports.push([module.i, ".csv-editor{position:absolute;top:0;bottom:0;left:0;right:0;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-orient:vertical;-webkit-box-direction:normal;-ms-flex-direction:column;flex-direction:column}.csv-editor .react-codemirror2{-webkit-box-flex:1;-ms-flex:1;flex:1;position:relative;border-bottom:1px solid #ccc}.csv-editor .react-codemirror2 .CodeMirror{position:absolute;top:0;bottom:0;left:0;right:0;height:auto;font-size:13px}.csv-editor .csv-actions{height:60px;line-height:60px;text-align:center;background:#f0f0f0}.csv-editor .csv-actions button{margin-right:10px}", ""]);
-
-// exports
-
-
-/***/ }),
-
-/***/ 436:
-/***/ (function(module, exports, __webpack_require__) {
-
-// style-loader: Adds some css to the DOM by adding a <style> tag
-
-// load the styles
-var content = __webpack_require__(435);
-if(typeof content === 'string') content = [[module.i, content, '']];
-// Prepare cssTransformation
-var transform;
-
-var options = {}
-options.transform = transform
-// add the styles to the DOM
-var update = __webpack_require__(78)(content, options);
-if(content.locals) module.exports = content.locals;
-// Hot Module Replacement
-if(false) {}
-
-/***/ }),
-
-/***/ 437:
+/***/ 703:
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var antd_lib_button__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(11);
 /* harmony import */ var antd_lib_button__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(antd_lib_button__WEBPACK_IMPORTED_MODULE_0__);
-/* harmony import */ var antd_lib_message__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(14);
+/* harmony import */ var antd_lib_message__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(10);
 /* harmony import */ var antd_lib_message__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(antd_lib_message__WEBPACK_IMPORTED_MODULE_1__);
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(0);
 /* harmony import */ var react__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(react__WEBPACK_IMPORTED_MODULE_2__);
-/* harmony import */ var react_dom__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(16);
+/* harmony import */ var react_dom__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(18);
 /* harmony import */ var react_dom__WEBPACK_IMPORTED_MODULE_3___default = /*#__PURE__*/__webpack_require__.n(react_dom__WEBPACK_IMPORTED_MODULE_3__);
-/* harmony import */ var react_codemirror2__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(102);
+/* harmony import */ var react_codemirror2__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(114);
 /* harmony import */ var react_codemirror2__WEBPACK_IMPORTED_MODULE_4___default = /*#__PURE__*/__webpack_require__.n(react_codemirror2__WEBPACK_IMPORTED_MODULE_4__);
-/* harmony import */ var codemirror_lib_codemirror__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(77);
+/* harmony import */ var codemirror_lib_codemirror__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(94);
 /* harmony import */ var codemirror_lib_codemirror__WEBPACK_IMPORTED_MODULE_5___default = /*#__PURE__*/__webpack_require__.n(codemirror_lib_codemirror__WEBPACK_IMPORTED_MODULE_5__);
-/* harmony import */ var codemirror_mode_javascript_javascript__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(161);
+/* harmony import */ var codemirror_mode_javascript_javascript__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(229);
 /* harmony import */ var codemirror_mode_javascript_javascript__WEBPACK_IMPORTED_MODULE_6___default = /*#__PURE__*/__webpack_require__.n(codemirror_mode_javascript_javascript__WEBPACK_IMPORTED_MODULE_6__);
-/* harmony import */ var codemirror_addon_edit_matchbrackets__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(160);
+/* harmony import */ var codemirror_addon_edit_matchbrackets__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(230);
 /* harmony import */ var codemirror_addon_edit_matchbrackets__WEBPACK_IMPORTED_MODULE_7___default = /*#__PURE__*/__webpack_require__.n(codemirror_addon_edit_matchbrackets__WEBPACK_IMPORTED_MODULE_7__);
-/* harmony import */ var codemirror_addon_edit_closebrackets__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(159);
+/* harmony import */ var codemirror_addon_edit_closebrackets__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(231);
 /* harmony import */ var codemirror_addon_edit_closebrackets__WEBPACK_IMPORTED_MODULE_8___default = /*#__PURE__*/__webpack_require__.n(codemirror_addon_edit_closebrackets__WEBPACK_IMPORTED_MODULE_8__);
-/* harmony import */ var codemirror_lib_codemirror_css__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(158);
+/* harmony import */ var codemirror_lib_codemirror_css__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(232);
 /* harmony import */ var codemirror_lib_codemirror_css__WEBPACK_IMPORTED_MODULE_9___default = /*#__PURE__*/__webpack_require__.n(codemirror_lib_codemirror_css__WEBPACK_IMPORTED_MODULE_9__);
-/* harmony import */ var antd_dist_antd_css__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(217);
+/* harmony import */ var antd_dist_antd_css__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(426);
 /* harmony import */ var antd_dist_antd_css__WEBPACK_IMPORTED_MODULE_10___default = /*#__PURE__*/__webpack_require__.n(antd_dist_antd_css__WEBPACK_IMPORTED_MODULE_10__);
-/* harmony import */ var _csv_editor_scss__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(436);
+/* harmony import */ var _csv_editor_scss__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(704);
 /* harmony import */ var _csv_editor_scss__WEBPACK_IMPORTED_MODULE_11___default = /*#__PURE__*/__webpack_require__.n(_csv_editor_scss__WEBPACK_IMPORTED_MODULE_11__);
-/* harmony import */ var _common_csv_man__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(46);
-/* harmony import */ var _common_utils__WEBPACK_IMPORTED_MODULE_13__ = __webpack_require__(2);
+/* harmony import */ var _common_storage__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(29);
+/* harmony import */ var _services_storage__WEBPACK_IMPORTED_MODULE_13__ = __webpack_require__(5);
+/* harmony import */ var _services_storage__WEBPACK_IMPORTED_MODULE_13___default = /*#__PURE__*/__webpack_require__.n(_services_storage__WEBPACK_IMPORTED_MODULE_13__);
+/* harmony import */ var _services_xmodules_xfile__WEBPACK_IMPORTED_MODULE_14__ = __webpack_require__(27);
+/* harmony import */ var _services_xmodules_xfile__WEBPACK_IMPORTED_MODULE_14___default = /*#__PURE__*/__webpack_require__.n(_services_xmodules_xfile__WEBPACK_IMPORTED_MODULE_14__);
+/* harmony import */ var _common_utils__WEBPACK_IMPORTED_MODULE_15__ = __webpack_require__(2);
 
 
 
 
 
+
+var _slicedToArray = function () { function sliceIterator(arr, i) { var _arr = []; var _n = true; var _d = false; var _e = undefined; try { for (var _i = arr[Symbol.iterator](), _s; !(_n = (_s = _i.next()).done); _n = true) { _arr.push(_s.value); if (i && _arr.length === i) break; } } catch (err) { _d = true; _e = err; } finally { try { if (!_n && _i["return"]) _i["return"](); } finally { if (_d) throw _e; } } return _arr; } return function (arr, i) { if (Array.isArray(arr)) { return arr; } else if (Symbol.iterator in Object(arr)) { return sliceIterator(arr, i); } else { throw new TypeError("Invalid attempt to destructure non-iterable instance"); } }; }();
+
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
@@ -250,7 +222,8 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
 
 
-var csvMan = Object(_common_csv_man__WEBPACK_IMPORTED_MODULE_12__[/* getCSVMan */ "a"])();
+
+
 var rootEl = document.getElementById('root');
 var render = function render() {
   return react_dom__WEBPACK_IMPORTED_MODULE_3___default.a.render(react__WEBPACK_IMPORTED_MODULE_2___default.a.createElement(App, null), rootEl);
@@ -280,7 +253,7 @@ var App = function (_React$Component) {
         sourceTextModified: text
       });
     }, _this.saveCSV = function () {
-      return csvMan.overwrite(_this.state.csvFile, _this.state.sourceTextModified).then(function () {
+      return Object(_services_storage__WEBPACK_IMPORTED_MODULE_13__["getStorageManager"])().getCSVStorage().overwrite(_this.state.csvFile, new Blob([_this.state.sourceTextModified])).then(function () {
         return antd_lib_message__WEBPACK_IMPORTED_MODULE_1___default.a.success('Successfully saved');
       }, function (e) {
         antd_lib_message__WEBPACK_IMPORTED_MODULE_1___default.a.error('Error: ' + e.message);
@@ -304,14 +277,14 @@ var App = function (_React$Component) {
     value: function componentDidMount() {
       var _this2 = this;
 
-      var queryObj = Object(_common_utils__WEBPACK_IMPORTED_MODULE_13__["parseQuery"])(window.location.search);
+      var queryObj = Object(_common_utils__WEBPACK_IMPORTED_MODULE_15__["parseQuery"])(window.location.search);
       var csvFile = queryObj.csv;
 
       if (!csvFile) return;
 
       document.title = csvFile + ' - Kantu CSV Editor';
 
-      csvMan.read(csvFile).then(function (text) {
+      Object(_services_storage__WEBPACK_IMPORTED_MODULE_13__["getStorageManager"])().getCSVStorage().read(csvFile, 'Text').then(function (text) {
         _this2.setState({
           csvFile: csvFile,
           ready: true,
@@ -368,56 +341,64 @@ var App = function (_React$Component) {
   return App;
 }(react__WEBPACK_IMPORTED_MODULE_2___default.a.Component);
 
-render();
+function restoreConfig() {
+  return _common_storage__WEBPACK_IMPORTED_MODULE_12__["default"].get('config').then(function () {
+    var config = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+
+    return _extends({
+      storageMode: _services_storage__WEBPACK_IMPORTED_MODULE_13__["StorageStrategyType"].Browser
+    }, config);
+  });
+}
+
+function init() {
+  return Promise.all([restoreConfig(), Object(_services_xmodules_xfile__WEBPACK_IMPORTED_MODULE_14__["getXFile"])().getConfig()]).then(function (_ref2) {
+    var _ref3 = _slicedToArray(_ref2, 2),
+        config = _ref3[0],
+        xFileConfig = _ref3[1];
+
+    Object(_services_storage__WEBPACK_IMPORTED_MODULE_13__["getStorageManager"])(config.storageMode);
+    render();
+  }, render);
+}
+
+init();
 
 /***/ }),
 
-/***/ 46:
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
+/***/ 704:
+/***/ (function(module, exports, __webpack_require__) {
 
-"use strict";
-/* unused harmony export CSVMan */
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return getCSVMan; });
-/* harmony import */ var _file_man__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(48);
-var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+// style-loader: Adds some css to the DOM by adding a <style> tag
 
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+// load the styles
+var content = __webpack_require__(705);
+if(typeof content === 'string') content = [[module.i, content, '']];
+// Prepare cssTransformation
+var transform;
 
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+var options = {}
+options.transform = transform
+// add the styles to the DOM
+var update = __webpack_require__(93)(content, options);
+if(content.locals) module.exports = content.locals;
+// Hot Module Replacement
+if(false) {}
 
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+/***/ }),
+
+/***/ 705:
+/***/ (function(module, exports, __webpack_require__) {
+
+exports = module.exports = __webpack_require__(92)(undefined);
+// imports
 
 
+// module
+exports.push([module.i, ".csv-editor{position:absolute;top:0;bottom:0;left:0;right:0;display:-webkit-box;display:-ms-flexbox;display:flex;-webkit-box-orient:vertical;-webkit-box-direction:normal;-ms-flex-direction:column;flex-direction:column}.csv-editor .react-codemirror2{-webkit-box-flex:1;-ms-flex:1;flex:1;position:relative;border-bottom:1px solid #ccc}.csv-editor .react-codemirror2 .CodeMirror{position:absolute;top:0;bottom:0;left:0;right:0;height:auto;font-size:13px}.csv-editor .csv-actions{height:60px;line-height:60px;text-align:center;background:#f0f0f0}.csv-editor .csv-actions button{margin-right:10px}", ""]);
 
-var CSVMan = function (_FileMan) {
-  _inherits(CSVMan, _FileMan);
+// exports
 
-  function CSVMan() {
-    var opts = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
-    _classCallCheck(this, CSVMan);
-
-    return _possibleConstructorReturn(this, (CSVMan.__proto__ || Object.getPrototypeOf(CSVMan)).call(this, _extends({}, opts, { baseDir: 'spreadsheets' })));
-  }
-
-  return CSVMan;
-}(_file_man__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"]);
-
-var man = void 0;
-
-function getCSVMan() {
-  var opts = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
-  if (opts) {
-    man = new CSVMan(opts);
-  }
-
-  if (!man) {
-    throw new Error('csv manager not initialized');
-  }
-
-  return man;
-}
 
 /***/ })
 

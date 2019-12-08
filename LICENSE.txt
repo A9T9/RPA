@@ -2,10 +2,10 @@ COPYRIGHT NOTICE
 ================
 All  original code...
 
-    ...Copyright 2018 a9t9 software GmbH
+    ...Copyright 2018-2020 a9t9 software GmbH
 	
 	
-Kantu is dual-licensed:  Open-Source AGPLv3 or Commercial Licensing.
+UI.Vision RPA (formerly Kantu) is dual-licensed:  Open-Source AGPLv3 or Commercial Licensing.
 
 The source code available in this repository is licensed under:
 
@@ -16,27 +16,27 @@ The source code available in this repository is licensed under:
 
 *** Dual Licensing explained ***
 
-Unlike many Open Source software projects, Kantu is owned and fully controlled by a9t9 Software GmbH (a9t9). The vast majority of all Kantu development is done by a9t9, and on rare occasions, bug fixes accepted from outside contributors (under license by a9t9). If you have further questions regarding the development and control of Kantu, please contact a9t9 software GmbH.
+Unlike many Open Source software projects, UI.Vision RPA is owned and fully controlled by a9t9 Software GmbH (a9t9). The vast majority of all UI.Vision RPA development is done by a9t9, and on rare occasions, bug fixes accepted from outside contributors (under license by a9t9). If you have further questions regarding the development and control of UI.Vision RPA, please contact a9t9 software GmbH.
 
-Kantu is provided under the GNU Affero General Public License (AGPL), as well as under an a9t9 commercial license. For more detailed and complete information on the AGPL please visit the GNU web site.
+UI.Vision RPA Core is provided under the *GNU Affero General Public License (AGPL)*, as well as under an a9t9 commercial license. For more detailed and complete information on the AGPL please visit the GNU web site.
 
-This text is intended to provide a summary of information that developers and companies may find useful in understanding licensing options available for Kantu. It does not represent legal advice. We strongly encourage developers and/or companies to review the specific licensing text made available on the GNU web site.
+This text is intended to provide a summary of information that developers and companies may find useful in understanding licensing options available for UI.Vision RPA Core. It does not represent legal advice. We strongly encourage developers and/or companies to review the specific licensing text made available on the GNU web site.
 
 
 *** Commercial Licensing ***
 
-If you want to use or redistribute _modified_ versions of Kantu or want to include Kantu source code in your project, and do not want to publish the code under the AGPL license, then please contact us for a commercial license.
+If you want to use or redistribute _modified_ versions of UI.Vision RPA Core or want to include its source code in your project, and do not want to publish the code under the AGPL license, then please contact us for a commercial license.
 
 
 *** License FAQs ***
 
-1. Of course, you do _not_ need a commercial license if you just want to use Kantu in a commercial enviroment. Everthing in this text is about the source code, not about using Kantu itself.
+1. Of course, you do _not_ need a commercial license if you just want to use UI.Vision RPA in a commercial environment. Everything in this text is about the source code, not about using UI.Vision RPA itself.
 
-2. You do _not_ need a commercial license to redistribute or bundle the _unmodifed_ version of Kantu with your project, as long as Kantu stays separate.
+2. You do _not_ need a commercial license to redistribute or bundle the _unmodifed_ version of UI.Vision RPA with your project, as long as UI.Vision RPA stays separate.
 
-Example: Some companies use Kantu to allow their users to record macros that are then run by their commercial SaaS or on-premise application monitoring backends. Kantu is not modified. As such, it can be distributed commercially for free. No commercial license or fee of any kind is required.
+Example: Some companies use UI.Vision RPA to allow their users to record macros that are then run by their commercial SaaS or on-premise application monitoring backends. UI.Vision RPA is not modified. As such, it can be distributed commercially for free. No commercial license or fee of any kind is required.
 
-3. Open-Source Projects: If you want to include/embed Kantu as part of a free, open source project but want to keep your existing license we can probably work something out. Please contact us.
+3. Open-Source Projects: If you want to include/embed UI.Vision RPA Core as part of a free, open source project but want to keep your existing license we can probably work something out. Please contact us.
 
 
 *** NOT INCLUDED ***

@@ -1,7 +1,7 @@
 import { message } from 'antd'
 import varsFactory from './common/variables'
 import Interpreter from './common/interpreter'
-import { getCSVMan } from './common/csv_man'
+import { getStorageManager } from './services/storage'
 import { parseFromCSV, stringifyToCSV } from './common/csv'
 import { Player, getPlayer } from './common/player'
 import csIpc from './common/ipc/ipc_cs'
@@ -9,11 +9,12 @@ import log from './common/log'
 import { updateIn, setIn, objMap, dataURItoBlob, delay, retry, withCountDown } from './common/utils'
 import * as C from './common/constant'
 import * as act from './actions'
-import { getScreenshotMan } from './common/screenshot_man'
-import { getVisionMan } from './common/vision_man'
 import Ext from './common/web_extension'
 import FileSaver from './common/lib/file_saver'
 import { renderLog } from './common/macro_log'
+import { isLocator } from './common/command_runner';
+import { getNativeXYAPI, MouseButton, MouseEventType } from './services/xy'
+import { getXUserIO } from './services/xmodules/x_user_io'
 
 class TimeTracker {
   constructor () {
@@ -155,10 +156,10 @@ const retryIfHeartBeatExpired = (mainFunc) => {
   return retryFn()
 }
 
-const interpretSpecialCommands = ({ store, vars }) => {
+const interpretSpecialCommands = ({ store, vars, getTcPlayer }) => {
   const commandRunners = [
-    interpretCSVCommands({ store, vars }),
-    interpretCsFreeCommands({ store, vars })
+    interpretCSVCommands({ store, vars, getTcPlayer }),
+    interpretCsFreeCommands({ store, vars, getTcPlayer })
   ]
 
   return (command, index) => {
@@ -169,292 +170,520 @@ const interpretSpecialCommands = ({ store, vars }) => {
   }
 }
 
-const interpretCsFreeCommands = ({ store, vars }) => (command, index) => {
-  const csvMan = getCSVMan()
-  const ssMan  = getScreenshotMan()
-  const { cmd, target, value, extra } = command
-  const result = {
-    isFlowLogic: true
-  }
-
-  log('interpretCsFreeCommands', command)
-
-  switch (cmd) {
-    case 'store': {
-      return {
-        byPass: true,
-        vars: {
-          [value]: target
-        }
-      }
+const interpretCsFreeCommands = ({ store, vars, getTcPlayer }) => {
+  const runCsFreeCommands = (command, index) => {
+    const csvStorage = getStorageManager().getCSVStorage()
+    const ssStorage  = getStorageManager().getScreenshotStorage()
+    const { cmd, target, value, extra } = command
+    const result = {
+      isFlowLogic: true
+    }
+    const runCommand = (command) => {
+      return askBackgroundToRunCommand({
+        vars,
+        store,
+        command,
+        loopTracker: null,
+        state: getTcPlayer().getState(),
+        preRun: (command, state, askBgToRun) => askBgToRun(command)
+      })
     }
 
-    case 'echo': {
-      const extra = (function () {
-        if (value === '#shownotification')  return { options: { notification: true } }
-        if (value)                          return { options: { color: value } }
-        return {}
-      })()
+    log('interpretCsFreeCommands', command)
 
-      return {
-        byPass: true,
-        log: {
-          info: target,
-          ...extra
-        }
-      }
-    }
-
-    case 'throwError': {
-      throw new Error(target)
-    }
-
-    case 'pause': {
-      const n = parseInt(target)
-
-      if (!target || !target.length || n === 0) {
+    switch (cmd) {
+      case 'store': {
         return {
           byPass: true,
-          control: {
-            type: 'pause'
+          vars: {
+            [value]: target
           }
         }
       }
 
-      if (isNaN(n) || n < 0) {
-        throw new Error('target of pause command must be a positive integer')
-      }
-
-      return withCountDown({
-        timeout: n,
-        interval: 1000,
-        onTick: ({ total, past }) => {
-          store.dispatch(act.setTimeoutStatus({
-            past,
-            total,
-            type: 'pause'
-          }))
-        }
-      })
-      .then(() => ({ byPass: true }))
-    }
-
-    case 'localStorageExport': {
-      const deleteAfterExport = /\s*#DeleteAfterExport\s*/i.test(value)
-
-      if (/^\s*log\s*$/i.test(target)) {
-        const text = store.getState().logs.map(renderLog).join('\n')
-        FileSaver.saveAs(new Blob([text]), 'kantu_log.txt')
-
-        if (deleteAfterExport) {
-          store.dispatch(act.clearLogs())
-        }
-
-        return result
-      }
-
-      if (/\.csv$/i.test(target)) {
-        return csvMan.exists(target)
-        .then(existed => {
-          if (!existed) throw new Error(`${target} doesn't exist`)
-
-          return csvMan.read(target)
-          .then(text => {
-            FileSaver.saveAs(new Blob([text]), target)
-
-            if (deleteAfterExport) {
-              csvMan.remove(target)
-              .then(() => store.dispatch(act.listCSV()))
-            }
-
-            return result
-          })
-        })
-      }
-
-      if (/\.png$/i.test(target)) {
-        return ssMan.exists(target)
-        .then(existed => {
-          if (!existed) throw new Error(`${target} doesn't exist`)
-
-          return ssMan.read(target)
-          .then(buffer => {
-            FileSaver.saveAs(new Blob([new Uint8Array(buffer)]), target)
-
-            if (deleteAfterExport) {
-              ssMan.remove(target)
-              .then(() => store.dispatch(act.listScreenshots()))
-            }
-
-            return result
-          })
-        })
-      }
-
-      throw new Error(`${target} doesn't exist`)
-    }
-
-    case 'visualVerify':
-    case 'visualAssert':
-    case 'visualSearch':
-    case 'visionFind': {
-      if (cmd === 'visualSearch') {
-        if (!value || !value.length) {
-          throw new Error(`${cmd}: Must specify a variable to save the result`)
-        }
-      }
-
-      const verifyPatternImage = (fileName, command) => {
-        return getVisionMan().exists(fileName)
-        .then(existed => {
-          if (!existed) throw new Error(`${command}: No input image found for file name '${fileName}'`)
-        })
-      }
-
-      const isNotVerifyOrAssert = ['visualVerify', 'visualAssert'].indexOf(cmd) === -1
-      const [visionFileName, confidence] = target.split('@')
-      const minSimilarity = confidence ? parseFloat(confidence) : store.getState().config.defaultVisionSearchConfidence
-      const searchArea    = vars.get('!visualSearchArea')
-      const timeout       = vars.get('!TIMEOUT_WAIT') * 1000
-
-      const run = () => {
-        return csIpc.ask('PANEL_CLEAR_VISION_RECTS_ON_PLAYING_PAGE')
-        // #324 .then(() => delay(() => {}, 500))
-        .then(() => csIpc.ask('PANEL_SEARCH_VISION_ON_PLAYING_PAGE', {
-          visionFileName,
-          minSimilarity,
-          searchArea,
-          storedImageRect: vars.get('!storedImageRect'),
-          command: cmd
-        }))
-        .then(regions => {
-          log('regions', regions)
-
-          if (regions.length === 0) {
-            throw new Error(`Image '${visionFileName}' (conf. = ${minSimilarity}) not found`)
-          }
-
-          const best = regions[0]
-          csIpc.ask('PANEL_HIGHLIGHT_RECTS', { scoredRects: regions })
-
-          return delay(() => ({
-            byPass: true,
-            vars: {
-              '!imageX': best.left + best.width / 2,
-              '!imageY': best.top + best.height / 2,
-              ...(isNotVerifyOrAssert && value && value.length ? { [value]: regions.length } : {})
-            }
-          }), 100)
-        })
-      }
-      const runWithRetry = retry(run, {
-        timeout,
-        shouldRetry: (e) => {
-          return store.getState().status === C.APP_STATUS.PLAYER && /Image.*\(conf\. =.*\) not found/.test(e.message)
-        },
-        retryInterval: (retryCount, lastRetryInterval) => {
-          return 0.5 + 0.25 * retryCount
-        },
-        onFirstFail: () => {
-          csIpc.ask('PANEL_TIMEOUT_STATUS', { timeout, type: 'Vision waiting' })
-        },
-        onFinal: () => {
-          csIpc.ask('PANEL_CLEAR_TIMEOUT_STATUS')
-        }
-      })
-
-      return verifyPatternImage(visionFileName, cmd)
-      .then(() => {
-        return runWithRetry()
-        .catch(e => {
-          // Note: extra.throwError === true, when "Find" button is used
-          if (cmd === 'visualAssert' || (extra && extra.throwError)) {
-            throw e
-          }
-
-          return {
-            byPass: true,
-            ...(isNotVerifyOrAssert && value && value.length ? {
-              vars: {
-                [value]: 0
-              }
-            } : {}),
-            ...(cmd === 'visualVerify' ? {
-              log: {
-                error: e.message
-              }
-            } : {})
-          }
-        })
-      })
-    }
-
-    case 'visionLimitSearchArea': {
-      let area  = target.trim()
-      let p     = Promise.resolve({ byPass: true })
-
-      if (/^viewport$/.test(area)) {
-        area = 'viewport'
-      } else if (/^full$/.test(area)) {
-        area = 'full'
-      } else if (/^element:/.test(area)) {
-        // Note: let cs page to process this case, it acts almost the same as a `storeImage` command
-        p = Promise.resolve({ byPass: false })
-      } else {
-        throw new Error(`Target of visionLimitSearchArea could only be either 'viewport', 'full' or 'element:...'`)
-      }
-
-      vars.set({ '!visualSearchArea': area }, true)
-      return p
-    }
-
-    case 'bringBrowserToForeground': {
-      return csIpc.ask('PANEL_BRING_PLAYING_WINDOW_TO_FOREGROUND')
-      .then(() => ({ byPass: true }))
-    }
-
-    case 'resize': {
-      if (!/\s*\d+@\d+\s*/.test(target)) {
-        throw new Error(`Syntax for target of resize command is x@y, e.g. 800@600`)
-      }
-
-      const [strWidth, strHeight] = target.split('@')
-      const width   = parseInt(strWidth, 10)
-      const height  = parseInt(strHeight, 10)
-
-      log('resize', width, height)
-      return csIpc.ask('PANEL_RESIZE_PLAY_TAB', { width, height })
-      .then(({ actual, desired, diff }) => {
-        if (diff.length === 0)  return { byPass: true }
+      case 'echo': {
+        const extra = (function () {
+          if (value === '#shownotification')  return { options: { notification: true } }
+          if (value)                          return { options: { color: value } }
+          return {}
+        })()
 
         return {
           byPass: true,
           log: {
-            warning: `Only able to resize it to ${actual.width}@${actual.height}, given ${desired.width}@${desired.height}`
+            info: target,
+            ...extra
           }
         }
-      })
-    }
+      }
 
-    default:
-      return undefined
+      case 'throwError': {
+        throw new Error(target)
+      }
+
+      case 'pause': {
+        const n = parseInt(target)
+
+        if (!target || !target.length || n === 0) {
+          return {
+            byPass: true,
+            control: {
+              type: 'pause'
+            }
+          }
+        }
+
+        if (isNaN(n) || n < 0) {
+          throw new Error('target of pause command must be a positive integer')
+        }
+
+        return withCountDown({
+          timeout: n,
+          interval: 1000,
+          onTick: ({ total, past }) => {
+            store.dispatch(act.setTimeoutStatus({
+              past,
+              total,
+              type: 'pause'
+            }))
+          }
+        })
+        .then(() => ({ byPass: true }))
+      }
+
+      case 'localStorageExport': {
+        const deleteAfterExport = /\s*#DeleteAfterExport\s*/i.test(value)
+
+        if (/^\s*log\s*$/i.test(target)) {
+          const text = store.getState().logs.map(renderLog).join('\n')
+          FileSaver.saveAs(new Blob([text]), 'kantu_log.txt')
+
+          if (deleteAfterExport) {
+            store.dispatch(act.clearLogs())
+          }
+
+          return result
+        }
+
+        if (/\.csv$/i.test(target)) {
+          return csvStorage.exists(target)
+          .then(existed => {
+            if (!existed) throw new Error(`${target} doesn't exist`)
+
+            return csvStorage.read(target, 'Text')
+            .then(text => {
+              FileSaver.saveAs(new Blob([text]), target)
+
+              if (deleteAfterExport) {
+                csvStorage.remove(target)
+                .then(() => store.dispatch(act.listCSV()))
+              }
+
+              return result
+            })
+          })
+        }
+
+        if (/\.png$/i.test(target)) {
+          return ssStorage.exists(target)
+          .then(existed => {
+            if (!existed) throw new Error(`${target} doesn't exist`)
+
+            return ssStorage.read(target, 'ArrayBuffer')
+            .then(buffer => {
+              FileSaver.saveAs(new Blob([new Uint8Array(buffer)]), target)
+
+              if (deleteAfterExport) {
+                ssStorage.remove(target)
+                .then(() => store.dispatch(act.listScreenshots()))
+              }
+
+              return result
+            })
+          })
+        }
+
+        throw new Error(`${target} doesn't exist`)
+      }
+
+      case 'visualVerify':
+      case 'visualAssert':
+      case 'visualSearch':
+      case 'visionFind': {
+        if (cmd === 'visualSearch') {
+          if (!value || !value.length) {
+            throw new Error(`${cmd}: Must specify a variable to save the result`)
+          }
+        }
+
+        const verifyPatternImage = (fileName, command) => {
+          return getStorageManager()
+          .getVisionStorage()
+          .exists(fileName)
+          .then(existed => {
+            if (!existed) throw new Error(`${command}: No input image found for file name '${fileName}'`)
+          })
+        }
+
+        const isNotVerifyOrAssert = ['visualVerify', 'visualAssert'].indexOf(cmd) === -1
+        const [visionFileName, confidence] = target.split('@')
+        const minSimilarity = confidence ? parseFloat(confidence) : store.getState().config.defaultVisionSearchConfidence
+        const searchArea    = vars.get('!visualSearchArea')
+        const timeout       = vars.get('!TIMEOUT_WAIT') * 1000
+
+        const run = () => {
+          return csIpc.ask('PANEL_CLEAR_VISION_RECTS_ON_PLAYING_PAGE')
+          // #324 .then(() => delay(() => {}, 500))
+          .then(() => csIpc.ask('PANEL_SEARCH_VISION_ON_PLAYING_PAGE', {
+            visionFileName,
+            minSimilarity,
+            searchArea,
+            storedImageRect: vars.get('!storedImageRect'),
+            command: cmd
+          }))
+          .then(regions => {
+            log('regions', regions)
+
+            if (regions.length === 0) {
+              throw new Error(`Image '${visionFileName}' (conf. = ${minSimilarity}) not found`)
+            }
+
+            const best = regions[0]
+            csIpc.ask('PANEL_HIGHLIGHT_RECTS', { scoredRects: regions })
+
+            return delay(() => ({
+              best,
+              byPass: true,
+              vars: {
+                '!imageX': best.left + best.width / 2,
+                '!imageY': best.top + best.height / 2,
+                ...(isNotVerifyOrAssert && value && value.length ? { [value]: regions.length } : {})
+              }
+            }), 100)
+          })
+        }
+        const runWithRetry = retry(run, {
+          timeout,
+          shouldRetry: (e) => {
+            return store.getState().status === C.APP_STATUS.PLAYER && /Image.*\(conf\. =.*\) not found/.test(e.message)
+          },
+          retryInterval: (retryCount, lastRetryInterval) => {
+            return 0.5 + 0.25 * retryCount
+          },
+          onFirstFail: () => {
+            csIpc.ask('PANEL_TIMEOUT_STATUS', { timeout, type: 'Vision waiting' })
+          },
+          onFinal: () => {
+            csIpc.ask('PANEL_CLEAR_TIMEOUT_STATUS')
+          }
+        })
+
+        return verifyPatternImage(visionFileName, cmd)
+        .then(() => {
+          return runWithRetry()
+          .catch(e => {
+            // Note: extra.throwError === true, when "Find" button is used
+            if (cmd === 'visualAssert' || (extra && extra.throwError)) {
+              throw e
+            }
+
+            return {
+              byPass: true,
+              ...(isNotVerifyOrAssert && value && value.length ? {
+                vars: {
+                  [value]: 0
+                }
+              } : {}),
+              ...(cmd === 'visualVerify' ? {
+                log: {
+                  error: e.message
+                }
+              } : {})
+            }
+          })
+        })
+      }
+
+      case 'visionLimitSearchArea': {
+        let area  = target.trim()
+        let p     = Promise.resolve({ byPass: true })
+
+        if (/^viewport$/.test(area)) {
+          area = 'viewport'
+        } else if (/^full$/.test(area)) {
+          area = 'full'
+        } else if (/^element:/.test(area)) {
+          // Note: let cs page to process this case, it acts almost the same as a `storeImage` command
+          p = Promise.resolve({ byPass: false })
+        } else {
+          throw new Error(`Target of visionLimitSearchArea could only be either 'viewport', 'full' or 'element:...'`)
+        }
+
+        vars.set({ '!visualSearchArea': area }, true)
+        return p
+      }
+
+      case 'bringBrowserToForeground': {
+        return csIpc.ask('PANEL_BRING_PLAYING_WINDOW_TO_FOREGROUND')
+        .then(() => ({ byPass: true }))
+      }
+
+      case 'resize': {
+        if (!/\s*\d+@\d+\s*/.test(target)) {
+          throw new Error(`Syntax for target of resize command is x@y, e.g. 800@600`)
+        }
+
+        const [strWidth, strHeight] = target.split('@')
+        const width   = parseInt(strWidth, 10)
+        const height  = parseInt(strHeight, 10)
+
+        log('resize', width, height)
+        return csIpc.ask('PANEL_RESIZE_PLAY_TAB', { width, height })
+        .then(({ actual, desired, diff }) => {
+          if (diff.length === 0)  return { byPass: true }
+
+          return {
+            byPass: true,
+            log: {
+              warning: `Only able to resize it to ${actual.width}@${actual.height}, given ${desired.width}@${desired.height}`
+            }
+          }
+        })
+      }
+
+      case 'XType': {
+        return getXUserIO().sanityCheck()
+        .then(() => {
+          return getNativeXYAPI().sendText({ text: target })
+          .then(success => {
+            if (!success) throw new Error(`Failed to XType '${target}'`)
+            return { byPass: true }
+          })
+        })
+      }
+
+      case 'XMove':
+      case 'XClick': {
+        const parseTarget = (target = '') => {
+          const trimmedTarget = target.trim()
+
+          if (isLocator(trimmedTarget)) {
+            return {
+              type: 'locator',
+              value: { locator: trimmedTarget }
+            }
+          }
+
+          if (/^[dD](\d+(\.\d+)?)\s*,\s*(\d+(\.\d+)?)$/.test(trimmedTarget)) {
+            return {
+              type: 'desktop_coordinates',
+              value: { coordinates: trimmedTarget.substr(1).split(/\s*,\s*/) }
+            }
+          }
+
+          if (/^(\d+(\.\d+)?)\s*,\s*(\d+(\.\d+)?)$/.test(trimmedTarget)) {
+            return {
+              type: 'viewport_coordinates',
+              value: { coordinates: trimmedTarget.split(/\s*,\s*/) }
+            }
+          }
+
+          if (/^.*\.png(@\d\.\d+)?$/.test(trimmedTarget)) {
+            return {
+              type: 'visual_search',
+              value: { query: trimmedTarget }
+            }
+          }
+
+          throw new Error(`XClick: invalid target, '${target}'`)
+        }
+        const parseValueForXClick = (value = '') => {
+          const normalValue = value.trim().toLowerCase()
+
+          switch (normalValue) {
+            case '':
+              return '#left'
+
+            case '#left':
+            case '#middle':
+            case '#right':
+            case '#doubleclick':
+              return normalValue
+
+            default:
+              throw new Error(`XClick: invalid value, '${value}'`)
+          }
+        }
+        const parseValueForXMove = (value = '') => {
+          const normalValue = value.trim().toLowerCase()
+
+          switch (normalValue) {
+            case '':
+              return '#move'
+
+            case '#move':
+            case '#up':
+            case '#down':
+              return normalValue
+
+            default:
+              throw new Error(`XMove: invalid value, '${value}'`)
+          }
+        }
+        const parseValue = ({
+          XClick: parseValueForXClick,
+          XMove:  parseValueForXMove
+        })[cmd]
+
+        return getXUserIO().sanityCheck()
+        .then(() => {
+          const realTarget = parseTarget(target)
+          const realValue  = parseValue(value)
+
+          const pNativeXYParams = (() => {
+            switch (realTarget.type) {
+              case 'locator': {
+                return runCommand({
+                  ...command,
+                  cmd:    'locate',
+                  target: realTarget.value.locator,
+                  value:  ''
+                })
+                .then(result => {
+                  const { rect } = result
+                  if (!rect)  throw new Error('no rect data returned')
+
+                  const x = rect.x + rect.width / 2
+                  const y = rect.y + rect.height / 2
+
+                  if (isNaN(x))  throw new Error('empty x')
+                  if (isNaN(y))  throw new Error('empty y')
+
+                  return {
+                    type: 'viewport',
+                    offset: { x, y }
+                  }
+                })
+              }
+
+              case 'visual_search': {
+                return runCsFreeCommands({
+                  ...command,
+                  cmd:    'visualAssert',
+                  target: realTarget.value.query,
+                  value:  ''
+                })
+                .then(result => {
+                  const { best } = result
+                  if (!best)  throw new Error('no best found from result of verifyAssert triggered by XClick')
+
+                  const x = best.offsetLeft + best.width / 2
+                  const y = best.offsetTop + best.height / 2
+
+                  if (isNaN(x))  throw new Error('empty x')
+                  if (isNaN(y))  throw new Error('empty y')
+
+                  return {
+                    type: 'viewport',
+                    offset: { x, y },
+                    originalResult: result
+                  }
+                })
+              }
+
+              case 'desktop_coordinates': {
+                const { coordinates } = realTarget.value
+
+                return Promise.resolve({
+                  type: 'desktop',
+                  offset: {
+                    x: parseFloat(coordinates[0]),
+                    y: parseFloat(coordinates[1])
+                  }
+                })
+              }
+
+              case 'viewport_coordinates': {
+                const { coordinates } = realTarget.value
+
+                return Promise.resolve({
+                  type: 'viewport',
+                  offset: {
+                    x: parseFloat(coordinates[0]),
+                    y: parseFloat(coordinates[1])
+                  }
+                })
+              }
+            }
+          })()
+
+          return pNativeXYParams.then(({ type, offset, originalResult = {} }) => {
+            return runCsFreeCommands({ cmd: 'bringBrowserToForeground' })
+            .then(() => delay(() => {}, 300))
+            .then(() => {
+              const api = getNativeXYAPI()
+              const [button, eventType] = (() => {
+                switch (realValue) {
+                  case '#left':         return [MouseButton.Left, MouseEventType.Click]
+                  case '#middle':       return [MouseButton.Middle, MouseEventType.Click]
+                  case '#right':        return [MouseButton.Right, MouseEventType.Click]
+                  case '#doubleclick':  return [MouseButton.Left, MouseEventType.DoubleClick]
+                  case '#move':         return [MouseButton.Left, MouseEventType.Move]
+                  case '#up':           return [MouseButton.Left, MouseEventType.Up]
+                  case '#down':         return [MouseButton.Left, MouseEventType.Down]
+                  default:              throw new Error(`Unsupported realValue: ${realValue}`)
+                }
+              })()
+              const event = {
+                button,
+                x:    offset.x,
+                y:    offset.y,
+                type: eventType
+              }
+              const pSendMouseEvent = type === 'desktop'
+                                        ? api.sendMouseEvent(event)
+                                        : api.sendViewportMouseEvent(event, {
+                                          markPage:         () => csIpc.ask('PANEL_TOGGLE_HIGHLIGHT_VIEWPORT', { on: true }).then(() => delay(() => {}, 200)),
+                                          unmarkPage:       () => csIpc.ask('PANEL_TOGGLE_HIGHLIGHT_VIEWPORT', { on: false }).then(() => delay(() => {}, 200)),
+                                          needCalibration:  () => csIpc.ask('PANEL_XCLICK_NEED_CALIBRATION', {}).catch(e => true)
+                                        })
+
+              return pSendMouseEvent.then(success => {
+                if (!success) throw new Error(`Failed to ${cmd} ${type} coordiates at [${offset.x}, ${offset.y}]`)
+
+                // Note: `originalResult` is used by visualAssert to update !imageX and !imageY
+                return {
+                  ...originalResult,
+                  byPass: true
+                }
+              })
+            })
+          })
+        })
+      }
+
+      default:
+        return undefined
+    }
   }
+
+  return runCsFreeCommands
 }
 
 const interpretCSVCommands = ({ store, vars }) => (command, index) => {
-  const csvMan = getCSVMan()
+  const csvStorage = getStorageManager().getCSVStorage()
   const { cmd, target, value } = command
 
   switch (cmd) {
     case 'csvRead': {
-      return csvMan.exists(target)
+      return csvStorage.exists(target)
       .then(isExisted => {
         if (!isExisted) {
           vars.set({ '!CsvReadStatus': 'FILE_NOT_FOUND' }, true)
           throw new Error(`csv file '${target}' does not exist`)
         }
 
-        return csvMan.read(target)
+        return csvStorage.read(target, 'Text')
         .then(parseFromCSV)
         .then(rows => {
           // Note: !CsvReadLineNumber starts from 1
@@ -494,16 +723,16 @@ const interpretCSVCommands = ({ store, vars }) => (command, index) => {
       .then(newLineText => {
         const fileName = /\.csv$/i.test(target) ? target : (target + '.csv')
 
-        return csvMan.exists(fileName)
+        return csvStorage.exists(fileName)
         .then(isExisted => {
           if (!isExisted) {
-            return csvMan.write(fileName, newLineText)
+            return csvStorage.write(fileName, new Blob([newLineText]))
           }
 
-          return csvMan.read(fileName)
+          return csvStorage.read(fileName, 'Text')
           .then(originalText => {
             const text = (originalText + '\n' + newLineText).replace(/\n+/g, '\n')
-            return csvMan.write(fileName, text)
+            return csvStorage.overwrite(fileName, new Blob([text]))
           })
         })
       })
@@ -524,13 +753,107 @@ const interpretCSVCommands = ({ store, vars }) => (command, index) => {
 // Note: initialize the player, and listen to all events it emits
 export const initPlayer = (store) => {
   const vars        = varsFactory()
-  const interpreter = new Interpreter({ run: interpretSpecialCommands({vars, store}) })
+  const interpreter = new Interpreter({
+    run: interpretSpecialCommands({
+      vars,
+      store,
+      getTcPlayer: () => tcPlayer
+    })
+  })
   const tcPlayer    = initTestCasePlayer({store, vars, interpreter})
   const tsPlayer    = initTestSuitPlayer({store, tcPlayer})
 
   // Note: No need to return anything in this method.
   // Because both test case player and test suite player are cached in player.js
   // All later usage of player utilize `getPlayer` method
+}
+
+// Note: Standalone function to ask background to run a command
+const askBackgroundToRunCommand = ({ command, state, store, vars, loopTracker, preRun }) => {
+  const useClipboard = /!clipboard/i.test(command.target + ';' + command.value)
+  const prepare = !useClipboard
+                      ? Promise.resolve({ useClipboard: false })
+                      : csIpc.ask('GET_CLIPBOARD').then(clipboard => ({ useClipboard: true, clipboard }))
+
+  if (Ext.isFirefox()) {
+    switch (command.cmd) {
+      case 'onDownload':
+        store.dispatch(act.addLog('warning', 'onDownload - changing file names not supported by Firefox extension api yet'))
+        break
+    }
+  }
+
+  return prepare.then(({ useClipboard, clipboard = '' }) => {
+    // Set clipboard variable if it is used
+    if (useClipboard) {
+      vars.set({ '!CLIPBOARD': clipboard })
+    }
+
+    // Set loop in every run
+    vars.set({
+      '!LOOP': state.loopsCursor,
+      '!RUNTIME': loopTracker ? loopTracker.elapsedInSeconds() : 0
+    }, true)
+
+    if (command.cmd === 'open') {
+      command = {...command, href: state.startUrl}
+    }
+
+    // Note: translate shorthand '#efp'
+    if (command.target && /^#efp$/i.test(command.target.trim())) {
+      // eslint-disable-next-line no-template-curly-in-string
+      command.target = '#elementfrompoint (${!imageX}, ${!imageY})'
+    }
+
+    if (command.cmd !== 'comment') {
+      // Replace variables in 'target' and 'value' of commands
+      ;['target', 'value'].forEach(field => {
+        if (command[field] === undefined) return
+
+        const opts =  (command.cmd === 'storeEval' && field === 'target') ||
+                      (command.cmd === 'gotoIf' && field === 'target') ||
+                      (command.cmd === 'if' && field === 'target') ||
+                      (command.cmd === 'while' && field === 'target')
+                        ? { withHashNotation: true }
+                        : {}
+
+        command = {
+          ...command,
+          [field]: vars.render(
+            replaceEscapedChar(
+              command.cmd === 'type' ? command[field] : command[field].trim(),
+              command,
+              field
+            ),
+            opts
+          )
+        }
+      })
+    }
+
+    // add timeout info to each command's extra
+    // Please note that we must set the timeout info at runtime for each command,
+    // so that timeout could be modified by some 'store' commands and affect
+    // the rest of commands
+    command = updateIn(['extra'], extra => ({
+      ...(extra || {}),
+      timeoutPageLoad:  vars.get('!TIMEOUT_PAGELOAD'),
+      timeoutElement:   vars.get('!TIMEOUT_WAIT'),
+      timeoutDownload:  vars.get('!TIMEOUT_DOWNLOAD'),
+      lastCommandOk:    vars.get('!LASTCOMMANDOK'),
+      errorIgnore:      !!vars.get('!ERRORIGNORE'),
+      waitForVisible:   !!vars.get('!WAITFORVISIBLE')
+    }), command)
+
+    return preRun(command, state, (command) => {
+      // Note: -1 will disable ipc timeout for 'pause' command
+      const timeout = command.cmd === 'pause' ? -1 : null
+
+      return retryIfHeartBeatExpired(() => {
+        return csIpc.ask('PANEL_RUN_COMMAND', { command }, timeout)
+      })
+    })
+  })
 }
 
 const initTestCasePlayer = ({ store, vars, interpreter }) => {
@@ -571,159 +894,30 @@ const initTestCasePlayer = ({ store, vars, interpreter }) => {
       })
     },
     run: (command, state) => {
-      const useClipboard = /!clipboard/i.test(command.target + ';' + command.value)
-      const prepare = !useClipboard
-                          ? Promise.resolve({ useClipboard: false })
-                          : csIpc.ask('GET_CLIPBOARD').then(clipboard => ({ useClipboard: true, clipboard }))
+      return askBackgroundToRunCommand({
+        command,
+        state,
+        store,
+        vars,
+        loopTracker,
+        preRun: (command, state, askBgToRun) => {
+          // Note: all commands need to be run by interpreter before it is sent to bg
+          // so that interpreter could pick those flow logic commands and do its job
+          return interpreter.run(command, state.nextIndex)
+          .then(result => {
+            const { byPass, isFlowLogic, nextIndex, resetVars } = result
 
-      if (Ext.isFirefox()) {
-        switch (command.cmd) {
-          case 'onDownload':
-            store.dispatch(act.addLog('warning', 'onDownload - changing file names not supported by Firefox extension api yet'))
-            break
-        }
-      }
-
-      return prepare.then(({ useClipboard, clipboard = '' }) => {
-        // Set clipboard variable if it is used
-        if (useClipboard) {
-          vars.set({ '!CLIPBOARD': clipboard })
-        }
-
-        // Set loop in every run
-        vars.set({
-          '!LOOP': state.loopsCursor,
-          '!RUNTIME': loopTracker.elapsedInSeconds()
-        }, true)
-
-        if (command.cmd === 'open') {
-          command = {...command, href: state.startUrl}
-        }
-
-        // Note: translate shorthand '#efp'
-        if (command.target && /^#efp$/i.test(command.target.trim())) {
-          // eslint-disable-next-line no-template-curly-in-string
-          command.target = '#elementfrompoint (${!imageX}, ${!imageY})'
-        }
-
-        if (command.cmd !== 'comment') {
-          // Replace variables in 'target' and 'value' of commands
-          ;['target', 'value'].forEach(field => {
-            if (command[field] === undefined) return
-
-            const opts =  (command.cmd === 'storeEval' && field === 'target') ||
-                          (command.cmd === 'gotoIf' && field === 'target') ||
-                          (command.cmd === 'if' && field === 'target') ||
-                          (command.cmd === 'while' && field === 'target')
-                            ? { withHashNotation: true }
-                            : {}
-
-            command = {
-              ...command,
-              [field]: vars.render(
-                replaceEscapedChar(
-                  command.cmd === 'type' ? command[field] : command[field].trim(),
-                  command,
-                  field
-                ),
-                opts
-              )
+            // Record onError command
+            if (command.cmd === 'onError') {
+              onErrorCommand = command
             }
+
+            if (byPass)       return Promise.resolve(result)
+            if (isFlowLogic)  return Promise.resolve({ nextIndex })
+
+            return askBgToRun(command)
           })
         }
-
-        // add timeout info to each command's extra
-        // Please note that we must set the timeout info at runtime for each command,
-        // so that timeout could be modified by some 'store' commands and affect
-        // the rest of commands
-        command = updateIn(['extra'], extra => ({
-          ...(extra || {}),
-          timeoutPageLoad:  vars.get('!TIMEOUT_PAGELOAD'),
-          timeoutElement:   vars.get('!TIMEOUT_WAIT'),
-          timeoutDownload:  vars.get('!TIMEOUT_DOWNLOAD'),
-          lastCommandOk:    vars.get('!LASTCOMMANDOK'),
-          errorIgnore:      !!vars.get('!ERRORIGNORE'),
-          waitForVisible:   !!vars.get('!WAITFORVISIBLE')
-        }), command)
-
-        // Note: all commands need to be run by interpreter before it is sent to bg
-        // so that interpreter could pick those flow logic commands and do its job
-        return interpreter.run(command, state.nextIndex)
-        .then(result => {
-          const { byPass, isFlowLogic, nextIndex, resetVars } = result
-
-          // Record onError command
-          if (command.cmd === 'onError') {
-            onErrorCommand = command
-          }
-
-          if (byPass)       return Promise.resolve(result)
-          if (isFlowLogic)  return Promise.resolve({ nextIndex })
-
-          // Note: -1 will disable ipc timeout for 'pause' command
-          const timeout = command.cmd === 'pause' ? -1 : null
-
-          return retryIfHeartBeatExpired(() => {
-            return csIpc.ask('PANEL_RUN_COMMAND', { command }, timeout)
-          })
-        })
-        .catch(e => {
-          // Note: it will just log errors instead of a stop of whole macro, in following situations
-          // 1. variable !ERRORIGNORE is set to true
-          // 2. There is an `onError` command ahead in current loop.
-          // 3. it's in loop mode, and it's not the last loop, and onErrorInLoop is continue_next_loop,
-          if (vars.get('!ERRORIGNORE')) {
-            return {
-              log: {
-                error: e.message
-              }
-            }
-          }
-
-          if (onErrorCommand) {
-            const value           = onErrorCommand.value && onErrorCommand.value.trim()
-            const target          = onErrorCommand.target && onErrorCommand.target.trim()
-
-            if (/^#restart$/i.test(target)) {
-              store.dispatch(act.addLog('status', 'onError - about to restart'))
-
-              e.restart = true
-              throw e
-            } else if (/^#goto$/i.test(target)) {
-              store.dispatch(act.addLog('status', `onError - about to goto label '${value}'`))
-
-              return Promise.resolve({
-                log: {
-                  error: e.message
-                },
-                nextIndex: interpreter.commandIndexByLabel(value)
-              })
-            }
-          }
-
-          const continueNextLoop =  state.mode === Player.C.MODE.LOOP &&
-                                    state.loopsCursor < state.loopsEnd &&
-                                    store.getState().config.onErrorInLoop === 'continue_next_loop'
-
-          if (continueNextLoop) {
-            return {
-              log: {
-                error: e.message
-              },
-              // Note: simply set nextIndex to command count, it will enter next loop
-              nextIndex: state.resources.length
-            }
-          }
-
-          // Note: set these status values to false
-          // status of those logs above will be taken care of by `handleResult`
-          vars.set({
-            '!LastCommandOK': false,
-            '!StatusOK': false
-          }, true)
-
-          throw e
-        })
       })
     },
     handleResult: (result, command, state) => {
@@ -809,7 +1003,9 @@ const initTestCasePlayer = ({ store, vars, interpreter }) => {
       if (result && result.screenshot) {
         store.dispatch(act.addLog('info', 'a new screenshot captured'))
 
-        getScreenshotMan().getLink(result.screenshot.name)
+        getStorageManager()
+        .getScreenshotStorage()
+        .getLink(result.screenshot.name)
         .then(link => ({
           ...result.screenshot,
           url: link

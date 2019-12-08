@@ -9,6 +9,7 @@ import * as actions from '../../actions'
 import { setIn, updateIn, cn } from '../../common/utils'
 import SidebarTestSuites from './test_suites'
 import SidebarTestCases from './test_cases'
+import { StorageStrategyType, StorageManagerEvent, getStorageManager } from '../../services/storage'
 
 class Sidebar extends React.Component {
   state = {
@@ -66,6 +67,104 @@ class Sidebar extends React.Component {
     )
   }
 
+  onTryToChangeStorageMode = (storageMode) => {
+    // Steps:
+    // 1. [pseudo code] StorageManager.changeMode()
+    // 2. Try to refresh / reload all resources (macros, test suites, csvs, vision images)
+    // 3. Be aware of any pending changes in current storage
+    //
+    // There should be no exception when switching back to browser mode
+    // But `[pseudo code] StorageManager.changeMode(xFileMode)` should throw error when xFile is not ready.
+    //
+    // Once catched that error, should do following:
+    // 1. Reset mode back to browser mode
+    // 2. Show info dialog to encourage users to download xFile host
+
+    const man = getStorageManager()
+
+    man.isStrategyTypeAvailable(storageMode)
+    .then(isOk => {
+      if (isOk) {
+        // Note: it will emit events, so that `index.js` could handle the rest (refresh / reload resources)
+        this.props.updateConfig({ storageMode })
+        return man.setCurrentStrategyType(storageMode)
+      }
+
+      throw new Error('It should be impossible to get isOk as false')
+    })
+    .catch(e => {
+      message.warn(e.message)
+
+      if (e.message && /xFile is not installed yet/.test(e.message)) {
+        this.props.updateUI({ showFileNotInstalledDialog: true })
+      } else {
+        this.props.updateUI({ showSettings: true, settingsTab: 'xmodules' })
+      }
+    })
+  }
+
+  componentDidMount () {
+    const type = getStorageManager().getCurrentStrategyType()
+    this.setState({ storageMode: type })
+  }
+
+  prefixHardDisk (str) {
+    const isXFileMode = getStorageManager().isXFileMode()
+    if (!isXFileMode) return str
+
+    return (
+      <div
+        style={{
+          display: 'inline-block'
+        }}
+      >
+        <img
+          src="./img/hard-drive.svg"
+          style={{
+            position: 'relative',
+            top: '3px',
+            marginRight: '5px',
+            height: '15px'
+          }}
+        />
+        <span>{ str }</span>
+      </div>
+    )
+  }
+
+  renderXFileNotInstalledModal () {
+    return (
+      <Modal
+        title=""
+        className={cn('xfile-not-installed-modal', { 'left-bottom': this.props.ui.showFileNotInstalledDialog === true })}
+        width={350}
+        footer={null}
+        visible={this.props.ui.showFileNotInstalledDialog}
+        onCancel={() => {
+          this.props.updateUI({ showFileNotInstalledDialog: false })
+        }}
+      >
+        <p>
+          XFileAccess Module not installed.
+        </p>
+        <div>
+          <Button
+            type="primary"
+            onClick={() => {
+              this.props.updateUI({
+                showFileNotInstalledDialog: false,
+                showSettings: true,
+                settingsTab: 'xmodules'
+              })
+            }}
+          >
+            Open Settings
+          </Button>
+        </div>
+      </Modal>
+    )
+  }
+
   render () {
     return (
       <div
@@ -79,13 +178,47 @@ class Sidebar extends React.Component {
             activeKey={this.props.ui.sidebarTab || 'macros'}
             onChange={activeKey => this.props.updateUI({ sidebarTab: activeKey })}
           >
-            <Tabs.TabPane tab="Macros" key="macros">
+            <Tabs.TabPane tab={this.prefixHardDisk('Macros')} key="macros">
               <SidebarTestCases />
             </Tabs.TabPane>
-            <Tabs.TabPane tab="Test Suites" key="test_suites">
+            <Tabs.TabPane tab={this.prefixHardDisk('Test Suites')} key="test_suites">
               <SidebarTestSuites />
             </Tabs.TabPane>
           </Tabs>
+        </div>
+
+        <div className="sidebar-storage-mode">
+          <div className="storage-mode-header">
+            <h3>Storage Mode</h3>
+            {getStorageManager().isXFileMode() ? (
+              <img
+                src="./img/reload.svg"
+                title="Reload all resources on hard drive"
+                style={{
+                  height: '15px',
+                  cursor: 'pointer'
+                }}
+                onClick={() => {
+                  getStorageManager().emit(StorageManagerEvent.ForceReload)
+                  message.info('reloaded from hard drive')
+                }}
+              />
+            ) : null}
+            <a href="https://a9t9.com/x/idehelp?help=storage_mode" target="_blank">More Info</a>
+          </div>
+          <Select
+            style={{ width: '100%' }}
+            placeholder="Storage Mode"
+            value={this.props.config.storageMode}
+            onChange={this.onTryToChangeStorageMode}
+          >
+            <Select.Option value={StorageStrategyType.Browser}>
+              Local Storage (in browser)
+            </Select.Option>
+            <Select.Option value={StorageStrategyType.XFile}>
+              File system (on hard drive)
+            </Select.Option>
+          </Select>
         </div>
 
         <div
@@ -95,6 +228,8 @@ class Sidebar extends React.Component {
           onDragEnd={this.onResizeDragEnd}
           onMouseDown={() => this.setState(setIn(['drag', 'isDragging'], true, this.state))}
         />
+
+        {this.renderXFileNotInstalledModal()}
       </div>
     )
   }

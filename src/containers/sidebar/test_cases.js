@@ -6,11 +6,12 @@ import { Modal, Tabs, Icon, Select, Input, Button, Menu, Dropdown, Alert, messag
 import ClickOutside from 'react-click-outside'
 import JSZip from 'jszip'
 
+import { StorageTarget, StorageStrategyType, getStorageManager } from '../../services/storage'
 import FileSaver from '../../common/lib/file_saver'
 import SearchBox from '../../components/search_box'
 import getSaveTestCase from '../../components/save_test_case'
 import { getPlayer } from '../../common/player'
-import { setIn, updateIn, cn, formatDate, nameFactory, pick } from '../../common/utils'
+import { setIn, updateIn, cn, formatDate, nameFactory, pick, uid } from '../../common/utils'
 import { createBookmarkOnBar } from '../../common/bookmark'
 import * as actions from '../../actions'
 import * as C from '../../common/constant'
@@ -28,14 +29,14 @@ const downloadTestCaseAsJSON = (tc) => {
   const str = toJSONString({ name: tc.name, commands: tc.data.commands })
   const blob = new Blob([str], { type: 'text/plain;charset=utf-8' })
 
-  FileSaver.saveAs(blob, `${tc.name}.json`)
+  FileSaver.saveAs(blob, `${tc.name}.json`, true)
 }
 
 const downloadTestCaseAsHTML = (tc) => {
   const str = toHtml({ name: tc.name, commands: tc.data.commands })
   const blob = new Blob([str], { type: 'text/plain;charset=utf-8' })
 
-  FileSaver.saveAs(blob, `${tc.name}.html`)
+  FileSaver.saveAs(blob, `${tc.name}.html`, true)
 }
 
 class SidebarTestCases extends React.Component {
@@ -358,6 +359,36 @@ class SidebarTestCases extends React.Component {
           message.success('successfully created bookmark!', 1.5)
         })
       }
+
+      case 'copy_to_xfile': {
+        return getStorageManager().isStrategyTypeAvailable(StorageStrategyType.XFile)
+        .then(() => {
+          const macroStorage = getStorageManager().getStorageForTarget(StorageTarget.Macro, StorageStrategyType.XFile)
+          const tcCopy = { ...tc, id: uid() }
+
+          delete tcCopy.status
+          return macroStorage.write(tcCopy.name, tcCopy)
+          .then(() => message.success('copied'))
+        })
+        .catch(e => {
+          this.props.updateUI({ showFileNotInstalledDialog: 1 })
+        })
+      }
+
+      case 'copy_to_browser': {
+        return getStorageManager().isStrategyTypeAvailable(StorageStrategyType.Browser)
+        .then(() => {
+          const macroStorage = getStorageManager().getStorageForTarget(StorageTarget.Macro, StorageStrategyType.Browser)
+          const tcCopy = { ...tc, id: uid() }
+
+          delete tcCopy.status
+          return macroStorage.write(tcCopy.name, tcCopy)
+          .then(() => message.success('copied'))
+        })
+        .catch(e => {
+          message.warn(e.message)
+        })
+      }
     }
   }
 
@@ -382,6 +413,9 @@ class SidebarTestCases extends React.Component {
 
     return (
       <ul className="sidebar-test-cases">
+        {candidates.length === 0 && !isEditingUntitled ? (
+          <div className="no-data">No macros yet</div>
+        ) : null}
         {isEditingUntitled ? (
           <li className="selected">Untitled</li>
         ) : null}
@@ -453,6 +487,12 @@ class SidebarTestCases extends React.Component {
             <Menu.Item key="export_json">Export as JSON</Menu.Item>
             <Menu.Item key="export_html">Export as HTML (plus autorun)</Menu.Item>
             <Menu.Item key="create_bookmark">Add shortcut to bookmarks bar</Menu.Item>
+            {getStorageManager().isXFileMode() ? (
+              <Menu.Item key="copy_to_browser">Copy to Local Storage</Menu.Item>
+            ) : null}
+            {getStorageManager().isBrowserMode() ? (
+              <Menu.Item key="copy_to_xfile">Copy to Macro Folder</Menu.Item>
+            ) : null}
             <Menu.Divider></Menu.Divider>
             <Menu.Item key="delete">Delete</Menu.Item>
           </Menu>

@@ -237,6 +237,10 @@ export class Player {
     return this.state.status
   }
 
+  getState () {
+    return {...this.state}
+  }
+
   replayLastConfig () {
     const config = this.state.lastPlayConfig
     if (!config)  throw new Error('No last play config available')

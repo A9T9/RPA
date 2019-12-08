@@ -2,6 +2,7 @@ import $ from 'jquery'
 import parseJson from 'parse-json'
 import URL from 'url-parse'
 import { pick } from './utils'
+import { getStorageManager } from '../services/storage'
 
 const joinUrl = (base, url) => {
   const urlObj = new URL(url, base)
@@ -28,7 +29,7 @@ ${commandTrs.join('\n')}
 <script>
 (function() {
   try {
-    var evt = new CustomEvent('kantuSaveAndRunMacro', { detail: { html: document.documentElement.outerHTML } })  
+    var evt = new CustomEvent('kantuSaveAndRunMacro', { detail: { html: document.documentElement.outerHTML, storageMode: '${getStorageManager().getCurrentStrategyType()}' } })  
     window.dispatchEvent(evt);
     
     if (window.location.protocol === 'file:') {
@@ -157,13 +158,16 @@ export function fromHtml (html) {
 // parse json to test case
 // the current json structure doesn't provide fileName,
 // so must provide a file name as the second parameter
-export function fromJSONString (str, fileName) {
+export function fromJSONString (str, fileName, opts = {}) {
   if (!fileName || !fileName.length) {
     throw new Error('fromJSONString: must provide fileName')
   }
 
-  const name      = fileName.split('.')[0]
-  const obj       = parseJson(str)
+  const name      = fileName.replace(/\.json$/i, '')
+  // Note: Exported JSON from older version Kantu (via 'export to json')
+  // has an invisible charactor (char code65279, known as BOM). It breaks JSON parser.
+  // So it's safer to filter it out here
+  const obj       = parseJson(str.replace(/^\s*/, ''))
 
   if (obj.macros) {
     throw new Error(`This is a test suite, not a macro`)
@@ -179,11 +183,16 @@ export function fromJSONString (str, fileName) {
     value: c.Value
   }))
 
-  return { name, data: { commands } }
+  return {
+    name,
+    data: { commands },
+    ...(opts.withStatus && obj.status ? { status: obj.status } : {}),
+    ...(opts.withId && obj.id ? { id: obj.id } : {})
+  }
 }
 
 // generate json from a test case
-export function toJSONString (obj) {
+export function toJSONString (obj, opts = {}) {
   const getToday = () => {
     const d = new Date()
     return [
@@ -200,7 +209,9 @@ export function toJSONString (obj) {
         Target: c.target || '',
         Value: c.value || ''
       }
-    })
+    }),
+    ...(opts.withStatus && obj.status ? { status: obj.status } : {}),
+    ...(opts.withId && obj.id ? { id: obj.id } : {})
   }
 
   return JSON.stringify(data, null, 2)
@@ -222,7 +233,7 @@ export function toBookmarkData (obj) {
     url: `javascript:
       (function() {
         try {
-          var evt = new CustomEvent('kantuRunMacro', { detail: { name: '${name}', from: 'bookmark' } });
+          var evt = new CustomEvent('kantuRunMacro', { detail: { name: '${name}', from: 'bookmark', storageMode: '${getStorageManager().getCurrentStrategyType()}' } });
           window.dispatchEvent(evt);
         } catch (e) {
           alert('Kantu Bookmarklet error: ' + e.toString());

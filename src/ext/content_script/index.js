@@ -5,7 +5,7 @@ import { postMessage, onMessage } from '../../common/ipc/cs_postmessage'
 import inspector from '../../common/inspector'
 import * as C from '../../common/constant'
 import { setIn, updateIn, until, parseQuery, objMap } from '../../common/utils'
-import { bindContentEditableChange, isPositionFixed } from '../../common/dom_utils'
+import { bindContentEditableChange, isPositionFixed, setStyle } from '../../common/dom_utils'
 import { run, getElementByLocator } from '../../common/command_runner'
 import { captureClientAPI } from '../../common/capture_screenshot'
 import { encryptIfNeeded } from '../../common/encrypt'
@@ -653,6 +653,35 @@ const bindIPCListener = () => {
             })
           }
         })
+      }
+
+      case 'TOGGLE_HIGHLIGHT_VIEWPORT': {
+        const on  = args.on
+        const id  = '__kantu_viewport_highlight__'
+        const $el = document.getElementById(id)
+
+        if ($el) {
+          $el.remove()
+        }
+
+        if (on) {
+          const $dom = document.createElement('div')
+          $dom.id = id
+
+          setStyle($dom, {
+            position: 'fixed',
+            top: 0,
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: 120001,
+            background: '#00ff00'
+          })
+
+          document.body.appendChild($dom)
+        }
+
+        return true
       }
 
       default:

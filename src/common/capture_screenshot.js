@@ -1,6 +1,5 @@
 import Ext from './web_extension'
-import fs from './filesystem'
-import { getScreenshotMan } from '../common/screenshot_man'
+import { getStorageManager } from '../services/storage'
 import { delay, dataURItoBlob } from '../common/utils'
 
 function getActiveTabInfo () {
@@ -91,7 +90,9 @@ function captureScreenBlob (tabId) {
 export function saveScreen (tabId, fileName) {
   return captureScreenBlob(tabId)
   .then(screenBlob => {
-    return getScreenshotMan().overwrite(fileName, screenBlob)
+    return getStorageManager()
+    .getScreenshotStorage()
+    .overwrite(fileName, screenBlob)
     .then(url => ({
       url,
       fileName
@@ -357,7 +358,9 @@ export const captureClientAPI = {
 export function saveFullScreen (tabId, fileName, clientAPI) {
   return captureFullScreen(tabId, clientAPI, { blob: true })
   .then(screenBlob => {
-    return getScreenshotMan().overwrite(fileName, screenBlob)
+    return getStorageManager()
+    .getScreenshotStorage()
+    .overwrite(fileName, screenBlob)
     .then(url => ({
       url,
       fileName

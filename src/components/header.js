@@ -10,15 +10,24 @@ import { hasUnsavedMacro } from '../recomputed'
 import getSaveTestCase from './save_test_case'
 import * as actions from '../actions'
 import * as C from '../common/constant'
-import { range } from '../common/utils';
+import { range, setIn, updateIn, compose } from '../common/utils'
+import { getXFile } from '../services/xmodules/xfile'
+import { getXUserIO } from '../services/xmodules/x_user_io'
+import { XModuleTypes } from '../services/xmodules/common'
+import { getStorageManager, StorageManagerEvent } from '../services/storage'
+import Ext from '../common/web_extension'
 
 class Header extends React.Component {
   state = {
     showPlayLoops: false,
     loopsStart: 1,
     loopsEnd: 3,
-
-    showReplaySettings: false
+    xModules: [
+      getXFile(),
+      getXUserIO()
+    ],
+    xModuleData: {},
+    xFileRootDirChanged: false
   }
 
   getPlayer = (name) => {
@@ -164,6 +173,70 @@ class Header extends React.Component {
     })
   }
 
+  componentWillReceiveProps (nextProps) {
+    if (nextProps.ui.showSettings && !this.props.ui.showSettings) {
+      this.onShowSettings()
+    }
+  }
+
+  initXModules () {
+    const xModules = this.state.xModules
+
+    // versionInfo: {
+    //  installed: boolean
+    //  version: string
+    // },
+    // checkResult: {
+    //  error: string | null
+    // }
+    Promise.all(
+      xModules.map(mod => {
+        return mod.getVersion()
+        .then(versionInfo => {
+          if (versionInfo.installed) {
+            return mod.sanityCheck()
+            .then(
+              () => ({ error: null }),
+              e => ({ error: e.message })
+            )
+            .then(checkResult => ({
+              versionInfo,
+              checkResult
+            }))
+          } else {
+            return {
+              versionInfo,
+              checkResult: null
+            }
+          }
+        })
+      })
+    )
+    .then(results => {
+      const xModuleData = results.reduce((prev, r, i) => {
+        prev[xModules[i].getName()] = {
+          ...r.versionInfo,
+          checkResult:  r.checkResult,
+          config:       xModules[i].getCachedConfig()
+        }
+        return prev
+      }, {})
+
+      this.setState({
+        xModuleData,
+        xFileRootDirChanged: false
+      })
+    })
+  }
+
+  onShowSettings () {
+    this.initXModules()
+  }
+
+  showSettingsModal () {
+    this.props.updateUI({ showSettings: true })
+  }
+
   renderPlayLoopModal () {
     return (
       <Modal
@@ -223,10 +296,13 @@ class Header extends React.Component {
         className="settings-modal"
         width={650}
         footer={null}
-        visible={this.state.showReplaySettings}
-        onCancel={() => this.setState({ showReplaySettings: false })}
+        visible={this.props.ui.showSettings}
+        onCancel={() => this.props.updateUI({ showSettings: false })}
       >
-        <Tabs>
+        <Tabs
+          activeKey={this.props.ui.settingsTab || 'replay'}
+          onChange={activeKey => this.props.updateUI({ settingsTab: activeKey })}
+        >
           <Tabs.TabPane tab="Replay" key="replay">
             <Form>
               <Form.Item label="Replay Helper" {...displayConfig}>
@@ -406,6 +482,7 @@ class Header extends React.Component {
           </Tabs.TabPane>
           <Tabs.TabPane tab="Backup" key="backup" className="backup-pane">
             <h4>Automatic Backup</h4>
+            <p>The automatic backup reminder helps to you to regularly export macros and other data as ZIP archive - so you don't loose your macros when you uninstall Kantu by mistake. The ZIP archive does not include data that is already stored directly on hard drive with the XFileAcess module.</p>
             <div className="row">
               <Checkbox
                 onChange={(e) => onConfigChange('enableAutoBackup', e.target.checked)}
@@ -501,6 +578,181 @@ class Header extends React.Component {
               ) : null}
             </div>
           </Tabs.TabPane>
+
+          <Tabs.TabPane tab="XModules" key="xmodules" className="xmodules-pane">
+            <div className="xmodule-item">
+              <div className="xmodule-title">
+                <span><b>FileAccess XModule</b> - Read and write to your hard drive</span>
+                <a href={getXFile().infoLink()} target="_blank">More Info</a>
+                <Button
+                  type="primary"
+                  onClick={() => {
+                    getXFile().getVersion().then(data => {
+                      const { installed, version } = data
+                      const msg = installed ? (`Installed (v${version})`) : 'Not Installed'
+                      message.info(`status updated: ${msg}`)
+
+                      this.setState(
+                        updateIn(
+                          ['xModuleData', getXFile().getName()],
+                          orig => ({ ...orig, ...data, config: getXFile().getCachedConfig() }),
+                          this.state
+                        )
+                      )
+                    })
+                  }}
+                >
+                  Test it
+                </Button>
+              </div>
+
+              <div className="xmodule-status">
+                <label>Status:</label>
+
+                {this.state.xModuleData[getXFile().getName()] && this.state.xModuleData[getXFile().getName()].installed ? (
+                  <div className="status-box">
+                    <span>Installed (v{this.state.xModuleData[getXFile().getName()].version})</span>
+                    <a
+                      target="_blank"
+                      href={getXFile().checkUpdateLink(
+                        this.state.xModuleData[getXFile().getName()] && this.state.xModuleData[getXFile().getName()].version,
+                        Ext.runtime.getManifest().version
+                      )}
+                    >
+                      Check for update
+                    </a>
+                  </div>
+                ) : (
+                  <div className="status-box">
+                    <span>Not Installed</span>
+                    <a href={getXFile().downloadLink()} target="_blank">Download it</a>
+                  </div>
+                )}
+              </div>
+
+              <div className="xmodule-settings">
+                <h3>Settings</h3>
+                <div className="xmodule-settings-item">
+                  <div className="settings-detail">
+                    <label>Home Folder</label>
+                    <div className="settings-detail-content">
+                      <Input
+                        type="text"
+                        value={getXFile().getCachedConfig().rootDir}
+                        disabled={!(this.state.xModuleData[getXFile().getName()] && this.state.xModuleData[getXFile().getName()].installed)}
+                        onChange={e => {
+                          const rootDir = e.target.value
+
+                          this.setState(
+                            compose(
+                              setIn(['xModuleData', getXFile().getName(), 'config', 'rootDir'], rootDir),
+                              setIn(['xFileRootDirChanged'], true)
+                            )(this.state)
+                          )
+
+                          getXFile().setConfig({ rootDir })
+                        }}
+                        onBlur={() => {
+                          if (this.state.xFileRootDirChanged) {
+                            this.setState({ xFileRootDirChanged: false })
+
+                            getXFile()
+                            .sanityCheck()
+                            .then(
+                              () => {
+                                this.setState(
+                                  setIn(
+                                    ['xModuleData', getXFile().getName(), 'checkResult'],
+                                    { error: null },
+                                    this.state
+                                  )
+                                )
+
+                                getStorageManager().emit(StorageManagerEvent.RootDirChanged)
+                              },
+                              e => {
+                                this.setState(
+                                  setIn(
+                                    ['xModuleData', getXFile().getName(), 'checkResult'],
+                                    { error: e.message },
+                                    this.state
+                                  )
+                                )
+
+                                this.props.updateUI({ showSettings: true, settingsTab: 'xmodules' })
+                              }
+                            )
+                          }
+                        }}
+                      />
+
+                      {this.state.xModuleData[getXFile().getName()] &&
+                        this.state.xModuleData[getXFile().getName()].checkResult &&
+                        this.state.xModuleData[getXFile().getName()].checkResult.error ? (
+                        <div className="check-result">
+                          {this.state.xModuleData[getXFile().getName()].checkResult.error}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="settings-desc">
+                    In this folder, Kantu creates /macros, /images, /testsuites, /datasources
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="xmodule-item">
+              <div className="xmodule-title">
+                <span><b>RealUser XModule</b> - Click / Type / Drag with OS native events</span>
+                <a href={getXUserIO().infoLink()} target="_blank">More Info</a>
+                <Button
+                  type="primary"
+                  onClick={() => {
+                    getXUserIO().getVersion().then(data => {
+                      const { installed, version } = data
+                      const msg = installed ? (`Installed (v${version})`) : 'Not Installed'
+                      message.info(`status updated: ${msg}`)
+
+                      this.setState(
+                        updateIn(
+                          ['xModuleData', getXUserIO().getName()],
+                          orig => ({ ...orig, ...data, config: getXUserIO().getCachedConfig() }),
+                          this.state
+                        )
+                      )
+                    })
+                  }}
+                >
+                  Test it
+                </Button>
+              </div>
+
+              <div className="xmodule-status">
+                <label>Status:</label>
+
+                {this.state.xModuleData[getXUserIO().getName()] && this.state.xModuleData[getXUserIO().getName()].installed ? (
+                  <div className="status-box">
+                    <span>Installed (v{this.state.xModuleData[getXUserIO().getName()].version})</span>
+                    <a
+                      target="_blank"
+                      href={getXUserIO().checkUpdateLink(
+                        this.state.xModuleData[getXUserIO().getName()] && this.state.xModuleData[getXUserIO().getName()].version,
+                        Ext.runtime.getManifest().version
+                      )}
+                    >
+                      Check for update
+                    </a>
+                  </div>
+                ) : (
+                  <div className="status-box">
+                    <span>Not Installed</span>
+                    <a href={getXUserIO().downloadLink()} target="_blank">Download it</a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Tabs.TabPane>
         </Tabs>
       </Modal>
     )
@@ -517,7 +769,7 @@ class Header extends React.Component {
     const onClickMenuItem = ({ key }) => {
       switch (key) {
         case 'play_settings': {
-          this.setState({ showReplaySettings: true })
+          this.showSettingsModal()
           break
         }
       }
@@ -657,7 +909,7 @@ class Header extends React.Component {
               </Dropdown.Button>
             </Button.Group>
 
-            <Button shape="circle" onClick={() => this.setState({ showReplaySettings: true })}>
+            <Button shape="circle" onClick={() => this.showSettingsModal()}>
               <Icon type="setting" />
             </Button>
           </div>
@@ -723,7 +975,8 @@ export default connect(
     editing: state.editor.editing,
     player: state.player,
     status: state.status,
-    config: state.config
+    config: state.config,
+    ui: state.ui
   }),
   dispatch  => bindActionCreators({...actions}, dispatch)
 )(withRouter(Header))

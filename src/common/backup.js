@@ -3,9 +3,7 @@ import JSZip from 'jszip'
 import { nameFactory } from './utils'
 import { toJSONString } from './convert_utils'
 import { stringifyTestSuite } from './convert_suite_utils'
-import { getScreenshotMan } from './screenshot_man'
-import { getCSVMan } from './csv_man'
-import { getVisionMan } from './vision_man'
+import { getStorageManager } from '../services/storage'
 
 export default function backup ({ backup, testCases, testSuites, screenshots, csvs, visions }) {
   const zip = new JSZip()
@@ -33,12 +31,12 @@ export default function backup ({ backup, testCases, testSuites, screenshots, cs
   }
 
   if (backup.screenshot && screenshots && screenshots.length) {
-    const folder  = zip.folder('screenshots')
-    const man     = getScreenshotMan()
+    const folder    = zip.folder('screenshots')
+    const ssStorage = getStorageManager().getScreenshotStorage()
 
     screenshots.forEach(ss => {
       ps.push(
-        man.read(ss.fileName)
+        ssStorage.read(ss.fileName, 'ArrayBuffer')
         .then(buffer => {
           folder.file(ss.fileName, buffer, { binary: true })
         })
@@ -47,12 +45,12 @@ export default function backup ({ backup, testCases, testSuites, screenshots, cs
   }
 
   if (backup.vision && visions && visions.length) {
-    const folder  = zip.folder('images')
-    const man     = getVisionMan()
+    const folder        = zip.folder('images')
+    const visionStorage = getStorageManager().getVisionStorage()
 
     visions.forEach(vision => {
       ps.push(
-        man.read(vision.fileName)
+        visionStorage.read(vision.fileName, 'ArrayBuffer')
         .then(buffer => {
           folder.file(vision.fileName, buffer, { binary: true })
         })
@@ -61,12 +59,12 @@ export default function backup ({ backup, testCases, testSuites, screenshots, cs
   }
 
   if (backup.csv && csvs && csvs.length) {
-    const folder  = zip.folder('datasources')
-    const man     = getCSVMan()
+    const folder      = zip.folder('datasources')
+    const csvStorage  = getStorageManager().getCSVStorage()
 
     csvs.forEach(csv => {
       ps.push(
-        man.read(csv.fileName)
+        csvStorage.read(csv.fileName, 'Text')
         .then(text => folder.file(csv.fileName, text))
       )
     })

@@ -1,7 +1,8 @@
 import parseJson from 'parse-json'
 import { formatDate } from './utils'
+import { getStorageManager } from '../services/storage'
 
-export const stringifyTestSuite = (testSuite, testCases) => {
+export const stringifyTestSuite = (testSuite, testCases, opts = {}) => {
   const obj = {
     creationDate: formatDate(new Date()),
     name: testSuite.name,
@@ -15,14 +16,20 @@ export const stringifyTestSuite = (testSuite, testCases) => {
         macro: tcName,
         loops: loops
       }
-    })
+    }),
+    ...(opts.withFold ? { fold: !!testSuite.fold } : {}),
+    ...(opts.withId && testSuite.id ? { id: testSuite.id } : {}),
+    ...(opts.withPlayStatus && testSuite.playStatus ? { playStatus: testSuite.playStatus } : {})
   }
 
   return JSON.stringify(obj, null, 2)
 }
 
-export const parseTestSuite = (text, testCases) => {
-  const obj = parseJson(text)
+export const parseTestSuite = (text, testCases, opts = {}) => {
+  // Note: Exported JSON from older version Kantu (via 'export to json')
+  // has an invisible charactor (char code65279, known as BOM). It breaks JSON parser.
+  // So it's safer to filter it out here
+  const obj = parseJson(text.replace(/^\s*/, ''))
 
   if (typeof obj.name !== 'string' || obj.name.length === 0) {
     throw new Error('name must be a string')
@@ -50,9 +57,11 @@ export const parseTestSuite = (text, testCases) => {
   })
 
   const ts  = {
+    cases,
     name: obj.name,
-    fold: obj.fold,
-    cases
+    ...(opts.withFold ? { fold: obj.fold === undefined ? true : obj.fold } : {}),
+    ...(opts.withId && obj.id ? { id: obj.id } : {}),
+    ...(opts.withPlayStatus && obj.playStatus ? { playStatus: obj.playStatus } : {})
   }
 
   return ts
@@ -71,7 +80,7 @@ export const toBookmarkData = (obj) => {
     url: `javascript:
       (function() {
         try {
-          var evt = new CustomEvent('kantuRunTestSuite', { detail: { name: '${name}', from: 'bookmark' } });
+          var evt = new CustomEvent('kantuRunTestSuite', { detail: { name: '${name}', from: 'bookmark', storageMode: '${getStorageManager().getCurrentStrategyType()}' } });
           window.dispatchEvent(evt);
         } catch (e) {
           alert('Kantu Bookmarklet error: ' + e.toString());
@@ -95,7 +104,7 @@ export const toHtml = ({ name }) => {
 <script>
 (function() {
   try {
-    var evt = new CustomEvent('kantuRunTestSuite', { detail: { name: '${name}', from: 'html' } })  
+    var evt = new CustomEvent('kantuRunTestSuite', { detail: { name: '${name}', from: 'html', storageMode: '${getStorageManager().getCurrentStrategyType()}' } })  
     window.dispatchEvent(evt);
 
     if (window.location.protocol === 'file:') {

@@ -1,10 +1,499 @@
 (window["webpackJsonp"] = window["webpackJsonp"] || []).push([[1],{
 
-/***/ 16:
+/***/ 122:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const constants_1 = __webpack_require__(192);
+const ts_utils_1 = __webpack_require__(52);
+const kantu_file_access_host_1 = __webpack_require__(193);
+const path_1 = __webpack_require__(87);
+var SpecialFolder;
+(function (SpecialFolder) {
+    SpecialFolder[SpecialFolder["UserProfile"] = 0] = "UserProfile";
+    SpecialFolder[SpecialFolder["UserDesktop"] = 1] = "UserDesktop";
+})(SpecialFolder = exports.SpecialFolder || (exports.SpecialFolder = {}));
+exports.getNativeFileSystemAPI = ts_utils_1.singletonGetter(() => {
+    const nativeHost = new kantu_file_access_host_1.KantuFileAccessHost();
+    let pReady = nativeHost.connectAsync().catch(e => {
+        console.warn('pReady - error', e);
+        throw e;
+    });
+    const api = constants_1.MethodTypeInvocationNames.reduce((prev, method) => {
+        const camel = ts_utils_1.snakeToCamel(method);
+        prev[camel] = (() => {
+            const fn = (params) => pReady.then(() => {
+                return nativeHost.invokeAsync(method, params);
+            })
+                .catch(e => {
+                // Note: Looks like for now whenever there is an error, you have to reconnect native host
+                // otherwise, all commands return "Disconnected" afterwards
+                const typeSafeAPI = api;
+                typeSafeAPI.reconnect();
+                throw e;
+            });
+            return fn;
+        })();
+        return prev;
+    }, {
+        reconnect: () => {
+            nativeHost.disconnect();
+            pReady = nativeHost.connectAsync();
+            return pReady.then(() => api);
+        },
+        getEntries: (params) => {
+            const typeSafeAPI = api;
+            return typeSafeAPI.getFileSystemEntries(params)
+                .then(res => {
+                const { errorCode, entries } = res;
+                return Promise.all(entries.map((name) => {
+                    const entryPath = path_1.default.join(params.path, name);
+                    return typeSafeAPI.getFileSystemEntryInfo({ path: entryPath })
+                        .then(info => ({
+                        name,
+                        length: info.length,
+                        isDirectory: info.isDirectory,
+                        lastWriteTime: info.lastWriteTime
+                    }));
+                }))
+                    .then(entryInfos => ({
+                    errorCode,
+                    entries: entryInfos
+                }));
+            });
+        },
+        ensureDir: (params) => {
+            const typeSafeAPI = api;
+            return typeSafeAPI.directoryExists({
+                path: params.path
+            })
+                .then(exists => {
+                if (exists)
+                    return true;
+                return typeSafeAPI.ensureDir({ path: path_1.default.dirname(params.path) })
+                    .then(done => {
+                    if (!done)
+                        return false;
+                    return typeSafeAPI.createDirectory({ path: params.path });
+                });
+            })
+                .catch(e => false);
+        }
+    });
+    return api;
+});
+
+
+/***/ }),
+
+/***/ 123:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const storage_1 = __webpack_require__(29);
+var XModuleTypes;
+(function (XModuleTypes) {
+    XModuleTypes["XFile"] = "xFile";
+    XModuleTypes["XUserIO"] = "xClick";
+})(XModuleTypes = exports.XModuleTypes || (exports.XModuleTypes = {}));
+class XModule {
+    constructor() {
+        this.cachedConfig = {};
+        this.initConfig();
+    }
+    getVersion() {
+        return this.getAPI()
+            .reconnect()
+            .catch(e => {
+            throw new Error(`${this.getName} is not installed yet`);
+        })
+            .then(api => {
+            return api.getVersion()
+                .then(version => ({
+                version,
+                installed: true
+            }));
+        })
+            .catch(e => ({
+            installed: false
+        }));
+    }
+    setConfig(config) {
+        this.cachedConfig = Object.assign({}, this.cachedConfig, config);
+        return this.getConfig()
+            .then(oldConfig => {
+            const nextConfig = Object.assign({}, oldConfig, config);
+            return storage_1.default.set(this.getStoreKey(), nextConfig)
+                .then(success => {
+                if (success) {
+                    this.cachedConfig = nextConfig;
+                }
+                return success;
+            });
+        });
+    }
+    getConfig() {
+        return storage_1.default.get(this.getStoreKey())
+            .then(data => {
+            this.cachedConfig = data || {};
+            return this.cachedConfig;
+        });
+    }
+    getCachedConfig() {
+        return this.cachedConfig;
+    }
+    getStoreKey() {
+        return this.getName().toLowerCase();
+    }
+}
+exports.XModule = XModule;
+
+
+/***/ }),
+
+/***/ 144:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+/// <reference types="chrome"/>
+Object.defineProperty(exports, "__esModule", { value: true });
+class InvocationQueueItem {
+    constructor(id, method, params, callback) {
+        this.requestObject = {
+            id,
+            method,
+            params
+        };
+        this.callback = callback;
+    }
+    get request() {
+        return this.requestObject;
+    }
+}
+class NativeMessagingHost {
+    constructor(hostName) {
+        this.internalHostName = hostName;
+        this.nextInvocationId = 1;
+        this.queue = new Array();
+        this.handleMessage = this.handleMessage.bind(this);
+        this.handleDisconnect = this.handleDisconnect.bind(this);
+    }
+    processResponse(id, result, error) {
+        let callback = undefined;
+        for (let i = 0; i < this.queue.length; ++i) {
+            const entry = this.queue[i];
+            if (entry.request.id === id) {
+                callback = entry.callback;
+                this.queue.splice(i, 1);
+                break;
+            }
+        }
+        if (callback) {
+            callback(result, error);
+        }
+    }
+    handleMessage(message) {
+        const response = message;
+        if (typeof response.id !== "number") {
+            return;
+        }
+        this.processResponse(response.id, response.result, response.error);
+    }
+    handleDisconnect() {
+        this.disconnect();
+    }
+    get hostName() {
+        return this.internalHostName;
+    }
+    connectAsync() {
+        if (this.port) {
+            return this.invokeAsync("get_version", undefined);
+        }
+        this.port = chrome.runtime.connectNative(this.hostName);
+        this.port.onMessage.addListener(this.handleMessage);
+        this.port.onDisconnect.addListener(this.handleDisconnect);
+        return this.invokeAsync("get_version", undefined);
+    }
+    disconnect() {
+        if (this.port) {
+            this.port.disconnect();
+            this.port = undefined;
+        }
+        // Discard all queued invocations
+        const invocationIdArray = this.queue.map(x => x.request.id);
+        for (const id of invocationIdArray) {
+            this.processResponse(id, undefined, {
+                message: "Disconnected"
+            });
+        }
+        this.queue = new Array();
+    }
+    invoke(method, params, callback) {
+        if (!this.port) {
+            callback(undefined, {
+                message: "Disconnected"
+            });
+            return;
+        }
+        const id = this.nextInvocationId++;
+        const item = new InvocationQueueItem(id, method, params, callback);
+        this.queue.push(item);
+        this.port.postMessage(item.request);
+    }
+    invokeAsync(method, params) {
+        return new Promise((resolve, reject) => {
+            this.invoke(method, params, (result, error) => {
+                if (error) {
+                    reject(error);
+                }
+                else {
+                    resolve(result);
+                }
+            });
+        });
+    }
+}
+exports.NativeMessagingHost = NativeMessagingHost;
+
+
+/***/ }),
+
+/***/ 182:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const storage_1 = __webpack_require__(60);
+const db_1 = __webpack_require__(68);
+const utils_1 = __webpack_require__(2);
+const ts_utils_1 = __webpack_require__(52);
+class IndexeddbFlatStorage extends storage_1.FlatStorage {
+    constructor(options) {
+        super();
+        const tableName = options.table;
+        if (!db_1.default.tables.find(t => t.name === tableName)) {
+            throw new Error(`Unknown indexeddb table name '${tableName}'`);
+        }
+        this.table = db_1.default.table(options.table);
+    }
+    list() {
+        // Note: must wrap dexie's "Promise", as it's dexie's own thenable Promise
+        return Promise.resolve(this.table.toArray())
+            .then((xs) => {
+            const convert = (x) => ({
+                dir: '',
+                fileName: (x.name),
+                lastModified: new Date(),
+                size: 'unknown'
+            });
+            return xs.map(convert);
+        });
+    }
+    exists(fileName) {
+        return Promise.resolve(this.table
+            .where('name')
+            .equals(fileName)
+            .toArray())
+            .then((xs) => {
+            return xs.length > 0;
+        });
+    }
+    read(fileName, type) {
+        if (type !== 'Text') {
+            throw new Error(`ReadFileType '${type}' is not supported in indexeddb storage`);
+        }
+        return this.findByName(fileName);
+    }
+    readAll(readFileType = 'Text', onErrorFiles) {
+        return Promise.resolve(this.table.toArray())
+            .then(items => {
+            return items.map(item => ({
+                fileName: item.name,
+                content: item
+            }));
+        });
+    }
+    __write(fileName, content) {
+        return this.findByName(fileName)
+            .catch(() => null)
+            .then((item) => {
+            if (item) {
+                const data = this.normalize(Object.assign({}, item, content));
+                delete data.id;
+                return this.table.update(item.id, data);
+            }
+            else {
+                const data = this.normalize(Object.assign({ id: utils_1.uid() }, content));
+                return this.table.add(data);
+            }
+        })
+            .then(() => { });
+    }
+    __overwrite(fileName, content) {
+        return this.write(fileName, content);
+    }
+    __clear() {
+        return Promise.resolve(this.table.clear());
+    }
+    __remove(fileName) {
+        return this.findByName(fileName)
+            .then(item => {
+            return this.table.delete(item.id);
+        });
+    }
+    __rename(fileName, newName) {
+        return this.findByName(fileName)
+            .then((item) => {
+            return this.table.update(item.id, { name: newName });
+        })
+            .then(() => { });
+    }
+    findByName(name) {
+        return Promise.resolve(this.table
+            .where('name')
+            .equals(name)
+            .first())
+            .then((item) => {
+            if (!item)
+                throw new Error(`indexeddb storage: Item with name '${name}' is not found`);
+            return item;
+        });
+    }
+    normalize(data) {
+        return data;
+    }
+    dataToString(data) {
+        return JSON.stringify(data);
+    }
+}
+exports.IndexeddbFlatStorage = IndexeddbFlatStorage;
+exports.getIndexeddbFlatStorage = ts_utils_1.singletonGetterByKey((opts) => {
+    return opts.table;
+}, (opts) => {
+    return new IndexeddbFlatStorage(opts);
+});
+
+
+/***/ }),
+
+/***/ 184:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const storage_1 = __webpack_require__(60);
+const filesystem_1 = __webpack_require__(185);
+const ts_utils_1 = __webpack_require__(52);
+const Ext = __webpack_require__(3);
+const isFirefox = () => {
+    return /Firefox/.test(window.navigator.userAgent);
+};
+class BrowserFileSystemFlatStorage extends storage_1.FlatStorage {
+    constructor(opts) {
+        super({
+            encode: opts.encode,
+            decode: opts.decode
+        });
+        const { baseDir = 'share' } = opts;
+        if (!baseDir || baseDir === '/') {
+            throw new Error(`Invalid baseDir, ${baseDir}`);
+        }
+        this.baseDir = baseDir;
+        // Note: create the folder in which we will store files
+        filesystem_1.default.getDirectory(baseDir, true);
+    }
+    getLink(fileName) {
+        if (!isFirefox()) {
+            const tmp = Ext.extension.getURL('temporary');
+            const link = `filesystem:${tmp}/${this.filePath(encodeURIComponent(fileName))}`;
+            return Promise.resolve(link + '?' + new Date().getTime());
+        }
+        else {
+            // Note: Except for Chrome, the filesystem API we use is a polyfill from idb.filesystem.js
+            // idb.filesystem.js works great but the only problem is that you can't use 'filesystem:' schema to retrieve that file
+            // so here, we have to convert the file to data url
+            return this.read(this.filePath(fileName), 'DataURL');
+        }
+    }
+    list() {
+        return filesystem_1.default.list(this.baseDir)
+            .then(fileEntries => {
+            const ps = fileEntries.map(fileEntry => {
+                return filesystem_1.default.getMetadata(fileEntry)
+                    .then(meta => ({
+                    dir: this.baseDir,
+                    fileName: fileEntry.name,
+                    size: storage_1.readableSize(meta.size),
+                    lastModified: meta.modificationTime
+                }));
+            });
+            return Promise.all(ps);
+        });
+    }
+    exists(fileName) {
+        return filesystem_1.default.exists(this.filePath(fileName), { type: 'file' });
+    }
+    read(fileName, type) {
+        return filesystem_1.default.readFile(this.filePath(fileName), type)
+            .then(intermediate => this.decode(intermediate, fileName));
+    }
+    __write(fileName, content) {
+        return Promise.resolve(this.encode(content, fileName))
+            .then((encodedContent) => filesystem_1.default.writeFile(this.filePath(fileName, true), encodedContent))
+            .then(() => { });
+    }
+    __overwrite(fileName, content) {
+        return this.remove(fileName)
+            .catch(() => { })
+            .then(() => this.write(fileName, content));
+    }
+    __clear() {
+        return this.list()
+            .then(list => {
+            const ps = list.map(file => {
+                return this.remove(file.fileName);
+            });
+            return Promise.all(ps);
+        })
+            .then(() => { });
+    }
+    __remove(fileName) {
+        return filesystem_1.default.removeFile(this.filePath(fileName));
+    }
+    __rename(fileName, newName) {
+        return filesystem_1.default.moveFile(this.filePath(fileName), this.filePath(newName, true))
+            .then(() => { });
+    }
+    filePath(fileName, forceCheck) {
+        if (forceCheck) {
+            storage_1.checkFileName(fileName);
+        }
+        return this.baseDir + '/' + fileName.toLowerCase();
+    }
+}
+exports.BrowserFileSystemFlatStorage = BrowserFileSystemFlatStorage;
+exports.getBrowserFileSystemFlatStorage = ts_utils_1.singletonGetterByKey((opts) => {
+    return (opts && opts.baseDir) || 'share';
+}, (opts) => {
+    return new BrowserFileSystemFlatStorage(opts);
+});
+
+
+/***/ }),
+
+/***/ 185:
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var idb_filesystem_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(169);
+__webpack_require__.r(__webpack_exports__);
+/* harmony import */ var idb_filesystem_js__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(186);
 /* harmony import */ var idb_filesystem_js__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(idb_filesystem_js__WEBPACK_IMPORTED_MODULE_0__);
 var _slicedToArray = function () { function sliceIterator(arr, i) { var _arr = []; var _n = true; var _d = false; var _e = undefined; try { for (var _i = arr[Symbol.iterator](), _s; !(_n = (_s = _i.next()).done); _n = true) { _arr.push(_s.value); if (i && _arr.length === i) break; } } catch (err) { _d = true; _e = err; } finally { try { if (!_n && _i["return"]) _i["return"](); } finally { if (_d) throw _e; } } return _arr; } return function (arr, i) { if (Array.isArray(arr)) { return arr; } else if (Symbol.iterator in Object(arr)) { return sliceIterator(arr, i); } else { throw new TypeError("Invalid attempt to destructure non-iterable instance"); } }; }();
 
@@ -256,7 +745,313 @@ var fs = function () {
 // For test only
 window.fs = fs;
 
-/* harmony default export */ __webpack_exports__["a"] = (fs);
+/* harmony default export */ __webpack_exports__["default"] = (fs);
+
+/***/ }),
+
+/***/ 187:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const mime = __webpack_require__(188);
+const storage_1 = __webpack_require__(60);
+const filesystem_1 = __webpack_require__(122);
+const path_1 = __webpack_require__(87);
+const utils_1 = __webpack_require__(2);
+const ts_utils_1 = __webpack_require__(52);
+class NativeFileSystemFlatStorage extends storage_1.FlatStorage {
+    constructor(opts) {
+        super({
+            encode: opts.encode,
+            decode: opts.decode
+        });
+        const { baseDir, rootDir, extensions, shouldKeepExt = false } = opts;
+        if (!baseDir || baseDir === '/') {
+            throw new Error(`Invalid baseDir, ${baseDir}`);
+        }
+        this.rootDir = rootDir;
+        this.baseDir = baseDir;
+        this.extensions = extensions;
+        this.shouldKeepExt = shouldKeepExt;
+        this.fs = filesystem_1.getNativeFileSystemAPI();
+    }
+    readAll(readFileType = 'Text', onErrorFiles) {
+        return this.list()
+            .then(items => {
+            return Promise.all(items.map(item => {
+                return this.read(item.fileName, readFileType)
+                    .then(content => ({
+                    content,
+                    fileName: item.fileName
+                }))
+                    // Note: Whenever there is error in reading file,
+                    // return null
+                    .catch(e => ({
+                    fileName: item.fileName,
+                    fullFilePath: this.filePath(item.fileName),
+                    error: new Error(`Error in parsing ${this.filePath(item.fileName)}:\n${e.message}`)
+                }));
+            }))
+                .then(list => {
+                const errorFiles = list.filter(item => item.error);
+                if (onErrorFiles)
+                    onErrorFiles(errorFiles);
+                return list.filter((item) => item.content);
+            });
+        });
+    }
+    getLink(fileName) {
+        return this.read(fileName, 'DataURL')
+            .then((dataUrlWithoutPrefix) => {
+            const ext = this.extensions[0];
+            const mimeStr = mime.getType(ext);
+            if (!mimeStr || !mimeStr.length)
+                throw new Error(`Failed to find mime type for '${ext}'`);
+            return `data:${mimeStr};base64,${dataUrlWithoutPrefix}`;
+        });
+    }
+    list() {
+        return this.ensureDir()
+            .then(() => {
+            return this.fs.getEntries({
+                path: path_1.default.join(this.rootDir, this.baseDir),
+                extensions: this.extensions
+            })
+                .then(data => {
+                const entries = data.entries;
+                const errorCode = data.errorCode;
+                if (errorCode !== 0 /* Succeeded */) {
+                    throw new Error(`failed to list, error code: ${errorCode}`);
+                }
+                const convertName = (entryName) => this.shouldKeepExt ? entryName : this.removeExt(entryName);
+                const convert = (entry) => {
+                    return {
+                        dir: this.baseDir,
+                        fileName: convertName(entry.name),
+                        lastModified: new Date(entry.lastWriteTime),
+                        size: storage_1.readableSize(entry.length)
+                    };
+                };
+                return entries.map(convert);
+            });
+        });
+    }
+    exists(fileName) {
+        return this.fs.fileExists({
+            path: this.filePath(fileName)
+        });
+    }
+    read(fileName, type) {
+        const onResolve = (res) => {
+            if (res.errorCode !== 0 /* Succeeded */) {
+                throw new Error(`failed to read file '${fileName}', error code: ${res.errorCode}`);
+            }
+            const rawContent = res.content;
+            const intermediate = (() => {
+                switch (type) {
+                    case 'Text':
+                    case 'DataURL':
+                        return rawContent;
+                    case 'ArrayBuffer':
+                        return utils_1.dataURItoArrayBuffer(rawContent);
+                    case 'BinaryString':
+                        return utils_1.arrayBufferToString(utils_1.dataURItoArrayBuffer(rawContent));
+                }
+            })();
+            return this.decode(intermediate, fileName);
+        };
+        switch (type) {
+            case 'Text':
+                return this.fs.readAllText({
+                    path: this.filePath(fileName)
+                })
+                    .then(onResolve);
+            default:
+                return this.fs.readAllBytes({
+                    path: this.filePath(fileName)
+                })
+                    .then(onResolve);
+        }
+    }
+    __write(fileName, content) {
+        return this.ensureDir()
+            .then(() => this.encode(content, fileName))
+            .then(encodedContent => {
+            return this.fs.writeAllBytes({
+                content: encodedContent,
+                path: this.filePath(fileName),
+            })
+                .then(result => {
+                if (!result) {
+                    throw new Error(`Failed to write to '${fileName}'`);
+                }
+            });
+        });
+    }
+    __overwrite(fileName, content) {
+        return this.remove(fileName)
+            .catch(() => { })
+            .then(() => this.write(fileName, content));
+    }
+    __clear() {
+        return this.list()
+            .then(list => {
+            const ps = list.map(file => {
+                return this.remove(file.fileName);
+            });
+            return Promise.all(ps);
+        })
+            .then(() => { });
+    }
+    __remove(fileName) {
+        return this.ensureDir()
+            .then(() => {
+            return this.fs.deleteFile({
+                path: this.filePath(fileName)
+            })
+                .then(() => { });
+        });
+    }
+    __rename(fileName, newName) {
+        return this.ensureDir()
+            .then(() => {
+            return this.fs.moveFile({
+                sourcePath: this.filePath(fileName),
+                targetPath: this.filePath(newName, true)
+            })
+                .then(() => { });
+        });
+    }
+    filePath(fileName, forceCheck) {
+        if (forceCheck) {
+            storage_1.checkFileName(fileName);
+        }
+        const existingExt = path_1.default.extname(fileName);
+        const ext = this.extensions[0];
+        const finalFileName = existingExt && existingExt.substr(1).toLowerCase() === ext.toLowerCase() ? fileName : (fileName + '.' + ext);
+        return path_1.default.join(this.rootDir, this.baseDir, finalFileName);
+    }
+    removeExt(fileNameWithExt) {
+        const name = path_1.default.basename(fileNameWithExt);
+        const ext = path_1.default.extname(fileNameWithExt);
+        const i = name.lastIndexOf(ext);
+        return name.substring(0, i);
+    }
+    ensureDir() {
+        const fs = this.fs;
+        const dir = path_1.default.join(this.rootDir, this.baseDir);
+        return fs.directoryExists({
+            path: dir
+        })
+            .then(existed => {
+            if (existed)
+                return existed;
+            return fs.createDirectory({
+                path: dir
+            });
+        });
+    }
+}
+exports.NativeFileSystemFlatStorage = NativeFileSystemFlatStorage;
+exports.getNativeFileSystemFlatStorage = ts_utils_1.singletonGetterByKey((opts) => {
+    return path_1.default.join(opts.rootDir, opts.baseDir);
+}, (opts) => {
+    return new NativeFileSystemFlatStorage(opts);
+});
+
+
+/***/ }),
+
+/***/ 192:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+/**
+ * Non-external method types which the user can use via UI.
+ */
+exports.PublicMethodTypes = [
+    1 /* GetFileSystemEntries */,
+    2 /* GetDirectories */,
+    3 /* GetFiles */,
+    4 /* DirectoryExists */,
+    5 /* FileExists */,
+    6 /* CreateDirectory */,
+    7 /* RemoveDirectory */,
+    8 /* CopyFile */,
+    9 /* MoveFile */,
+    10 /* DeleteFile */,
+    11 /* ReadAllText */,
+    12 /* WriteAllText */,
+    13 /* AppendAllText */,
+    14 /* ReadAllBytes */,
+    15 /* WriteAllBytes */,
+    16 /* AppendAllBytes */
+];
+exports.MethodTypeFriendlyNames = [
+    "GetVersion",
+    "GetFileSystemEntries",
+    "GetDirectories",
+    "GetFiles",
+    "GetFileSystemEntryInfo",
+    "GetSpecialFolderPath",
+    "DirectoryExists",
+    "FileExists",
+    "CreateDirectory",
+    "RemoveDirectory",
+    "CopyFile",
+    "MoveFile",
+    "DeleteFile",
+    "ReadAllText",
+    "WriteAllText",
+    "AppendAllText",
+    "ReadAllBytes",
+    "WriteAllBytes",
+    "AppendAllBytes"
+];
+exports.MethodTypeInvocationNames = [
+    "get_version",
+    "get_file_system_entries",
+    "get_directories",
+    "get_files",
+    "get_file_system_entry_info",
+    "get_special_folder_path",
+    "directory_exists",
+    "file_exists",
+    "create_directory",
+    "remove_directory",
+    "copy_file",
+    "move_file",
+    "delete_file",
+    "read_all_text",
+    "write_all_text",
+    "append_all_text",
+    "read_all_bytes",
+    "write_all_bytes",
+    "append_all_bytes"
+];
+
+
+/***/ }),
+
+/***/ 193:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const native_host_1 = __webpack_require__(144);
+class KantuFileAccessHost extends native_host_1.NativeMessagingHost {
+    constructor() {
+        super(KantuFileAccessHost.HOST_NAME);
+    }
+}
+KantuFileAccessHost.HOST_NAME = "com.a9t9.kantu.file_access";
+exports.KantuFileAccessHost = KantuFileAccessHost;
+
 
 /***/ }),
 
@@ -291,7 +1086,11 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "insertScript", function() { return insertScript; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "withTimeout", function() { return withTimeout; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "retry", function() { return retry; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "dataURItoArrayBuffer", function() { return dataURItoArrayBuffer; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "dataURItoBlob", function() { return dataURItoBlob; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "blobToDataURL", function() { return blobToDataURL; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "arrayBufferToString", function() { return arrayBufferToString; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "stringToArrayBuffer", function() { return stringToArrayBuffer; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "randomName", function() { return randomName; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "withFileExtension", function() { return withFileExtension; });
 /* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "uniqueName", function() { return uniqueName; });
@@ -744,13 +1543,10 @@ var retry = function retry(fn, options) {
 };
 
 // refer to https://stackoverflow.com/questions/12168909/blob-from-dataurl
-function dataURItoBlob(dataURI) {
+function dataURItoArrayBuffer(dataURI) {
   // convert base64 to raw binary data held in a string
   // doesn't handle URLEncoded DataURIs - see SO answer #6850276 for code that does this
-  var byteString = atob(dataURI.split(',')[1]);
-
-  // separate out the mime component
-  var mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0];
+  var byteString = atob(/^data:/.test(dataURI) ? dataURI.split(',')[1] : dataURI);
 
   // write the bytes of the string to an ArrayBuffer
   var ab = new ArrayBuffer(byteString.length);
@@ -763,9 +1559,46 @@ function dataURItoBlob(dataURI) {
     ia[i] = byteString.charCodeAt(i);
   }
 
+  return ab;
+}
+
+function dataURItoBlob(dataURI) {
+  var ab = dataURItoArrayBuffer(dataURI);
+  // separate out the mime component
+  var mimeString = dataURI.split(',')[0].split(':')[1].split(';')[0];
   // write the ArrayBuffer to a blob, and you're done
   var blob = new Blob([ab], { type: mimeString });
   return blob;
+}
+
+function blobToDataURL(blob) {
+  return new Promise(function (resolve, reject) {
+    var reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = function (e) {
+      var str = reader.result;
+      var b64 = 'base64,';
+      var i = str.indexOf(b64);
+      var ret = str.substr(i + b64.length);
+
+      resolve(ret);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+function arrayBufferToString(buf) {
+  return String.fromCharCode.apply(null, new Uint16Array(buf));
+}
+
+function stringToArrayBuffer(str) {
+  var buf = new ArrayBuffer(str.length * 2); // 2 bytes for each char
+  var bufView = new Uint16Array(buf);
+
+  for (var i = 0, strLen = str.length; i < strLen; i++) {
+    bufView[i] = str.charCodeAt(i);
+  }
+  return buf;
 }
 
 var randomName = function randomName() {
@@ -1012,6 +1845,165 @@ var withCountDown = function withCountDown(options) {
 
 /***/ }),
 
+/***/ 27:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const common_1 = __webpack_require__(123);
+const filesystem_1 = __webpack_require__(122);
+const ts_utils_1 = __webpack_require__(52);
+const path_1 = __webpack_require__(87);
+class XFile extends common_1.XModule {
+    getName() {
+        return common_1.XModuleTypes.XFile;
+    }
+    getAPI() {
+        return filesystem_1.getNativeFileSystemAPI();
+    }
+    initConfig() {
+        return this.getConfig()
+            .then(config => {
+            if (!config.rootDir) {
+                const fsAPI = filesystem_1.getNativeFileSystemAPI();
+                return fsAPI.getSpecialFolderPath({ folder: filesystem_1.SpecialFolder.UserDesktop })
+                    .then(profilePath => {
+                    const kantuDir = path_1.default.join(profilePath, 'kantu');
+                    return fsAPI.ensureDir({ path: kantuDir })
+                        .then(done => {
+                        this.setConfig({
+                            rootDir: done ? kantuDir : profilePath
+                        });
+                    });
+                });
+            }
+        });
+    }
+    sanityCheck() {
+        return Promise.all([
+            this.getConfig(),
+            this.getAPI()
+                .reconnect()
+                .catch(e => {
+                throw new Error('xFile is not installed yet');
+            })
+        ])
+            .then(([config, api]) => {
+            if (!config.rootDir) {
+                throw new Error('rootDir is not set');
+            }
+            const checkDirectoryExists = () => {
+                return api.directoryExists({ path: config.rootDir })
+                    .then(existed => {
+                    if (!existed)
+                        throw new Error(`Directory '${config.rootDir}' doesn't exists`);
+                    return true;
+                });
+            };
+            const checkDirectoryWritable = () => {
+                const testDir = path_1.default.join(config.rootDir, '__kantu__' + Math.round(Math.random() * 100));
+                return api.createDirectory({ path: testDir })
+                    .then(created => {
+                    if (!created)
+                        throw new Error();
+                    return api.removeDirectory({ path: testDir });
+                })
+                    .then(deleted => {
+                    if (!deleted)
+                        throw new Error();
+                    return true;
+                })
+                    .catch(e => {
+                    throw new Error(`Directory '${config.rootDir}' is not writable`);
+                });
+            };
+            return checkDirectoryExists()
+                .then(checkDirectoryWritable);
+        });
+    }
+    checkUpdate() {
+        return Promise.reject(new Error('checkUpdate is not implemented yet'));
+    }
+    checkUpdateLink(modVersion, extVersion) {
+        return `https://a9t9.com/x/idehelp?help=xfileaccess_updatecheck?xversion=${modVersion}&kantuversion=${extVersion}`;
+    }
+    downloadLink() {
+        return 'https://a9t9.com/x/idehelp?help=xfileaccess_download';
+    }
+    infoLink() {
+        return 'https://a9t9.com/x/idehelp?help=xfileaccess';
+    }
+}
+exports.XFile = XFile;
+exports.getXFile = ts_utils_1.singletonGetter(() => {
+    return new XFile();
+});
+
+
+/***/ }),
+
+/***/ 29:
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+
+// EXTERNAL MODULE: ./src/common/web_extension.js
+var web_extension = __webpack_require__(3);
+var web_extension_default = /*#__PURE__*/__webpack_require__.n(web_extension);
+
+// CONCATENATED MODULE: ./src/common/storage/ext_storage.js
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
+function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
+
+
+
+var local = web_extension_default.a.storage.local;
+
+/* harmony default export */ var ext_storage = ({
+  get: function get(key) {
+    return local.get(key).then(function (obj) {
+      return obj[key];
+    });
+  },
+
+  set: function set(key, value) {
+    return local.set(_defineProperty({}, key, value)).then(function () {
+      return true;
+    });
+  },
+
+  remove: function remove(key) {
+    return local.remove(key).then(function () {
+      return true;
+    });
+  },
+
+  clear: function clear() {
+    return local.clear().then(function () {
+      return true;
+    });
+  },
+
+  addListener: function addListener(fn) {
+    web_extension_default.a.storage.onChanged.addListener(function (changes, areaName) {
+      var list = Object.keys(changes).map(function (key) {
+        return _extends({}, changes[key], { key: key });
+      });
+      fn(list);
+    });
+  }
+});
+// CONCATENATED MODULE: ./src/common/storage/index.js
+
+
+
+/* harmony default export */ var storage = __webpack_exports__["default"] = (ext_storage);
+
+/***/ }),
+
 /***/ 3:
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -1130,165 +2122,780 @@ var _slicedToArray = function () { function sliceIterator(arr, i) { var _arr = [
 
 /***/ }),
 
+/***/ 40:
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "toHtml", function() { return toHtml; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "toHtmlDataUri", function() { return toHtmlDataUri; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "fromHtml", function() { return fromHtml; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "fromJSONString", function() { return fromJSONString; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "toJSONString", function() { return toJSONString; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "toJSONDataUri", function() { return toJSONDataUri; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "toBookmarkData", function() { return toBookmarkData; });
+/* harmony import */ var jquery__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(99);
+/* harmony import */ var jquery__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(jquery__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var parse_json__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(72);
+/* harmony import */ var parse_json__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(parse_json__WEBPACK_IMPORTED_MODULE_1__);
+/* harmony import */ var url_parse__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(112);
+/* harmony import */ var url_parse__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(url_parse__WEBPACK_IMPORTED_MODULE_2__);
+/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(2);
+/* harmony import */ var _services_storage__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(5);
+/* harmony import */ var _services_storage__WEBPACK_IMPORTED_MODULE_4___default = /*#__PURE__*/__webpack_require__.n(_services_storage__WEBPACK_IMPORTED_MODULE_4__);
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
+
+
+
+
+
+
+
+var joinUrl = function joinUrl(base, url) {
+  var urlObj = new url_parse__WEBPACK_IMPORTED_MODULE_2___default.a(url, base);
+  return urlObj.toString();
+};
+
+// HTML template from test case
+function genHtml(_ref) {
+  var name = _ref.name,
+      baseUrl = _ref.baseUrl,
+      commandTrs = _ref.commandTrs;
+
+  return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">\n<head profile="http://selenium-ide.openqa.org/profiles/test-case">\n<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />\n<link rel="selenium.base" href="' + baseUrl + '" />\n<title>' + name + '</title>\n</head>\n<body>\n<table cellpadding="1" cellspacing="1" border="1">\n<thead>\n<tr><td rowspan="1" colspan="3">' + name + '</td></tr>\n</thead><tbody>\n' + commandTrs.join('\n') + '\n</tbody></table>\n<script>\n(function() {\n  try {\n    var evt = new CustomEvent(\'kantuSaveAndRunMacro\', { detail: { html: document.documentElement.outerHTML, storageMode: \'' + Object(_services_storage__WEBPACK_IMPORTED_MODULE_4__["getStorageManager"])().getCurrentStrategyType() + '\' } })  \n    window.dispatchEvent(evt);\n    \n    if (window.location.protocol === \'file:\') {\n      var onInvokeSuccess = function () {\n        clearTimeout(timer)\n        window.removeEventListener(\'kantuInvokeSuccess\', onInvokeSuccess)\n      }\n      var timer = setTimeout(function () {\n        alert("Error: It seems you need to enable File Access for Kantu in the extension settings.")\n      }, 2000)\n\n      window.addEventListener(\'kantuInvokeSuccess\', onInvokeSuccess)\n    }\n  } catch (e) {\n    alert(\'Kantu Bookmarklet error: \' + e.toString());\n  }\n})();\n</script>\n</body>\n</html>\n  ';
+}
+
+// generate data uri from html
+function htmlDataUri(html) {
+  return 'data:text/html;base64,' + window.btoa(unescape(encodeURIComponent(html)));
+}
+
+// generate data uri from json
+function jsonDataUri(str) {
+  return 'data:text/json;base64,' + window.btoa(unescape(encodeURIComponent(str)));
+}
+
+// generate html from a test case
+function toHtml(_ref2) {
+  var name = _ref2.name,
+      commands = _ref2.commands;
+
+  var copyCommands = commands.map(function (c) {
+    return _extends({}, c);
+  });
+  var openTc = copyCommands.find(function (tc) {
+    return tc.cmd === 'open';
+  });
+
+  // Note: Aug 10, 2018, no baseUrl when exported to html
+  // so that `${variable}` could be used in open command, and won't be prefixed with baseUrl
+  var origin = null;
+  var replacePath = function replacePath(path) {
+    return path;
+  };
+  // const url         = openTc && new URL(openTc.target)
+  // const origin      = url && url.origin
+  // const replacePath = (path) => {
+  //   if (path.indexOf(origin) !== 0) return path
+  //   const result = path.replace(origin, '')
+  //   return result.length === 0 ? '/' : result
+  // }
+
+  if (openTc) {
+    openTc.target = replacePath(openTc.target);
+  }
+
+  var commandTrs = copyCommands.map(function (c) {
+    if (c.cmd === 'open') {
+      // Note: remove origin if it's the same as the first open command
+      c.target = replacePath(c.target);
+    }
+
+    return '\n      <tr>\n        <td>' + (c.cmd || '') + '</td>\n        <td>' + (c.target || '') + '</td>\n        <td>' + (c.value || '') + '</td>\n      </tr>\n    ';
+  });
+
+  return genHtml({
+    name: name,
+    commandTrs: commandTrs,
+    baseUrl: origin || ''
+  });
+}
+
+// generate data uri of html from a test case
+function toHtmlDataUri(obj) {
+  return htmlDataUri(toHtml(obj));
+}
+
+// parse html to test case
+function fromHtml(html) {
+  var $root = jquery__WEBPACK_IMPORTED_MODULE_0___default()('<div>' + html + '</div>');
+  var $base = $root.find('link');
+  var $title = $root.find('title');
+  var $trs = $root.find('tbody > tr');
+
+  var baseUrl = $base && $base.attr('href');
+  var name = $title.text();
+
+  if (!name || !name.length) {
+    throw new Error('fromHtml: missing title');
+  }
+
+  var commands = [].slice.call($trs).map(function (tr) {
+    var $el = jquery__WEBPACK_IMPORTED_MODULE_0___default()(tr);
+    var trHtml = $el[0].outerHtml;
+
+    // Note: remove any datalist option in katalon-like html file
+    $el.find('datalist').remove();
+
+    var $children = $el.children();
+    var $cmd = $children.eq(0);
+    var $tgt = $children.eq(1);
+    var $val = $children.eq(2);
+    var cmd = $cmd && $cmd.text();
+    var value = $val && $val.text();
+    var target = $tgt && $tgt.text();
+
+    if (!cmd || !cmd.length) {
+      throw new Error('missing cmd in ' + trHtml);
+    }
+
+    if (cmd === 'open') {
+      // Note: with or without baseUrl
+      target = baseUrl && baseUrl.length && !/:\/\//.test(target) ? joinUrl(baseUrl, target) : target;
+    }
+
+    return { cmd: cmd, target: target, value: value };
+  });
+
+  return { name: name, data: { commands: commands } };
+}
+
+// parse json to test case
+// the current json structure doesn't provide fileName,
+// so must provide a file name as the second parameter
+function fromJSONString(str, fileName) {
+  var opts = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
+
+  if (!fileName || !fileName.length) {
+    throw new Error('fromJSONString: must provide fileName');
+  }
+
+  var name = fileName.replace(/\.json$/i, '');
+  // Note: Exported JSON from older version Kantu (via 'export to json')
+  // has an invisible charactor (char code65279, known as BOM). It breaks JSON parser.
+  // So it's safer to filter it out here
+  var obj = parse_json__WEBPACK_IMPORTED_MODULE_1___default()(str.replace(/^\s*/, ''));
+
+  if (obj.macros) {
+    throw new Error('This is a test suite, not a macro');
+  }
+
+  if (!Array.isArray(obj.Commands)) {
+    throw new Error('\'Commands\' field must be an array');
+  }
+
+  var commands = obj.Commands.map(function (c) {
+    return {
+      cmd: c.Command,
+      target: c.Target,
+      value: c.Value
+    };
+  });
+
+  return _extends({
+    name: name,
+    data: { commands: commands }
+  }, opts.withStatus && obj.status ? { status: obj.status } : {}, opts.withId && obj.id ? { id: obj.id } : {});
+}
+
+// generate json from a test case
+function toJSONString(obj) {
+  var opts = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+
+  var getToday = function getToday() {
+    var d = new Date();
+    return [d.getFullYear(), d.getMonth() + 1, d.getDate()].join('-');
+  };
+  var data = _extends({
+    CreationDate: getToday(),
+    Commands: obj.commands.map(function (c) {
+      return {
+        Command: c.cmd,
+        Target: c.target || '',
+        Value: c.value || ''
+      };
+    })
+  }, opts.withStatus && obj.status ? { status: obj.status } : {}, opts.withId && obj.id ? { id: obj.id } : {});
+
+  return JSON.stringify(data, null, 2);
+}
+
+// generate data uri of json from a test case
+function toJSONDataUri(obj) {
+  return jsonDataUri(toJSONString(obj));
+}
+
+function toBookmarkData(obj) {
+  var name = obj.name,
+      bookmarkTitle = obj.bookmarkTitle;
+
+
+  if (!name) throw new Error('name is required to generate bookmark for macro');
+  if (!bookmarkTitle) throw new Error('bookmarkTitle is required to generate bookmark for macro');
+
+  return {
+    title: bookmarkTitle,
+    url: ('javascript:\n      (function() {\n        try {\n          var evt = new CustomEvent(\'kantuRunMacro\', { detail: { name: \'' + name + '\', from: \'bookmark\', storageMode: \'' + Object(_services_storage__WEBPACK_IMPORTED_MODULE_4__["getStorageManager"])().getCurrentStrategyType() + '\' } });\n          window.dispatchEvent(evt);\n        } catch (e) {\n          alert(\'Kantu Bookmarklet error: \' + e.toString());\n        }\n      })();\n    ').replace(/\n\s*/g, '')
+  };
+}
+
+/***/ }),
+
 /***/ 49:
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony import */ var _filesystem__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(16);
-/* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(3);
-/* harmony import */ var _web_extension__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_web_extension__WEBPACK_IMPORTED_MODULE_1__);
-/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(2);
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+__webpack_require__.r(__webpack_exports__);
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "stringifyTestSuite", function() { return stringifyTestSuite; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "parseTestSuite", function() { return parseTestSuite; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "validateTestSuiteText", function() { return validateTestSuiteText; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "toBookmarkData", function() { return toBookmarkData; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "toHtml", function() { return toHtml; });
+/* harmony import */ var parse_json__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(72);
+/* harmony import */ var parse_json__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(parse_json__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _utils__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(2);
+/* harmony import */ var _services_storage__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(5);
+/* harmony import */ var _services_storage__WEBPACK_IMPORTED_MODULE_2___default = /*#__PURE__*/__webpack_require__.n(_services_storage__WEBPACK_IMPORTED_MODULE_2__);
+var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 
 
 
+var stringifyTestSuite = function stringifyTestSuite(testSuite, testCases) {
+  var opts = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
 
-var readableSize = function readableSize(size) {
-  var kb = 1024;
-  var mb = kb * kb;
+  var obj = _extends({
+    creationDate: Object(_utils__WEBPACK_IMPORTED_MODULE_1__["formatDate"])(new Date()),
+    name: testSuite.name,
+    macros: testSuite.cases.map(function (item) {
+      var loops = parseInt(item.loops, 10);
+      var tcId = item.testCaseId;
+      var tc = testCases.find(function (tc) {
+        return tc.id === tcId;
+      });
+      var tcName = tc.name || '(Macro not found)';
 
-  if (size < kb) {
-    return size + ' byte';
-  }
+      return {
+        macro: tcName,
+        loops: loops
+      };
+    })
+  }, opts.withFold ? { fold: !!testSuite.fold } : {}, opts.withId && testSuite.id ? { id: testSuite.id } : {}, opts.withPlayStatus && testSuite.playStatus ? { playStatus: testSuite.playStatus } : {});
 
-  if (size < mb) {
-    return (size / kb).toFixed(1) + ' KB';
-  }
-
-  return (size / mb).toFixed(1) + ' MB';
+  return JSON.stringify(obj, null, 2);
 };
 
-var FileMan = function () {
-  function FileMan() {
-    var opts = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+var parseTestSuite = function parseTestSuite(text, testCases) {
+  var opts = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
 
-    _classCallCheck(this, FileMan);
+  // Note: Exported JSON from older version Kantu (via 'export to json')
+  // has an invisible charactor (char code65279, known as BOM). It breaks JSON parser.
+  // So it's safer to filter it out here
+  var obj = parse_json__WEBPACK_IMPORTED_MODULE_0___default()(text.replace(/^\s*/, ''));
 
-    var _opts$baseDir = opts.baseDir,
-        baseDir = _opts$baseDir === undefined ? 'share' : _opts$baseDir;
-
-
-    if (!baseDir || baseDir === '/') {
-      throw new Error('Invalid baseDir, ' + baseDir);
-    }
-
-    this.baseDir = baseDir;
-
-    // Note: create the folder in which we will store csv files
-    _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].getDirectory(baseDir, true);
+  if (typeof obj.name !== 'string' || obj.name.length === 0) {
+    throw new Error('name must be a string');
   }
 
-  _createClass(FileMan, [{
-    key: 'checkFileName',
-    value: function checkFileName(fileName) {
-      Object(_utils__WEBPACK_IMPORTED_MODULE_2__["withFileExtension"])(fileName, function (baseName) {
+  if (!Array.isArray(obj.macros)) {
+    throw new Error('macros must be an array');
+  }
+
+  var cases = obj.macros.map(function (item) {
+    var tc = testCases.find(function (tc) {
+      return tc.name === item.macro;
+    });
+
+    if (!tc) {
+      throw new Error('No macro found with name \'' + item.macro + '\'');
+    }
+
+    if (typeof item.loops !== 'number' || item.loops < 1) {
+      item.loops = 1;
+    }
+
+    return {
+      testCaseId: tc.id,
+      loops: item.loops
+    };
+  });
+
+  var ts = _extends({
+    cases: cases,
+    name: obj.name
+  }, opts.withFold ? { fold: obj.fold === undefined ? true : obj.fold } : {}, opts.withId && obj.id ? { id: obj.id } : {}, opts.withPlayStatus && obj.playStatus ? { playStatus: obj.playStatus } : {});
+
+  return ts;
+};
+
+var validateTestSuiteText = parseTestSuite;
+
+var toBookmarkData = function toBookmarkData(obj) {
+  var name = obj.name,
+      bookmarkTitle = obj.bookmarkTitle;
+
+
+  if (!name) throw new Error('name is required to generate bookmark for test suite');
+  if (!bookmarkTitle) throw new Error('bookmarkTitle is required to generate bookmark for test suite');
+
+  return {
+    title: bookmarkTitle,
+    url: ('javascript:\n      (function() {\n        try {\n          var evt = new CustomEvent(\'kantuRunTestSuite\', { detail: { name: \'' + name + '\', from: \'bookmark\', storageMode: \'' + Object(_services_storage__WEBPACK_IMPORTED_MODULE_2__["getStorageManager"])().getCurrentStrategyType() + '\' } });\n          window.dispatchEvent(evt);\n        } catch (e) {\n          alert(\'Kantu Bookmarklet error: \' + e.toString());\n        }\n      })();\n    ').replace(/\n\s*/g, '')
+  };
+};
+
+var toHtml = function toHtml(_ref) {
+  var name = _ref.name;
+
+  return '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">\n<head>\n<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />\n<title>' + name + '</title>\n</head>\n<body>\n<h1>' + name + '</h1>\n<script>\n(function() {\n  try {\n    var evt = new CustomEvent(\'kantuRunTestSuite\', { detail: { name: \'' + name + '\', from: \'html\', storageMode: \'' + Object(_services_storage__WEBPACK_IMPORTED_MODULE_2__["getStorageManager"])().getCurrentStrategyType() + '\' } })  \n    window.dispatchEvent(evt);\n\n    if (window.location.protocol === \'file:\') {\n      var onInvokeSuccess = function () {\n        clearTimeout(timer)\n        window.removeEventListener(\'kantuInvokeSuccess\', onInvokeSuccess)\n      }\n      var timer = setTimeout(function () {\n        alert("Error: It seems you need to enable File Access for Kantu in the extension settings.")\n      }, 2000)\n\n      window.addEventListener(\'kantuInvokeSuccess\', onInvokeSuccess)\n    }\n  } catch (e) {\n    alert(\'Kantu Bookmarklet error: \' + e.toString());\n  }\n})();\n</script>\n</body>\n</html>\n  ';
+};
+
+/***/ }),
+
+/***/ 5:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const EventEmitter = __webpack_require__(120);
+const indexeddb_storage_1 = __webpack_require__(182);
+const browser_filesystem_storage_1 = __webpack_require__(184);
+const native_filesystem_storage_1 = __webpack_require__(187);
+const ts_utils_1 = __webpack_require__(52);
+const xfile_1 = __webpack_require__(27);
+const convert_utils_1 = __webpack_require__(40);
+const convert_suite_utils_1 = __webpack_require__(49);
+const utils_1 = __webpack_require__(2);
+var StorageStrategyType;
+(function (StorageStrategyType) {
+    StorageStrategyType["Browser"] = "browser";
+    StorageStrategyType["XFile"] = "xfile";
+})(StorageStrategyType = exports.StorageStrategyType || (exports.StorageStrategyType = {}));
+var StorageTarget;
+(function (StorageTarget) {
+    StorageTarget[StorageTarget["Macro"] = 0] = "Macro";
+    StorageTarget[StorageTarget["TestSuite"] = 1] = "TestSuite";
+    StorageTarget[StorageTarget["CSV"] = 2] = "CSV";
+    StorageTarget[StorageTarget["Screenshot"] = 3] = "Screenshot";
+    StorageTarget[StorageTarget["Vision"] = 4] = "Vision";
+})(StorageTarget = exports.StorageTarget || (exports.StorageTarget = {}));
+var StorageManagerEvent;
+(function (StorageManagerEvent) {
+    StorageManagerEvent["StrategyTypeChanged"] = "StrategyTypeChanged";
+    StorageManagerEvent["RootDirChanged"] = "RootDirChanged";
+    StorageManagerEvent["ForceReload"] = "ForceReload";
+})(StorageManagerEvent = exports.StorageManagerEvent || (exports.StorageManagerEvent = {}));
+class StorageManager extends EventEmitter {
+    constructor(strategyType, extraOptions) {
+        super();
+        this.strategyType = StorageStrategyType.Browser;
+        this.getMacros = () => [];
+        this.setCurrentStrategyType(strategyType);
+        if (extraOptions) {
+            this.getMacros = extraOptions.getMacros;
+        }
+    }
+    isXFileMode() {
+        return this.strategyType === StorageStrategyType.XFile;
+    }
+    isBrowserMode() {
+        return this.strategyType === StorageStrategyType.Browser;
+    }
+    getCurrentStrategyType() {
+        return this.strategyType;
+    }
+    setCurrentStrategyType(type) {
+        if (type !== this.strategyType) {
+            setTimeout(() => {
+                this.emit(StorageManagerEvent.StrategyTypeChanged, type);
+            }, 0);
+        }
+        this.strategyType = type;
+    }
+    isStrategyTypeAvailable(type) {
+        switch (type) {
+            case StorageStrategyType.Browser:
+                return Promise.resolve(true);
+            case StorageStrategyType.XFile:
+                return xfile_1.getXFile().sanityCheck();
+            default:
+                throw new Error(`type '${type}' is not supported`);
+        }
+    }
+    getStorageForTarget(target, forceStrategytype) {
+        switch (forceStrategytype || this.strategyType) {
+            case StorageStrategyType.Browser: {
+                switch (target) {
+                    case StorageTarget.Macro:
+                        return indexeddb_storage_1.getIndexeddbFlatStorage({
+                            table: 'testCases'
+                        });
+                    case StorageTarget.TestSuite:
+                        return indexeddb_storage_1.getIndexeddbFlatStorage({
+                            table: 'testSuites'
+                        });
+                    case StorageTarget.CSV:
+                        return browser_filesystem_storage_1.getBrowserFileSystemFlatStorage({
+                            baseDir: 'spreadsheets'
+                        });
+                    case StorageTarget.Screenshot:
+                        return browser_filesystem_storage_1.getBrowserFileSystemFlatStorage({
+                            baseDir: 'screenshots'
+                        });
+                    case StorageTarget.Vision:
+                        return browser_filesystem_storage_1.getBrowserFileSystemFlatStorage({
+                            baseDir: 'visions'
+                        });
+                }
+            }
+            case StorageStrategyType.XFile: {
+                const { rootDir } = xfile_1.getXFile().getCachedConfig();
+                switch (target) {
+                    case StorageTarget.Macro: {
+                        const storage = native_filesystem_storage_1.getNativeFileSystemFlatStorage({
+                            rootDir,
+                            baseDir: 'macros',
+                            extensions: ['json'],
+                            decode: (text, fileName) => {
+                                const obj = convert_utils_1.fromJSONString(text, fileName, { withStatus: true, withId: true });
+                                // FIXME: Here is a side effect when decoding
+                                // To keep macro id consistent, have to write new generated id back to storage
+                                if (!obj.id) {
+                                    obj.id = utils_1.uid();
+                                    storage.write(fileName, obj);
+                                }
+                                return obj;
+                            },
+                            encode: (data, fileName) => {
+                                const str = convert_utils_1.toJSONString(Object.assign({}, data, { commands: data.data.commands }), { withStatus: true, withId: true });
+                                // Note: NativeFileSystemStorage only supports writing file with DataURL
+                                // so have to convert it here in `encode`
+                                return utils_1.blobToDataURL(new Blob([str]));
+                            }
+                        });
+                        return storage;
+                    }
+                    case StorageTarget.TestSuite: {
+                        const storage = native_filesystem_storage_1.getNativeFileSystemFlatStorage({
+                            rootDir,
+                            baseDir: 'testsuites',
+                            extensions: ['json'],
+                            decode: (text, fileName) => {
+                                const obj = convert_suite_utils_1.parseTestSuite(text, this.getMacros(), { withFold: true, withId: true, withPlayStatus: true });
+                                // FIXME: Here is a side effect when decoding
+                                // To keep macro id consistent, have to write new generated id back to storage
+                                if (!obj.id) {
+                                    obj.id = utils_1.uid();
+                                    storage.write(fileName, obj);
+                                }
+                                return obj;
+                            },
+                            encode: (suite, fileName) => {
+                                const str = convert_suite_utils_1.stringifyTestSuite(suite, this.getMacros(), { withFold: true, withId: true, withPlayStatus: true });
+                                return utils_1.blobToDataURL(new Blob([str]));
+                            }
+                        });
+                        return storage;
+                    }
+                    case StorageTarget.CSV:
+                        return native_filesystem_storage_1.getNativeFileSystemFlatStorage({
+                            rootDir,
+                            baseDir: 'datasources',
+                            extensions: ['csv'],
+                            shouldKeepExt: true,
+                            encode: (text, fileName) => {
+                                return utils_1.blobToDataURL(new Blob([text]));
+                            }
+                        });
+                    case StorageTarget.Vision:
+                        return native_filesystem_storage_1.getNativeFileSystemFlatStorage({
+                            rootDir,
+                            baseDir: 'images',
+                            extensions: ['png'],
+                            shouldKeepExt: true,
+                            encode: (imageBlob, fileName) => {
+                                return utils_1.blobToDataURL(imageBlob);
+                            }
+                        });
+                    case StorageTarget.Screenshot:
+                        return browser_filesystem_storage_1.getBrowserFileSystemFlatStorage({
+                            baseDir: 'screenshots'
+                        });
+                }
+            }
+            default:
+                throw new Error(`Unsupported strategy type: '${this.strategyType}'`);
+        }
+    }
+    getMacroStorage() {
+        return this.getStorageForTarget(StorageTarget.Macro);
+    }
+    getTestSuiteStorage() {
+        return this.getStorageForTarget(StorageTarget.TestSuite);
+    }
+    getCSVStorage() {
+        return this.getStorageForTarget(StorageTarget.CSV);
+    }
+    getVisionStorage() {
+        return this.getStorageForTarget(StorageTarget.Vision);
+    }
+    getScreenshotStorage() {
+        return this.getStorageForTarget(StorageTarget.Screenshot);
+    }
+}
+exports.StorageManager = StorageManager;
+// Note: in panel window (`src/index.js`), `getStorageManager` is provided with `getMacros` in `extraOptions`
+// While in `bg.js` or `csv_edtior.js`, `vision_editor.js`, `extraOptions` is omitted with no harm,
+// because they don't read/write test suites
+exports.getStorageManager = ts_utils_1.singletonGetter((strategyType, extraOptions) => {
+    return new StorageManager(strategyType || StorageStrategyType.XFile, extraOptions);
+});
+
+
+/***/ }),
+
+/***/ 52:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+function singletonGetter(factoryFn) {
+    let instance = null;
+    return (...args) => {
+        if (instance)
+            return instance;
+        instance = factoryFn(...args);
+        return instance;
+    };
+}
+exports.singletonGetter = singletonGetter;
+function singletonGetterByKey(getKey, factoryFn) {
+    let cache = {};
+    return (...args) => {
+        const key = getKey(...args);
+        if (cache[key])
+            return cache[key];
+        cache[key] = factoryFn(...args);
+        return cache[key];
+    };
+}
+exports.singletonGetterByKey = singletonGetterByKey;
+function capitalInitial(str) {
+    return str.charAt(0).toUpperCase() + str.substr(1);
+}
+exports.capitalInitial = capitalInitial;
+function snakeToCamel(kebabStr) {
+    const list = kebabStr.split('_');
+    return list[0] + list.slice(1).map(capitalInitial).join('');
+}
+exports.snakeToCamel = snakeToCamel;
+
+
+/***/ }),
+
+/***/ 60:
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const EventEmitter = __webpack_require__(120);
+const utils_1 = __webpack_require__(2);
+const debounce = __webpack_require__(143);
+var FlatStorageEvent;
+(function (FlatStorageEvent) {
+    FlatStorageEvent["ListChanged"] = "list_changed";
+    FlatStorageEvent["FilesChanged"] = "files_changed";
+})(FlatStorageEvent = exports.FlatStorageEvent || (exports.FlatStorageEvent = {}));
+class FlatStorage extends EventEmitter {
+    constructor(options = {}) {
+        super();
+        this.encode = (x, fileName) => x;
+        this.decode = (x, fileName) => x;
+        // Q: Why do we need debounce for followingemitXXX?
+        // A: So that there could be more than 1 invocation of emitXXX in one operation
+        //    And it will just emit once. For downstream like React / Vue, it won't trigger
+        //    unnecessary render
+        // Note: list changed event is for move (rename) / remove / clear / write a new file
+        this.emitListChanged = debounce(() => {
+            this.list()
+                .then(fileInfos => {
+                this.emit(FlatStorageEvent.ListChanged, fileInfos);
+            });
+        }, 100);
+        this.changedFileNames = [];
+        this.__emitFilesChanged = debounce(() => {
+            const fileNames = this.changedFileNames;
+            // Note: clear changedFileNames right after this method is called,
+            // instead of waiting till promise resolved
+            // so that new file changes won't be blocked or affect current emit
+            this.changedFileNames = [];
+            return Promise.all(fileNames.map(fileName => {
+                return this.read(fileName, 'Text')
+                    .catch(() => null);
+            }))
+                .then(contents => {
+                if (contents.length === 0)
+                    return;
+                // Note: in case some files don't exist any more, filter by content
+                const changedFiles = contents.map((content, i) => ({
+                    content,
+                    fileName: fileNames[i]
+                }))
+                    .filter(item => !!item.content);
+                this.emit(FlatStorageEvent.FilesChanged, changedFiles);
+            });
+        }, 100);
+        if (options.decode) {
+            this.decode = options.decode;
+        }
+        if (options.encode) {
+            this.encode = options.encode;
+        }
+    }
+    readAll(readFileType = 'Text', onErrorFiles) {
+        return this.list()
+            .then(items => {
+            return Promise.all(items.map(item => {
+                return this.read(item.fileName, readFileType)
+                    .then(content => ({
+                    content,
+                    fileName: item.fileName
+                }));
+            }));
+        });
+    }
+    bulkWrite(list) {
+        return Promise.all(list.map(item => this.write(item.fileName, item.content)))
+            .then(() => { });
+    }
+    write(fileName, content) {
+        return this.exists(fileName)
+            .then(isExist => {
+            const next = () => {
+                if (!isExist)
+                    this.emitListChanged();
+                this.emitFilesChanged([fileName]);
+            };
+            return this.__write(fileName, content)
+                .then(next);
+        });
+    }
+    overwrite(fileName, content) {
+        return this.__overwrite(fileName, content)
+            .then(() => {
+            this.emitFilesChanged([fileName]);
+        });
+    }
+    clear() {
+        return this.__clear()
+            .then(() => {
+            this.emitListChanged();
+        });
+    }
+    remove(fileName) {
+        return this.__remove(fileName)
+            .then(() => {
+            this.emitListChanged();
+        });
+    }
+    rename(fileName, newName) {
+        return this.__rename(fileName, newName)
+            .then(() => {
+            this.emitListChanged();
+            this.emitFilesChanged([newName]);
+        });
+    }
+    // Note: files changed event is for write file only  (rename excluded)
+    emitFilesChanged(fileNames) {
+        this.changedFileNames = fileNames.reduce((prev, fileName) => {
+            if (prev.indexOf(fileName) === -1)
+                prev.push(fileName);
+            return prev;
+        }, this.changedFileNames);
+        this.__emitFilesChanged();
+    }
+}
+exports.FlatStorage = FlatStorage;
+exports.readableSize = (byteSize) => {
+    const kb = 1024;
+    const mb = kb * kb;
+    if (byteSize < kb) {
+        return byteSize + ' byte';
+    }
+    if (byteSize < mb) {
+        return (byteSize / kb).toFixed(1) + ' KB';
+    }
+    return (byteSize / mb).toFixed(1) + ' MB';
+};
+function checkFileName(fileName) {
+    utils_1.withFileExtension(fileName, (baseName) => {
         try {
-          Object(_utils__WEBPACK_IMPORTED_MODULE_2__["validateStandardName"])(baseName, true);
-        } catch (e) {
-          throw new Error('Invalid file name \'' + fileName + '\'. File name ' + e.message);
+            utils_1.validateStandardName(baseName, true);
+        }
+        catch (e) {
+            throw new Error(`Invalid file name '${fileName}'. File name ` + e.message);
         }
         return baseName;
-      });
-    }
-  }, {
-    key: 'getLink',
-    value: function getLink(fileName) {
-      var tmp = _web_extension__WEBPACK_IMPORTED_MODULE_1___default.a.extension.getURL('temporary');
-      return 'filesystem:' + tmp + '/' + this.__filePath(encodeURIComponent(fileName));
-    }
-  }, {
-    key: 'list',
-    value: function list() {
-      var _this = this;
+    });
+}
+exports.checkFileName = checkFileName;
 
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].list(this.baseDir).then(function (fileEntries) {
-        var ps = fileEntries.map(function (fileEntry) {
-          return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].getMetadata(fileEntry).then(function (meta) {
-            return {
-              dir: _this.baseDir,
-              fileName: fileEntry.name,
-              size: readableSize(meta.size),
-              lastModified: meta.modificationTime
-            };
-          });
-        });
-        return Promise.all(ps);
-      });
-    }
-  }, {
-    key: 'exists',
-    value: function exists(fileName) {
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].exists(this.__filePath(fileName), { type: 'file' });
-    }
-  }, {
-    key: 'read',
-    value: function read(fileName) {
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].readFile(this.__filePath(fileName), 'Text');
-    }
-  }, {
-    key: 'write',
-    value: function write(fileName, text) {
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].writeFile(this.__filePath(fileName, true), new Blob([text]));
-    }
 
-    // Note: when you try to write on an existing file with file system api,
-    // it won't clear old content, so we have to do it mannually
+/***/ }),
 
-  }, {
-    key: 'overwrite',
-    value: function overwrite(fileName, text) {
-      var _this2 = this;
+/***/ 68:
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
 
-      return this.remove(fileName).catch(function () {/* Ignore any error */}).then(function () {
-        return _this2.write(fileName, text);
-      });
-    }
-  }, {
-    key: 'clear',
-    value: function clear() {
-      var _this3 = this;
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony import */ var dexie__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(135);
+/* harmony import */ var dexie__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(dexie__WEBPACK_IMPORTED_MODULE_0__);
 
-      return this.list().then(function (list) {
-        var ps = list.map(function (file) {
-          return _this3.remove(file.fileName);
-        });
 
-        return Promise.all(ps);
-      });
-    }
-  }, {
-    key: 'remove',
-    value: function remove(fileName) {
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].removeFile(this.__filePath(fileName));
-    }
-  }, {
-    key: 'rename',
-    value: function rename(fileName, newName) {
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].moveFile(this.__filePath(fileName), this.__filePath(newName, true));
-    }
-  }, {
-    key: 'metadata',
-    value: function metadata(fileName) {
-      return _filesystem__WEBPACK_IMPORTED_MODULE_0__[/* default */ "a"].getMetadata(this.__filePath(fileName));
-    }
-  }, {
-    key: '__filePath',
-    value: function __filePath(fileName, forceCheck) {
-      if (forceCheck) {
-        this.checkFileName(fileName);
-      }
+var db = new dexie__WEBPACK_IMPORTED_MODULE_0___default.a('selenium-ide');
 
-      return this.baseDir + '/' + fileName.toLowerCase();
-    }
-  }]);
+db.version(1).stores({
+  testCases: 'id,name,updateTime'
+});
 
-  return FileMan;
-}();
+db.version(2).stores({
+  testCases: 'id,name,updateTime',
+  testSuites: 'id,name,updateTime'
+});
 
-/* harmony default export */ __webpack_exports__["a"] = (FileMan);
+db.open();
+
+/* harmony default export */ __webpack_exports__["default"] = (db);
+
+/***/ }),
+
+/***/ 87:
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony import */ var _node_modules_path__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(98);
+/* harmony import */ var _node_modules_path__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_node_modules_path__WEBPACK_IMPORTED_MODULE_0__);
+
+
+var isWindows = /windows/i.test(window.navigator.userAgent);
+var path = isWindows ? _node_modules_path__WEBPACK_IMPORTED_MODULE_0__["win32"] : _node_modules_path__WEBPACK_IMPORTED_MODULE_0__["posix"];
+
+/* harmony default export */ __webpack_exports__["default"] = (path);
 
 /***/ })
 

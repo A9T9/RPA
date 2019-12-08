@@ -37,6 +37,17 @@ const viewportOffset = (el) => {
   }
 }
 
+const getIframeOffset = () => {
+  if (window === window.top) {
+    return Promise.resolve({ x: 0, y: 0 })
+  }
+
+  return postMessage(window.parent, window, {
+    action: 'SOURCE_PAGE_OFFSET',
+    data: {}
+  })
+}
+
 const untilInjected = () => {
   const api = {
     eval: (code) => {
@@ -102,6 +113,44 @@ const elementByElementFromPoint = (str) => {
   const el      = document.elementFromPoint(x, y)
 
   return el
+}
+
+export const assertLocator = (str) => {
+  const i = str.indexOf('=')
+
+  // xpath
+  if ((/^\//.test(str)))  return true
+  // efp
+  if (/^#elementfrompoint/i.test(str)) return true
+  // Above is all locators that doesn't require '='
+  if (i === -1) throw new Error('invalid locator, ' + str)
+
+  const method  = str.substr(0, i)
+  const value   = str.substr(i + 1)
+
+  if (!value || !value.length) throw new Error('invalid locator, ' + str)
+
+  switch (method && method.toLowerCase()) {
+    case 'id':
+    case 'name':
+    case 'identifier':
+    case 'link':
+    case 'css':
+    case 'xpath':
+      return true
+
+    default:
+      throw new Error('invalid locator, ' + str)
+  }
+}
+
+export const isLocator = (str) => {
+  try {
+    assertLocator(str)
+    return true
+  } catch (e) {
+    return false
+  }
 }
 
 // Note: parse the locator and return the element found accordingly
@@ -326,6 +375,33 @@ export const run = (command, csIpc, helpers) => {
       })
     }
 
+    // Note: 'locate' command is only for internal use
+    case 'locate': {
+      return __getElementByLocator(target)
+      .then(el => {
+        try {
+          if (extra.playScrollElementsIntoView) el.scrollIntoView({ block: 'center' })
+          if (extra.playHighlightElements)      helpers.highlightDom(el, HIGHLIGHT_TIMEOUT)
+        } catch (e) {
+          log.error('error in scroll and highlight', e.message)
+        }
+
+        const vpOffset = viewportOffset(el)
+
+        return getIframeOffset()
+        .then(windowOffset => {
+          return {
+            rect: {
+              x:      vpOffset.left + windowOffset.x,
+              y:      vpOffset.top + windowOffset.y,
+              width:  el.offsetWidth,
+              height: el.offsetHeight
+            }
+          }
+        })
+      })
+    }
+
     case 'dragAndDropToObject': {
       return Promise.all([
         __getElementByLocator(target),
@@ -343,16 +419,6 @@ export const run = (command, csIpc, helpers) => {
     }
 
     case 'clickAt': {
-      const getIframeOffset = () => {
-        if (window === window.top) {
-          return Promise.resolve({ x: 0, y: 0 })
-        }
-
-        return postMessage(window.parent, window, {
-          action: 'SOURCE_PAGE_OFFSET',
-          data: {}
-        })
-      }
       const isEfp   = isElementFromPoint(target)
       const pTarget = (function () {
         if (!isEfp) return Promise.resolve(target)

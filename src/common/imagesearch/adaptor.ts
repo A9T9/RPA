@@ -104,7 +104,11 @@ export function searchImage (req: SearchImageRequest): Promise<Array<teamdocs.Fi
       const { containsGreenPinkBoxes, errorCode, regions } = result
 
       return regions.map(r => ({
+        offsetLeft: r.matchedRect.left / req.scaleDownRatio,
+        offsetTop:  r.matchedRect.top / req.scaleDownRatio,
+        // Page Left
         left:   r.matchedRect.left / req.scaleDownRatio + req.offsetX,
+        // Page Top
         top:    r.matchedRect.top / req.scaleDownRatio + req.offsetY,
         width:  r.matchedRect.width / req.scaleDownRatio,
         height: r.matchedRect.height / req.scaleDownRatio,

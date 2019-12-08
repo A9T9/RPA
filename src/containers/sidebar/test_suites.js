@@ -24,14 +24,16 @@ const downloadTestSuite = (ts, testCases) => {
   }, testCases)
   const blob = new Blob([str], { type: 'text/plain;charset=utf-8' })
 
-  FileSaver.saveAs(blob, `suite_${ts.name}.json`)
+  // Note: must add third param as true here to remove BOM for UTF8 files
+  // reference: https://github.com/eligrey/FileSaver.js/issues/432
+  FileSaver.saveAs(blob, `suite_${ts.name}.json`, true)
 }
 
 const downloadTestSuiteAsHTML = (ts) => {
   const str = toHtml({ name: ts.name })
   const blob = new Blob([str], { type: 'text/plain;charset=utf-8' })
 
-  FileSaver.saveAs(blob, `${ts.name}.html`)
+  FileSaver.saveAs(blob, `${ts.name}.html`, true)
 }
 
 class SidebarTestSuites extends React.Component {
@@ -533,6 +535,11 @@ class SidebarTestSuites extends React.Component {
             style={{ margin: '10px', paddingRight: '30px' }}
           />
         ) : null}
+
+        {this.props.testSuites.length === 0 ? (
+          <div className="no-data">No test suite</div>
+        ) : null}
+
         <ul className="sidebar-test-suites">
           {this.props.testSuites.map((ts, tsIndex) => (
             <li

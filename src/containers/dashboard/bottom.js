@@ -12,8 +12,7 @@ import log from '../../common/log'
 import FileSaver from '../../common/lib/file_saver'
 import { getVarsInstance, createVarsFilter } from '../../common/variables'
 import { cn, setIn, dataURItoBlob, uniqueName, ensureExtName, sanitizeFileName } from '../../common/utils'
-import { getCSVMan } from '../../common/csv_man'
-import { getVisionMan } from '../../common/vision_man'
+import { getStorageManager } from '../../services/storage'
 import { renderLogType } from '../../common/macro_log'
 import * as actions from '../../actions'
 import * as C from '../../common/constant'
@@ -83,8 +82,8 @@ class DashboardBottom extends React.Component {
   }
 
   onFileChange = (e) => {
-    const csvMan  = getCSVMan()
-    const files   = [].slice.call(e.target.files)
+    const csvStorage  = getStorageManager().getCSVStorage()
+    const files       = [].slice.call(e.target.files)
     if (!files || !files.length)  return
 
     const read = (file) => {
@@ -106,7 +105,7 @@ class DashboardBottom extends React.Component {
     Promise.all(files.map(read))
     .then(list => {
       const names = list.map(item => item.fileName)
-      const ps    = list.map(fileItem => csvMan.write(sanitizeFileName(fileItem.fileName), fileItem.text))
+      const ps    = list.map(fileItem => csvStorage.write(sanitizeFileName(fileItem.fileName), new Blob([fileItem.text])))
 
       return Promise.all(ps).then(() => this.props.listCSV())
       .then(() => {
@@ -120,9 +119,9 @@ class DashboardBottom extends React.Component {
   }
 
   removeCSV = (csv) => {
-    const csvMan  = getCSVMan()
+    const csvStorage  = getStorageManager().getCSVStorage()
 
-    csvMan.remove(csv.name)
+    csvStorage.remove(csv.name)
     .then(() => this.props.listCSV())
     .then(() => {
       message.success(`successfully deleted`)
@@ -159,11 +158,16 @@ class DashboardBottom extends React.Component {
     const storeImage = ({ dataUrl, name }) => {
       return uniqueName(name, {
         check: (name) => {
-          return getVisionMan().exists(name).then(result => !result)
+          return getStorageManager()
+          .getVisionStorage()
+          .exists(name)
+          .then(result => !result)
         }
       })
       .then(fileName => {
-        return getVisionMan().write(sanitizeFileName(fileName), dataURItoBlob(dataUrl))
+        return getStorageManager()
+        .getVisionStorage()
+        .write(sanitizeFileName(fileName), dataURItoBlob(dataUrl))
         .then(() => fileName)
       })
       .catch(e => {
@@ -197,7 +201,7 @@ class DashboardBottom extends React.Component {
   addVisionNameToTargetBox = (fileName) => {
     const { selectedCommand } = this.props
 
-    if (!selectedCommand || ['visionFind', 'visualSearch'].indexOf(selectedCommand.cmd) === -1) {
+    if (!selectedCommand || ['visionFind', 'visualSearch', 'XClick', 'XMove'].indexOf(selectedCommand.cmd) === -1) {
       return message.error(`Image names can only be added to the target box if a 'visualSearch' command is selected`)
     }
 
@@ -206,16 +210,16 @@ class DashboardBottom extends React.Component {
 
   exportAllVisions = () => {
     const zip = new JSZip()
-    const man = getVisionMan()
+    const visionStorage = getStorageManager().getVisionStorage()
 
-    man.list()
+    visionStorage.list()
     .then(visions => {
       if (visions.length === 0) {
         return message.error('No vision to export')
       }
 
       const ps = visions.map(ss => {
-        return man.read(ss.fileName)
+        return visionStorage.read(ss.fileName, 'ArrayBuffer')
         .then(buffer => {
           zip.file(ss.fileName, buffer, { binary: true })
         })
@@ -273,6 +277,30 @@ class DashboardBottom extends React.Component {
     }
   }
 
+  prefixHardDisk (str) {
+    const isXFileMode = getStorageManager().isXFileMode()
+    if (!isXFileMode) return str
+
+    return (
+      <div
+        style={{
+          display: 'inline-block'
+        }}
+      >
+        <img
+          src="./img/hard-drive.svg"
+          style={{
+            position: 'relative',
+            top: '3px',
+            marginRight: '5px',
+            height: '15px'
+          }}
+        />
+        <span>{ str }</span>
+      </div>
+    )
+  }
+
   renderCSVModal () {
     return (
       <Modal
@@ -293,7 +321,6 @@ class DashboardBottom extends React.Component {
   }
 
   renderCSVTable () {
-    const csvMan  = getCSVMan()
     const columns = [
       { title: 'Name',            dataIndex: 'name',      key: 'name' },
       { title: 'Size',            dataIndex: 'size',      key: 'size' },
@@ -402,7 +429,9 @@ class DashboardBottom extends React.Component {
               <EditInPlace
                 value={vision.name}
                 onChange={name => {
-                  getVisionMan().rename(vision.name, ensureExtName('.png', name))
+                  getStorageManager()
+                  .getVisionStorage()
+                  .rename(vision.name, ensureExtName('.png', name))
                   .then(() => {
                     message.success('Successfully renamed')
                     this.props.listVisions()
@@ -412,7 +441,9 @@ class DashboardBottom extends React.Component {
                   })
                 }}
                 checkValue={name => {
-                  return getVisionMan().exists(name)
+                  return getStorageManager()
+                  .getVisionStorage()
+                  .exists(name)
                   .then(result => {
                     if (result) {
                       message.error(`'${name}' alreadsy exists`)
@@ -467,7 +498,9 @@ class DashboardBottom extends React.Component {
                 okText="Delete"
                 title="Delete image"
                 onConfirm={() => {
-                  getVisionMan().remove(vision.name)
+                  getStorageManager()
+                  .getVisionStorage()
+                  .remove(vision.name)
                   .then(() => {
                     message.success('Successfully deleted')
                     this.props.listVisions()
@@ -632,12 +665,12 @@ class DashboardBottom extends React.Component {
               ))}
             </ul>
           </Tabs.TabPane>
-          <Tabs.TabPane tab="CSV" key="CSV">
+          <Tabs.TabPane tab={this.prefixHardDisk('CSV')} key="CSV">
             <div className="csv-content">
               {this.renderCSVTable()}
             </div>
           </Tabs.TabPane>
-          <Tabs.TabPane tab="👁 Visual" key="Vision">
+          <Tabs.TabPane tab={this.prefixHardDisk('👁Visual')} key="Vision">
             <div className="vision-content">
               <div className="vision-top-actions">
                 <div className="main-actions">

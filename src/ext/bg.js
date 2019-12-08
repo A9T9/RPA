@@ -1,6 +1,6 @@
 import Ext from '../common/web_extension'
 import {
-  until, delay, setIn, pick, splitIntoTwo, retry, uid,
+  until, delay, setIn, pick, splitIntoTwo, retry, uid, and,
   randomName, dataURItoBlob, getScreenDpi, dpiFromFileName, ensureExtName
 } from '../common/utils'
 import { bgInit } from '../common/ipc/ipc_bg_cs'
@@ -15,9 +15,9 @@ import storage from '../common/storage'
 import { setFileInputFiles } from '../common/debugger'
 import { getDownloadMan } from '../common/download_man'
 import config from '../config'
-import { getScreenshotMan } from '../common/screenshot_man'
 import { searchImage } from '../common/imagesearch/adaptor.ts'
-import { getVisionMan } from '../common/vision_man';
+import { getStorageManager, StorageStrategyType } from '../services/storage'
+import { getXFile } from '../services/xmodules/xfile'
 import { resizeViewportOfTab } from '../common/resize_window'
 import { getIpcCache } from '../common/ipc/ipc_cache'
 
@@ -41,7 +41,8 @@ const state = {
   },
   pullback: false,
   // Note: heartBeatSecret = -1, means no heart beat available, and panel should not retry on heart beat lost
-  heartBeatSecret: 0
+  heartBeatSecret: 0,
+  xClickNeedCalibrationInfo: null
 }
 
 const updateHeartBeatSecret = ({ disabled = false } = {}) => {
@@ -373,6 +374,26 @@ const isTabActiveAndFocused = (tabId) => {
   .catch(e => false)
 }
 
+const getCurrentStorageManager = () => {
+  const restoreConfig = () => {
+    return storage.get('config')
+    .then((config = {}) => {
+      return {
+        storageMode: StorageStrategyType.Browser,
+        ...config
+      }
+    })
+  }
+
+  return Promise.all([
+    restoreConfig(),
+    getXFile().getConfig()
+  ])
+  .then(([config, xFileConfig]) => {
+    return getStorageManager(config.storageMode)
+  })
+}
+
 const bindEvents = () => {
   Ext.browserAction.onClicked.addListener(() => {
     isUpgradeViewed()
@@ -658,6 +679,7 @@ const onRequest = (cmd, args) => {
     case 'PANEL_START_PLAYING': {
       log('start to play...')
       state.status = C.APP_STATUS.PLAYER
+      state.xClickNeedCalibrationInfo = null
 
       togglePlayingBadge(true)
       // Note: reset download manager to clear any previous downloads
@@ -1190,23 +1212,34 @@ const onRequest = (cmd, args) => {
       const patternDpi      = dpiFromFileName(visionFileName) || 96
       const screenDpi       = getScreenDpi()
       const dpiScale        = patternDpi / screenDpi
-      const man             = getVisionMan()
+      const pStorageMan     = getCurrentStorageManager()
       const getPatternImage = (fileName) => {
-        return man.exists(fileName)
-        .then(existed => {
-          if (!existed) throw new Error(`${command}: No input image found for file name '${fileName}'`)
-          return man.readAsDataURL(fileName)
+        return pStorageMan.then(storageMan => {
+          const visionStorage = storageMan.getVisionStorage()
+
+          return visionStorage.exists(fileName)
+          .then(existed => {
+            if (!existed) throw new Error(`${command}: No input image found for file name '${fileName}'`)
+            return visionStorage.read(fileName, 'DataURL')
+          })
+          .then(dataUrl => {
+            return dataUrl.substr(0, 5) !== 'data:' ? ('data:image/png;base64,' + dataUrl) : dataUrl
+          })
         })
       }
       const saveDataUrlToLastScreenshot = (dataUrl) => {
-        return getScreenshotMan().overwrite(
-          ensureExtName('.png', C.LAST_SCREENSHOT_FILE_NAME),
-          dataURItoBlob(dataUrl)
-        )
-        .then(() => {
-          getPanelTabIpc()
-          .then(panelIpc => {
-            return panelIpc.ask('RESTORE_SCREENSHOTS')
+        return pStorageMan.then(storageMan => {
+          return storageMan
+          .getScreenshotStorage()
+          .overwrite(
+            ensureExtName('.png', C.LAST_SCREENSHOT_FILE_NAME),
+            dataURItoBlob(dataUrl)
+          )
+          .then(() => {
+            getPanelTabIpc()
+            .then(panelIpc => {
+              return panelIpc.ask('RESTORE_SCREENSHOTS')
+            })
           })
         })
       }
@@ -1254,17 +1287,21 @@ const onRequest = (cmd, args) => {
                   throw new Error('!storedImageRect should not be empty')
                 }
 
-                const man = getScreenshotMan()
                 const fileName = ensureExtName('.png', C.LAST_SCREENSHOT_FILE_NAME)
 
-                return man.readAsDataURL(fileName)
-                .then(dataUrl => ({
-                  dataUrl,
-                  offset: {
-                    x: storedImageRect.x,
-                    y: storedImageRect.y
-                  }
-                }))
+                return getCurrentStorageManager()
+                .then(storageManager => {
+                  return storageManager
+                  .getScreenshotStorage()
+                  .read(fileName, 'DataURL')
+                  .then(dataUrl => ({
+                    dataUrl,
+                    offset: {
+                      x: storedImageRect.x,
+                      y: storedImageRect.y
+                    }
+                  }))
+                })
               }
 
               throw new Error(`Unsupported searchArea '${searchArea}'`)
@@ -1325,6 +1362,46 @@ const onRequest = (cmd, args) => {
       return true
     }
 
+    case 'PANEL_TOGGLE_HIGHLIGHT_VIEWPORT': {
+      return getPlayTabIpc()
+      .then(ipc => ipc.ask('TOGGLE_HIGHLIGHT_VIEWPORT', args))
+    }
+
+    case 'PANEL_XCLICK_NEED_CALIBRATION': {
+      const last = state.xClickNeedCalibrationInfo
+      const getWindowInfo = (win, tabId) => ({
+        id:           win.id,
+        top:          win.top,
+        left:         win.left,
+        width:        win.width,
+        height:       win.height,
+        activeTabId:  tabId
+      })
+      const isWindowInfoEqual = (a, b) => {
+        return and(
+          ...'id, top, left, width, height, activeTabId'.split(/,\s*/g).map(key => a[key] === b[key])
+        )
+      }
+      // Note: we take every request as it will do calibration
+      // and next request should get `false` (no need for more calibration, unless there are window change or window resize)
+      return getPlayTab()
+      .then(tab => {
+        if (!tab) throw new Error('no play tab found for calibration')
+
+        return Ext.windows.get(tab.windowId)
+        .then(win => {
+          const winInfo = getWindowInfo(win, tab.id)
+
+          log('CALIBRATION NEED???', last, winInfo)
+
+          // Note: cache last value
+          state.xClickNeedCalibrationInfo = winInfo
+
+          return !isWindowInfoEqual(winInfo, last || {})
+        })
+      })
+    }
+
     case 'CS_STORE_SCREENSHOT_IN_SELECTION': {
       const { rect, devicePixelRatio, fileName } = args
       const tabId = args.sender.tab.id
@@ -1345,16 +1422,19 @@ const onRequest = (cmd, args) => {
           }
         }))
         .then(dataUrl => {
-          const man = getScreenshotMan()
+          return getCurrentStorageManager()
+          .then(storageManager => {
+            return storageManager
+            .getScreenshotStorage()
+            .overwrite(fileName, dataURItoBlob(dataUrl))
+            .then(() => {
+              getPanelTabIpc()
+              .then(panelIpc => {
+                return panelIpc.ask('RESTORE_SCREENSHOTS')
+              })
 
-          return man.overwrite(fileName, dataURItoBlob(dataUrl))
-          .then(() => {
-            getPanelTabIpc()
-            .then(panelIpc => {
-              return panelIpc.ask('RESTORE_SCREENSHOTS')
+              return fileName
             })
-
-            return fileName
           })
         })
       })

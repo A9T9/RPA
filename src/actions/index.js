@@ -1,17 +1,20 @@
+/* global PREINSTALL_CSV_LIST PREINSTALL_VISION_LIST */
+
 import { message } from 'antd'
 import { type3, types as T } from './action_types'
-import { pick, until, on, map, compose, uid } from '../common/utils'
+import { pick, until, on, map, compose, uid, delay, loadCsv, loadImage } from '../common/utils'
 import csIpc from '../common/ipc/ipc_cs'
 import storage from '../common/storage'
-import testCaseModel, { normalizeCommand } from '../models/test_case_model'
-import testSuiteModel from '../models/test_suite_model'
+import { getStorageManager, StorageTarget, StorageStrategyType } from '../services/storage'
+import { normalizeCommand } from '../models/test_case_model'
 import { getPlayer } from '../common/player'
-import { getCSVMan } from '../common/csv_man'
-import { getScreenshotMan } from '../common/screenshot_man'
-import { getVisionMan } from '../common/vision_man'
 import backup from '../common/backup'
 import log from '../common/log'
 import { fromJSONString } from '../common/convert_utils'
+import { parseTestSuite } from '../common/convert_suite_utils'
+import config from '../config'
+import preTcs from '../config/preinstall_macros'
+import preTss from '../config/preinstall_suites'
 
 let recordedCount = 0
 
@@ -278,7 +281,9 @@ export function saveEditingAsExisted () {
     // Make sure, only 'cmd', 'value', 'target' are saved in storage
     data.commands = data.commands.map(normalizeCommand)
 
-    return testCaseModel.update(src.id, {...tc, data})
+    return getStorageManager()
+    .getMacroStorage()
+    .write(tc.name, { ...tc, data })
     .then(() => {
       dispatch({
         type: T.SAVE_EDITING_AS_EXISTED,
@@ -300,8 +305,12 @@ export function saveEditingAsNew (name) {
       return Promise.reject(new Error('The macro name already exists!'))
     }
 
-    return testCaseModel.insert({name, data})
-    .then(id => {
+    const id = uid()
+
+    return getStorageManager()
+    .getMacroStorage()
+    .write(name, { name, data, id })
+    .then(() => {
       dispatch({
         type: T.SAVE_EDITING_AS_NEW,
         data: {
@@ -327,6 +336,30 @@ export function setTestCases (tcs) {
       if (shouldSelectDefault) {
         dispatch(editTestCase(state.editor.testCases[0].id))
       }
+    }
+  }
+}
+
+export function resetEditing () {
+  return (dispatch, getState) => {
+    const state = getState()
+    const { editing, testCases } = state.editor
+
+    // Leave it if it's a new macro
+    if (editing.meta && !editing.meta.src)  return
+    if (testCases.length === 0) {
+      dispatch(editNewTestCase())
+    } else {
+      const tcs = testCases.slice()
+      tcs.sort((a, b) => {
+        const nameA = a.name.toLowerCase()
+        const nameB = b.name.toLowerCase()
+
+        if (nameA < nameB) return -1
+        if (nameA === nameB)  return 0
+        return 1
+      })
+      dispatch(editTestCase(tcs[0].id))
     }
   }
 }
@@ -358,20 +391,24 @@ export function upsertTestCase (tc) {
   return (dispatch, getState) => {
     const state     = getState()
     const testCases = state.editor.testCases
-    const existedTc = testCases.find(item => item.name === tc.name)
 
     log('upsertTestCase', tc)
-    if (!existedTc) return testCaseModel.insert(tc)
-    return testCaseModel.update(existedTc.id, tc)
+
+    return getStorageManager()
+    .getMacroStorage()
+    .write(tc.name, {
+      id: uid(),
+      ...tc
+    })
   }
 }
 
-export function addTestCases (tcs) {
+export function addTestCases (tcs, overwrite = false, storageStrategyType = null) {
   return (dispatch, getState) => {
     const state     = getState()
     const testCases = state.editor.testCases
-    const validTcs  = tcs.filter(tc => !testCases.find(tcc => tcc.name === tc.name))
-    const failTcs   = tcs.filter(tc => testCases.find(tcc => tcc.name === tc.name))
+    const validTcs  = overwrite ? tcs : tcs.filter(tc => !testCases.find(tcc => tcc.name === tc.name))
+    const failTcs   = overwrite ? [] : tcs.filter(tc => testCases.find(tcc => tcc.name === tc.name))
 
     const passCount = validTcs.length
     const failCount = tcs.length - passCount
@@ -380,7 +417,18 @@ export function addTestCases (tcs) {
       return Promise.resolve({ passCount, failCount, failTcs })
     }
 
-    return testCaseModel.bulkInsert(validTcs)
+    return getStorageManager()
+    .getStorageForTarget(StorageTarget.Macro, storageStrategyType || getStorageManager().getCurrentStrategyType())
+    .bulkWrite(
+      validTcs.map(tc => ({
+        fileName: tc.name,
+        content: {
+          ...tc,
+          id: uid(),
+          udpateTime: new Date() * 1
+        }
+      }))
+    )
     .then(() => ({ passCount, failCount, failTcs }))
   }
 }
@@ -400,7 +448,9 @@ export function renameTestCase (name, tcId) {
       return Promise.reject(new Error('The macro name already exists!'))
     }
 
-    return testCaseModel.update(tcId, {...tc, name})
+    return getStorageManager()
+    .getMacroStorage()
+    .rename(tc.name, name)
     .then(() => {
       if (editingId === tcId) {
         dispatch({
@@ -416,6 +466,7 @@ export function renameTestCase (name, tcId) {
 export function removeTestCase (tcId) {
   return (dispatch, getState) => {
     const state = getState()
+    const tc    = state.editor.testCases.find(tc => tc.id === tcId)
     const curId = state.editor.editing.meta.src.id
     const tss   = state.editor.testSuites.filter(ts => {
       return ts.cases.find(m => m.testCaseId === tcId)
@@ -425,17 +476,19 @@ export function removeTestCase (tcId) {
       return Promise.reject(new Error(`Can't delete this macro for now, it's currently used in following test suites: ${tss.map(item => item.name)}`))
     }
 
-    return testCaseModel.remove(tcId)
-      .then(() => {
-        dispatch({
-          type: T.REMOVE_TEST_CASE,
-          data: {
-            isCurrent: curId === tcId
-          },
-          post: saveEditing
-        })
+    return getStorageManager()
+    .getMacroStorage()
+    .remove(tc.name)
+    .then(() => {
+      dispatch({
+        type: T.REMOVE_TEST_CASE,
+        data: {
+          isCurrent: curId === tcId
+        },
+        post: saveEditing
       })
-      .catch(e => log.error(e.stack))
+    })
+    .catch(e => log.error(e.stack))
   }
 }
 
@@ -463,7 +516,13 @@ export function duplicateTestCase (newTestCaseName, tcId) {
       return Promise.reject(new Error('The macro name already exists!'))
     }
 
-    return testCaseModel.insert({ ...tc, name: newTestCaseName })
+    return getStorageManager()
+    .getMacroStorage()
+    .write(newTestCaseName, {
+      ...tc,
+      id: uid(),
+      name: newTestCaseName
+    })
   }
 }
 
@@ -530,7 +589,7 @@ export function clearScreenshots () {
     type: T.CLEAR_SCREENSHOTS,
     data: null,
     post: () => {
-      return getScreenshotMan().clear()
+      return getStorageManager().getScreenshotStorage().clear()
     }
   }
 }
@@ -550,7 +609,9 @@ export function clearVisions () {
     type: T.CLEAR_VISIONS,
     data: null,
     post: () => {
-      return getVisionMan().clear()
+      return getStorageManager()
+      .getVisionStorage()
+      .clear()
     }
   }
 }
@@ -568,7 +629,9 @@ export function updateTestCasePlayStatus (id, status) {
     const state = getState()
     const tc    = state.editor.testCases.find(tc => tc.id === id)
 
-    return testCaseModel.update(id, {...tc, status})
+    return getStorageManager()
+    .getMacroStorage()
+    .write(tc.name, { ...tc, status })
     .then(() => {
       dispatch({
         type: T.UPDATE_TEST_CASE_STATUS,
@@ -622,11 +685,12 @@ export function playerPlay (options) {
 
 export function listCSV () {
   return (dispatch, getState) => {
-    const man = getCSVMan()
+    const csvStorage = getStorageManager().getCSVStorage()
 
-    man.list().then(list => {
+    csvStorage.list()
+    .then(list => {
       return Promise.all(list.map(item => {
-        return man.getLink(item.fileName)
+        return csvStorage.getLink(item.fileName)
         .then(url => ({
           url,
           name:       item.fileName,
@@ -646,10 +710,12 @@ export function listCSV () {
 
 export function listScreenshots () {
   return (dispatch, getState) => {
-    const man = getScreenshotMan()
+    const man = getStorageManager().getScreenshotStorage()
 
     man.list().then(list => {
       list.reverse()
+
+      log('listScreenshots', list)
 
       return Promise.all(list.map(item => {
         return man.getLink(item.fileName)
@@ -670,13 +736,14 @@ export function listScreenshots () {
 
 export function listVisions () {
   return (dispatch, getState) => {
-    const man = getVisionMan()
+    const visionStorage = getStorageManager().getVisionStorage()
 
-    man.list().then(list => {
+    visionStorage.list().then(list => {
       list.reverse()
+      log('listVisions', list)
 
       return Promise.all(list.map(item => {
-        return man.getLink(item.fileName)
+        return visionStorage.getLink(item.fileName)
         .then(url => ({
           url,
           name:       item.fileName,
@@ -701,11 +768,17 @@ export function setTestSuites (tss) {
 
 export function addTestSuite (ts) {
   return (dispatch, getState) => {
-    return testSuiteModel.insert(ts)
+    return getStorageManager()
+    .getTestSuiteStorage()
+    .write(ts.name, {
+      ...ts,
+      id: uid(),
+      updateTime: new Date() * 1
+    })
   }
 }
 
-export function addTestSuites (tss) {
+export function addTestSuites (tss, storageStrategyType = null) {
   return (dispatch, getState) => {
     const state     = getState()
     // const testCases = state.editor.testCases
@@ -719,7 +792,18 @@ export function addTestSuites (tss) {
       return Promise.resolve({ passCount, failCount, failTss: [] })
     }
 
-    return testSuiteModel.bulkInsert(validTss)
+    return getStorageManager()
+    .getStorageForTarget(StorageTarget.TestSuite, storageStrategyType || getStorageManager().getCurrentStrategyType())
+    .bulkWrite(
+      validTss.map(ts => ({
+        fileName: ts.name,
+        content: {
+          ...ts,
+          id: uid(),
+          updateTime: new Date() * 1
+        }
+      }))
+    )
     .then(() => ({ passCount, failCount, failTss: [] }))
   }
 }
@@ -729,9 +813,10 @@ export function updateTestSuite (id, data) {
     const state = getState()
     const ts    = state.editor.testSuites.find(ts => ts.id === id)
 
-    const revised = {
+    const realData  = typeof data === 'function' ? data(ts) : data
+    const revised   = {
       ...ts,
-      ...(typeof data === 'function' ? data(ts) : data)
+      ...realData
     }
 
     dispatch({
@@ -742,13 +827,26 @@ export function updateTestSuite (id, data) {
       }
     })
 
-    return testSuiteModel.update(id, revised)
+    const suiteStorage  = getStorageManager().getTestSuiteStorage()
+    const pRename       = realData.name && ts.name !== realData.name
+                            ? suiteStorage.rename(ts.name, realData.name)
+                            : Promise.resolve()
+    const suiteName     = realData.name && ts.name !== realData.name ? realData.name : ts.name
+
+    return pRename.then(() => suiteStorage.write(suiteName, revised))
   }
 }
 
 export function removeTestSuite (id) {
   return (dispatch, getState) => {
-    return testSuiteModel.remove(id)
+    const state = getState()
+    const ts = state.editor.testSuites.find(ts => ts.id === id)
+
+    if (!ts) throw new Error(`can't find test suite with id '${id}'`)
+
+    return getStorageManager()
+    .getTestSuiteStorage()
+    .remove(ts.name)
   }
 }
 
@@ -770,10 +868,12 @@ export function runBackup () {
       autoBackupVisionImages
     } = config
 
+    const sm = getStorageManager()
+
     return Promise.all([
-      getCSVMan().list(),
-      getScreenshotMan().list(),
-      getVisionMan().list()
+      sm.getCSVStorage().list(),
+      sm.getScreenshotStorage().list(),
+      sm.getVisionStorage().list()
     ])
     .then(([csvs, screenshots, visions]) => {
       return backup({
@@ -835,5 +935,109 @@ export function setEditorActiveTab (tab) {
   return {
     type: T.SET_EDITOR_ACTIVE_TAB,
     data: tab
+  }
+}
+
+export function preinstall (yesInstall = true) {
+  return (dispatch, getState) => {
+    const markThisVersion = () => {
+      return storage.get('preinstall_info')
+      .then((info = {}) => {
+        const prevVersions = info.askedVersions || []
+        const thisVersion  = config.preinstallVersion
+        const hasThisOne   = prevVersions.indexOf(thisVersion) !== -1
+
+        if (hasThisOne) return true
+
+        return storage.set('preinstall_info', {
+          ...info,
+          askedVersions: [...prevVersions, thisVersion]
+        })
+      })
+    }
+
+    if (!yesInstall)  return markThisVersion()
+
+    log('PREINSTALL_CSV_LIST', PREINSTALL_CSV_LIST)
+    log('PREINSTALL_VISION_LIST', PREINSTALL_VISION_LIST)
+
+    const installMacrosAndSuites = () => {
+      if (!preTcs || !Object.keys(preTcs).length)  return Promise.resolve()
+
+      const tcs = Object.keys(preTcs).map(key => {
+        const str = JSON.stringify(preTcs[key])
+        return fromJSONString(str, key)
+      })
+
+      dispatch(addTestCases(tcs, true, StorageStrategyType.Browser))
+
+      // Note: test cases need to be save to indexed db before it reflects in store
+      // so it may take some time before we can preinstall test suites
+      return delay(() => {
+        const state = getState()
+
+        const tss   = preTss.map(ts => {
+          return parseTestSuite(JSON.stringify(ts), state.editor.testCases)
+        })
+        dispatch(addTestSuites(tss, StorageStrategyType.Browser))
+      }, 1000)
+    }
+
+    // Preinstall csv
+    const installCsvs = () => {
+      const list = PREINSTALL_CSV_LIST
+      if (list.length === 0)  return Promise.resolve()
+
+      // Note: preinstalled resources all go into browser mode
+      const csvStorage  = getStorageManager().getStorageForTarget(StorageTarget.CSV, StorageStrategyType.Browser)
+      const ps          = list.map(url => {
+        const parts     = url.split('/')
+        const fileName  = parts[parts.length - 1]
+
+        return loadCsv(url)
+        .then(text => {
+          return csvStorage.write(fileName, new Blob([text]))
+        })
+      })
+
+      return Promise.resolve(ps)
+      // Note: delay needed for Firefox and slow Chrome
+      .then(() => delay(() => {}, 3000))
+      .then(() => {
+        dispatch(listCSV())
+      })
+    }
+
+    // Preinstall vision images
+    const installVisionImages = () => {
+      const list = PREINSTALL_VISION_LIST
+      if (list.length === 0)  return Promise.resolve()
+
+      // Note: preinstalled resources all go into browser mode
+      const visionStorage   = getStorageManager().getStorageForTarget(StorageTarget.Vision, StorageStrategyType.Browser)
+      const ps              = list.map(url => {
+        const parts     = url.split('/')
+        const fileName  = parts[parts.length - 1]
+
+        return loadImage(url)
+        .then(blob => {
+          return visionStorage.write(fileName, blob)
+        })
+      })
+
+      return Promise.resolve(ps)
+      // Note: delay needed for Firefox and slow Chrome
+      .then(() => delay(() => {}, 3000))
+      .then(() => {
+        dispatch(listVisions())
+      })
+    }
+
+    return Promise.all([
+      installMacrosAndSuites(),
+      installCsvs(),
+      installVisionImages()
+    ])
+    .then(markThisVersion)
   }
 }

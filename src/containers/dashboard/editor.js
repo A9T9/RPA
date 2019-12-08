@@ -15,7 +15,7 @@ import 'codemirror/lib/codemirror.css'
 
 import { setIn } from '../../common/utils'
 import { fromJSONString, toJSONString } from '../../common/convert_utils'
-import { getVisionMan } from '../../common/vision_man'
+import { getStorageManager } from '../../services/storage'
 import inspector from '../../common/inspector'
 import { Player } from '../../common/player'
 import csIpc from '../../common/ipc/ipc_cs'
@@ -93,10 +93,14 @@ const availableCommands = [
   'visualAssert',
   'editContent',
   'bringBrowserToForeground',
-  'resize'
+  'resize',
+
+  'XClick',
+  'XType',
+  'XMove'
 ]
 
-availableCommands.sort()
+availableCommands.sort((a, b) => a.toLowerCase() < b.toLowerCase() ? -1 : 1)
 
 const newCommand = {
   cmd: '',
@@ -168,7 +172,7 @@ class DashboardEditor extends React.Component {
     const { lastOperation }   = this.state
     const { selectedCommand } = this.props
 
-    const p = ['visionFind', 'visualSearch', 'visualAssert', 'visualVerify'].indexOf(selectedCommand.cmd) !== -1
+    const p = ['visionFind', 'visualSearch', 'visualAssert', 'visualVerify', 'XClick', 'XMove'].indexOf(selectedCommand.cmd) !== -1
                 ? (() => {
                   const selectedIndex = this.props.editing.meta.selectedIndex
                   // Note: run visionFind/visualSearch as single line command, but without timeout waiting
@@ -191,7 +195,7 @@ class DashboardEditor extends React.Component {
   onToggleInspect = () => {
     const { selectedCommand } = this.props
 
-    if (['visionFind', 'visualSearch', 'visualAssert', 'visualVerify'].indexOf(selectedCommand.cmd) !== -1) {
+    if (['visionFind', 'visualSearch', 'visualAssert', 'visualVerify', 'XClick', 'XMove'].indexOf(selectedCommand.cmd) !== -1) {
       return csIpc.ask('PANEL_SELECT_AREA_ON_CURRENT_PAGE')
       .then(res => {
         this.props.updateSelectedCommand({ target: res.fileName })
@@ -261,12 +265,13 @@ class DashboardEditor extends React.Component {
 
   onMouseEnterTarget = (e, command) => {
     log('onMouseOverTarget')
-    if (['visionFind', 'visualSearch', 'visualAssert', 'visualVerify'].indexOf(command.cmd) === -1) return
+    if (['visionFind', 'visualSearch', 'visualAssert', 'visualVerify', 'XClick', 'XMove'].indexOf(command.cmd) === -1) return
+    if (['XClick', 'XMove'].indexOf(command.cmd) !== -1 && !/\.png/i.test(command.target))  return
     if (this.state.visionFindPreview.visible) return
 
     clearTimeout(this.state.visionFindPreview.timer)
 
-    const man     = getVisionMan()
+    const visionStorage = getStorageManager().getVisionStorage()
     const rect    = e.target.getBoundingClientRect()
     const file    = command.target.trim().split('@')[0]
     const common  = {
@@ -275,7 +280,7 @@ class DashboardEditor extends React.Component {
       top:      rect.top + rect.height
     }
 
-    man.exists(file)
+    visionStorage.exists(file)
     .then(existed => {
       if (!existed) {
         return this.setState({
@@ -287,7 +292,7 @@ class DashboardEditor extends React.Component {
         })
       }
 
-      return man.getLink(file)
+      return visionStorage.getLink(file)
       .then(link => {
         return this.setState({
           visionFindPreview: {
@@ -302,7 +307,8 @@ class DashboardEditor extends React.Component {
 
   onMouseLeaveTarget = (e, command) => {
     log('onMouseOutTarget')
-    if (['visionFind', 'visualSearch', 'visualAssert', 'visualVerify'].indexOf(command.cmd) === -1) return
+    if (['visionFind', 'visualSearch', 'visualAssert', 'visualVerify', 'XClick', 'XMove'].indexOf(command.cmd) === -1) return
+    if (['XClick', 'XMove'].indexOf(command.cmd) !== -1 && !/\.png/i.test(command.target))  return
     if (!this.state.visionFindPreview.visible) return
 
     clearTimeout(this.state.visionFindPreview.timer)
@@ -758,7 +764,7 @@ class DashboardEditor extends React.Component {
     const isCmdEditable = isPlayerStopped && !!selectedCmd
     const isInspecting  = status === C.APP_STATUS.INSPECTOR
 
-    const selectedCmdIsVisualSearch = selectedCmd && ['visionFind', 'visualSearch', 'visualAssert', 'visualVerify'].indexOf(selectedCmd.cmd) !== -1
+    const selectedCmdIsVisualSearch = selectedCmd && ['visionFind', 'visualSearch', 'visualAssert', 'visualVerify', 'XClick', 'XMove'].indexOf(selectedCmd.cmd) !== -1
 
     return (
       <div className="editor-wrapper">
