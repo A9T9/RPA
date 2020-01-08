@@ -3,6 +3,7 @@ const fs = require('fs');
 const fsPromises = fs.promises;
 const path = require('path');
 
+//Screencast of running script: https://youtu.be/KAd4d0waPQg
 
 // Change the values here to configure the script
 const
