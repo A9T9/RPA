@@ -1,6 +1,6 @@
 {
   "Name": "DemoXDesktopAutomation_OCR",
-  "CreationDate": "2019-9-18",
+  "CreationDate": "2020-3-29",
   "Commands": [
     {
       "Command": "store",
@@ -35,7 +35,12 @@
     {
       "Command": "store",
       "Target": "eng",
-      "Value": "!ocrlanguage"
+      "Value": "!OCRlanguage"
+    },
+    {
+      "Command": "store",
+      "Target": "1",
+      "Value": "!OCRengine"
     },
     {
       "Command": "comment",
@@ -74,7 +79,7 @@
     },
     {
       "Command": "visualAssert",
-      "Target": "desktop_checktab_dpi_96.png@0.65",
+      "Target": "desktop_checktab_dpi_96.png@0.55",
       "Value": ""
     }
   ]

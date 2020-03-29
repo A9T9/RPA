@@ -1,6 +1,6 @@
 {
   "Name": "DemoIfElse",
-  "CreationDate": "2019-9-18",
+  "CreationDate": "2020-3-29",
   "Commands": [
     {
       "Command": "store",
@@ -53,29 +53,19 @@
       "Value": ""
     },
     {
-      "Command": "store",
-      "Target": "true",
-      "Value": "!errorignore"
-    },
-    {
       "Command": "storeAttribute",
       "Target": "//input[@id='sometext-WRONG-ID-TEST']@size",
       "Value": "boxsize"
     },
     {
       "Command": "if_v2",
-      "Target": "${!LastCommandOK}",
+      "Target": "${boxsize} == \"#LNF\"",
       "Value": ""
     },
     {
       "Command": "echo",
-      "Target": "Boxsize is ${boxsize}",
-      "Value": ""
-    },
-    {
-      "Command": "else",
-      "Target": "",
-      "Value": ""
+      "Target": "The xpath was not found. In this case the variable gets filled with #LNF (Locator Not Found).",
+      "Value": "blue"
     },
     {
       "Command": "storeAttribute",
@@ -84,22 +74,12 @@
     },
     {
       "Command": "echo",
-      "Target": "Old ID not found, with new ID we have: Boxsize = ${boxsize}",
-      "Value": ""
+      "Target": "With correct Xpath ID we get: Boxsize = ${boxsize}",
+      "Value": "green"
     },
     {
       "Command": "end",
       "Target": "",
-      "Value": ""
-    },
-    {
-      "Command": "store",
-      "Target": "false",
-      "Value": "!errorignore"
-    },
-    {
-      "Command": "echo",
-      "Target": "input box size =${boxsize}",
       "Value": ""
     },
     {

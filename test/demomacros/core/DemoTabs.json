@@ -1,6 +1,6 @@
 {
   "Name": "DemoTabs",
-  "CreationDate": "2019-9-18",
+  "CreationDate": "2020-3-29",
   "Commands": [
     {
       "Command": "open",
@@ -80,7 +80,7 @@
     {
       "Command": "type",
       "Target": "id=imageUrl",
-      "Value": "Kantu Tab Test done"
+      "Value": "UI.Vision RPA Tab Test done"
     }
   ]
 }

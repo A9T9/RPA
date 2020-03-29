@@ -1,0 +1,131 @@
+{
+  "Name": "DemoCsvReadArray",
+  "CreationDate": "2020-3-29",
+  "Commands": [
+    {
+      "Command": "store",
+      "Target": "fast",
+      "Value": "!replayspeed"
+    },
+    {
+      "Command": "comment",
+      "Target": "Create an array and save the content to a CSV file",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "var arr = []; for(var x = 0; x < 5; x++){arr[x] = []; for(var y = 0; y < 3; y++){arr[x][y] = (x+1)*(y+1);}}; return arr",
+      "Value": "array1"
+    },
+    {
+      "Command": "comment",
+      "Target": "Manually set two array values ",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "var newArr = ${array1}; newArr[0][2] = 'Hello World'; return newArr",
+      "Value": "array1"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "var newArr = ${array1}; newArr[2][1] = 'This is how you set an array value'; return newArr",
+      "Value": "array1"
+    },
+    {
+      "Command": "csvSaveArray",
+      "Target": "array1",
+      "Value": "data_from_array.csv"
+    },
+    {
+      "Command": "comment",
+      "Target": "Read the array again from csv file",
+      "Value": ""
+    },
+    {
+      "Command": "csvReadArray",
+      "Target": "data_from_array.csv",
+      "Value": "myCSV"
+    },
+    {
+      "Command": "echo",
+      "Target": "Number of rows = ${!CsvReadMaxRow}",
+      "Value": "green"
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return ${mycsv[0]}.length;",
+      "Value": "col"
+    },
+    {
+      "Command": "echo",
+      "Target": "Number of columns = ${col}",
+      "Value": "pink"
+    },
+    {
+      "Command": "comment",
+      "Target": "loop over all CSV values",
+      "Value": ""
+    },
+    {
+      "Command": "forEach",
+      "Target": "myCSV",
+      "Value": "row"
+    },
+    {
+      "Command": "echo",
+      "Target": "col1=${row[0]}, col2=${row[1]}, col3=${row[2]}",
+      "Value": "brown"
+    },
+    {
+      "Command": "forEach",
+      "Target": "row",
+      "Value": "elem"
+    },
+    {
+      "Command": "echo",
+      "Target": "Element=${elem}",
+      "Value": "blue"
+    },
+    {
+      "Command": "end",
+      "Target": "row",
+      "Value": "elem"
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Another way to loop over the array content",
+      "Value": ""
+    },
+    {
+      "Command": "times",
+      "Target": "${!CsvReadMaxRow}",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Substract 1 from !times, as the array index starts with 0",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "return ${!times} - 1;",
+      "Value": "i"
+    },
+    {
+      "Command": "echo",
+      "Target": "Row ${i}, 3rd Element => ${myCSV[${i}][2]}",
+      "Value": "blue"
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": ""
+    }
+  ]
+}

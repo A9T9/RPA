@@ -1,6 +1,6 @@
 {
   "Name": "DemoXClick",
-  "CreationDate": "2019-9-18",
+  "CreationDate": "2020-3-29",
   "Commands": [
     {
       "Command": "store",
@@ -14,12 +14,12 @@
     },
     {
       "Command": "clickAndWait",
-      "Target": "linkText=Kantu will click this link",
+      "Target": "linkText=will click this link",
       "Value": ""
     },
     {
       "Command": "echo",
-      "Target": "Kantu controls the mouse cursor now",
+      "Target": "UI.Vision RPA controls the mouse cursor now",
       "Value": "#shownotification"
     },
     {
@@ -199,7 +199,7 @@
     },
     {
       "Command": "XType",
-      "Target": "Kantuuu${KEY_BACKSPACE}${KEY_BACKSPACE} can draw and write.",
+      "Target": "UI.Vision RPAAA${KEY_BACKSPACE}${KEY_BACKSPACE} Demo",
       "Value": ""
     },
     {

@@ -1,6 +1,6 @@
 {
   "Name": "DemoXType",
-  "CreationDate": "2019-9-18",
+  "CreationDate": "2020-3-29",
   "Commands": [
     {
       "Command": "store",
@@ -99,7 +99,7 @@
     },
     {
       "Command": "XType",
-      "Target": "Page_saved_by_Kantu_${mydate}_${mytime}",
+      "Target": "Page_saved_by_UiVision_${mydate}_${mytime}",
       "Value": ""
     },
     {

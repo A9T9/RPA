@@ -1,6 +1,6 @@
 {
   "Name": "DemoIframe",
-  "CreationDate": "2019-9-18",
+  "CreationDate": "2020-3-29",
   "Commands": [
     {
       "Command": "open",
@@ -55,11 +55,11 @@
     {
       "Command": "type",
       "Target": "name=entry.1572386418",
-      "Value": "This is a test."
+      "Value": "This is the iframe web automation test."
     },
     {
-      "Command": "clickAndWait",
-      "Target": "//*[@id=\"mG61Hd\"]/div/div[2]/div[3]/div[1]/div[1]/div[2]/div[2]",
+      "Command": "click",
+      "Target": "xpath=//*[@id=\"mG61Hd\"]/div/div/div[3]/div[1]/div[1]/div[2]/span/span",
       "Value": ""
     },
     {

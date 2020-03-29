@@ -1,6 +1,6 @@
 {
   "Name": "DemoAutofill",
-  "CreationDate": "2019-9-18",
+  "CreationDate": "2020-3-29",
   "Commands": [
     {
       "Command": "store",
@@ -49,12 +49,12 @@
     },
     {
       "Command": "click",
-      "Target": "xpath=//*[@id=\"mG61Hd\"]/div/div[2]/div[2]/div[3]/div/div[2]/div[1]/div[1]/div[3]/span",
+      "Target": "xpath=//*[@id=\"mG61Hd\"]/div/div/div[2]/div[3]/div/div[2]/div[1]/div[1]/div[1]/span",
       "Value": ""
     },
     {
       "Command": "click",
-      "Target": "xpath=//*[@id=\"mG61Hd\"]/div/div[2]/div[2]/div[3]/div/div[2]/div[2]/div[3]",
+      "Target": "xpath=//*[@id=\"mG61Hd\"]/div/div/div[2]/div[3]/div/div[2]/div[2]/div[3]/span",
       "Value": ""
     },
     {
@@ -99,7 +99,7 @@
     },
     {
       "Command": "clickAndWait",
-      "Target": "//*[@id=\"mG61Hd\"]/div/div[2]/div[3]/div[1]/div[1]/div[2]/div[2]",
+      "Target": "xpath=//*[@id=\"mG61Hd\"]/div/div/div[3]/div[1]/div[1]/div[2]/span/span",
       "Value": ""
     },
     {

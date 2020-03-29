@@ -1,6 +1,6 @@
 {
   "Name": "Sub_DemoCsvRead_FillForm",
-  "CreationDate": "2019-9-18",
+  "CreationDate": "2020-3-29",
   "Commands": [
     {
       "Command": "comment",
@@ -34,7 +34,7 @@
     },
     {
       "Command": "clickAndWait",
-      "Target": "xpath=//*[@id=\"mG61Hd\"]/div/div[2]/div[3]/div[1]/div/div/span/span",
+      "Target": "xpath=//*[@id=\"mG61Hd\"]/div/div/div[3]/div[1]/div/div/span/span",
       "Value": ""
     }
   ]

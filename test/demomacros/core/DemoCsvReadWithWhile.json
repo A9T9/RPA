@@ -1,6 +1,6 @@
 {
   "Name": "DemoCsvReadWithWhile",
-  "CreationDate": "2019-9-18",
+  "CreationDate": "2020-3-29",
   "Commands": [
     {
       "Command": "store",
@@ -14,7 +14,7 @@
     },
     {
       "Command": "comment",
-      "Target": "The file ReadCSVTestData.csv is pre-installed with Kantu.",
+      "Target": "The file ReadCSVTestData.csv is pre-installed with UI.Vision RPA.",
       "Value": ""
     },
     {

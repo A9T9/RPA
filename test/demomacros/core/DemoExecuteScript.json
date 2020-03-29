@@ -1,6 +1,6 @@
 {
   "Name": "DemoExecuteScript",
-  "CreationDate": "2019-9-18",
+  "CreationDate": "2020-3-29",
   "Commands": [
     {
       "Command": "store",
@@ -190,7 +190,7 @@
     {
       "Command": "echo",
       "Target": "To is ${mydate}, and we draw a ${myrandomname}",
-      "Value": "${output}"
+      "Value": ""
     },
     {
       "Command": "type",
@@ -230,6 +230,31 @@
     {
       "Command": "clickAndWait",
       "Target": "linkText=This link@POS=3",
+      "Value": ""
+    },
+    {
+      "Command": "comment",
+      "Target": "Demo: Create array and then loop over it with forEach",
+      "Value": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "var arr = [\"Hello\",\"World\", \"2020\"]; return arr;",
+      "Value": "myarray"
+    },
+    {
+      "Command": "forEach",
+      "Target": "myarray",
+      "Value": "elem"
+    },
+    {
+      "Command": "echo",
+      "Target": "${elem}",
+      "Value": "blue"
+    },
+    {
+      "Command": "end",
+      "Target": "",
       "Value": ""
     }
   ]
