@@ -14,12 +14,12 @@ const
     // *THIS MUST BE THE BROWSER DOWNLOAD FOLDER*, as specified in the browser settings
     downloadDirPath = 'c://test//',
 
-    autorunHtmlPath = 'c://test//dummy.html',
+    autorunHtmlPath = 'c://test//ui.vision.html',
     browserPath = 'c:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
 	
 	//macOS Example paths
 	//downloadDirPath = '/Users/uitest/Downloads',
-    //autorunHtmlPath = '/Users/uitest/WebstormProjects/uitest/dummy.html',
+    //autorunHtmlPath = '/Users/uitest/WebstormProjects/uitest/ui.vision.html',
     //browserPath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 
     closeKantu = true,
@@ -100,7 +100,7 @@ async function playAndWait(macro, cmdVars,
     const startDate = new Date();
 
     // Make the browser argument string
-    const args = `file:///${autorunHtmlPath}?macro=${macro}&cmd_var1=${cmdVar1}&cmd_var2=${cmdVar2}&cmd_var3=${cmdVar3}&closeKantu=${closeKantu}&closeBrowser=${closeBrowser}&continueInLastUsedTab=${continueInLastUsedTab}&direct=1&savelog=${logFile}`;
+    const args = `file:///${autorunHtmlPath}?macro=${macro}&cmd_var1=${cmdVar1}&cmd_var2=${cmdVar2}&cmd_var3=${cmdVar3}&closeRPA=${closeKantu}&closeBrowser=${closeBrowser}&continueInLastUsedTab=${continueInLastUsedTab}&direct=1&savelog=${logFile}`;
 
     // Spawn the browser process
     const browserProcess = child_process.spawn(browserPath, [args]);
