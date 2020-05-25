@@ -83,15 +83,15 @@ function PlayAndWait (macro)
 		'	timeout set it on top of the script
     	'	timeout_seconds = 60 #max time in seconds allowed for macro to complete (change this value if  your macros takes longer to run)
     
-    path_downloaddir  = "D:\test\" 	'	#where the kantu log file is stored ("downloaded") - *THIS MUST BE THE BROWSER DOWNLOAD FOLDER* (= what is specified in the browser settings)
+    path_downloaddir  = "D:\test\" 	'	#where the UI.Vision RPA log file is stored ("downloaded") - *THIS MUST BE THE BROWSER DOWNLOAD FOLDER* (= what is specified in the browser settings)
 	
-    path_autorun_html = "D:\test\c.html" 'the autorun page as exported by Kantu. A page for any macro will do, as we use the &macro= switch anyway.
+    path_autorun_html = "D:\test\ui.vision.html" 'the autorun page as exported by UI.Vision RPA. A page for any macro will do, as we use the &macro= switch anyway.
 
 
     	'	IF YOU WANT TO KILL browser , uncomment next line
     'Call Kill_Browser
 
-    	'	#Create log file. Here Kantu will store the result of the macro run
+    	'	#Create log file. Here UI.Vision RPA will store the result of the macro run
     log_str = "log_" & get_date_stamp & ".txt" 
     'log_str = "log_02-15-2019_19_39_30.txt"
     
