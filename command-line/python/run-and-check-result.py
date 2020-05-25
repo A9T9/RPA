@@ -14,7 +14,7 @@ def PlayAndWait(macro, timeout_seconds = 10, var1 = '-', var2 = '-', var3 = '-',
 	
 	path_log = os.path.join(path_downloaddir, log)
 	
-	args = r'file:///' + path_autorun_html + '?macro=' + macro + '&cmd_var1=' + var1 + '&cmd_var2=' + var2 + '&cmd_var3=' + var3 + '&closeKantu=0&direct=1&savelog=' + log
+	args = r'file:///' + path_autorun_html + '?macro=' + macro + '&cmd_var1=' + var1 + '&cmd_var2=' + var2 + '&cmd_var3=' + var3 + '&closeRPA=0&direct=1&savelog=' + log
 	
 	proc = subprocess.Popen([browser_path, args])
 	
@@ -42,5 +42,5 @@ def PlayAndWait(macro, timeout_seconds = 10, var1 = '-', var2 = '-', var3 = '-',
 	sys.exit(status_init)
 
 if __name__ == '__main__':
-	#PlayAndWait('DemoAutofill', timeout_seconds = 35, path_downloaddir = r'F:\selenium\\', path_autorun_html = r'F:\selenium\cmdlinetest.html', browser_path=r'C:\Program Files\Mozilla Firefox\firefox.exe')
-	PlayAndWait('DemoAutofill', timeout_seconds = 35, path_downloaddir = r'C:\Downloads\\', path_autorun_html = r'F:\selenium\cmdlinetest.html', browser_path=r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe')
+	#PlayAndWait('DemoAutofill', timeout_seconds = 35, path_downloaddir = r'F:\selenium\\', path_autorun_html = r'F:\selenium\ui.vision.html', browser_path=r'C:\Program Files\Mozilla Firefox\firefox.exe')
+	PlayAndWait('DemoAutofill', timeout_seconds = 35, path_downloaddir = r'C:\Downloads\\', path_autorun_html = r'F:\selenium\ui.vision.html', browser_path=r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe')
