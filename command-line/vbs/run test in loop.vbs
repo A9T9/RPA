@@ -1,12 +1,15 @@
 Option Explicit
 
-	'set here what browser to use
-Const Use_Chrome = 0	'	1 means to use Chrome    0 means to use firefox
+'set here what browser to use
+Const browser = 3	'1 means to use Chrome  2 means to use firefox 3 = Edge
 
-	'set this path to report txt file
-Const testreport = "d:\test\testreport.txt"
+'set this path to report txt file
+Const testreport = "c:\test\testreport.txt"
 
-	'max time in seconds allowed for macro to complete (change this value if  your macros takes longer to run)
+'DO NOT FORGET TO SET THE CORRECT DOWNLOAD FOLDER in the browser
+
+
+'max time in seconds allowed for macro to complete (change this value if  your macros takes longer to run)
 Const timeout_seconds = 60	
 
 Const ForReading = 1, ForWriting = 2, ForAppending = 8
@@ -29,42 +32,37 @@ Set Log_File = objFSO.OpenTextFile( testreport , ForAppending , True )
 For i = 0 To 1
 
     report = "Loop: " & i & " START"
-    	Log_File.WriteLine report
+   	Log_File.WriteLine report
 
-    	'	Write-Host "Loop Number:" $i
-    result = PlayAndWait( "DemoFrames" ) 	'	  #run the macro
+    result = PlayAndWait( "Demo/Core/DemoFrames" ) 	'	  #run the macro
 
     errortext = result(1)	'	 #Get error text or OK
     runtime   = result(2)	'	 #Get runtime
-    report    = "Loop: " & i & " Return code: " & result(0) & " Macro runtime: " & runtime & " seconds, Result: " & errortext
+    report    = "FOR Loop: " & i & " Return code: " & result(0) & " Macro runtime: " & runtime & " seconds, Result: " & errortext
+
+'MsgBox result(1)
     
     Log_File.WriteLine report
     
-    	'	Check that all is ok, if not kill Chrome to clear memory etc
+   	'	Check that all is ok, if not kill Chrome to clear memory etc
     if result(0) <> 1 then
-
-	        '	Cleanup => Kill Chrome or FIREFOX instance 
-
-        Call Kill_Browser
-         
+        '	Cleanup => Kill Chrome or FIREFOX instance 
+        Call Kill_Browser       
         report = "Loop: " & i & " Chrome closed"
-	        Log_File.WriteLine report
-	        	'Add-content $testreport -value ($report)
-        	
+	    Log_File.WriteLine report
+	        	'Add-content $testreport -value ($report)	
     End If
     
-         '  WAIT  1 SEC  Start-Sleep 1
-    Call WScript.Sleep(3000)	'	1000 millsec = 1 sec
+    '  WAIT  1 SEC  Start-Sleep 1
+    Call WScript.Sleep(1000)	'	1000 millsec = 1 sec
 
 Next
-
-'		---------  start of script
 
 Log_File.Close
 Set Log_File = Nothing
 Set objFSO = Nothing 
 
-'MsgBox "DONE"
+MsgBox "DONE"
 
 
 
@@ -83,10 +81,9 @@ function PlayAndWait (macro)
 		'	timeout set it on top of the script
     	'	timeout_seconds = 60 #max time in seconds allowed for macro to complete (change this value if  your macros takes longer to run)
     
-    path_downloaddir  = "D:\test\" 	'	#where the UI.Vision RPA log file is stored ("downloaded") - *THIS MUST BE THE BROWSER DOWNLOAD FOLDER* (= what is specified in the browser settings)
+    path_downloaddir  = "c:\test\" 	'	#where the UI.Vision RPA log file is stored ("downloaded") - *THIS MUST BE THE BROWSER DOWNLOAD FOLDER* (= what is specified in the browser settings)
 	
-    path_autorun_html = "D:\test\ui.vision.html" 'the autorun page as exported by UI.Vision RPA. A page for any macro will do, as we use the &macro= switch anyway.
-
+    path_autorun_html = "c:\test\ui.vision.html" 'the autorun page as exported by UI.Vision RPA. A page for any macro will do, as we use the &macro= switch anyway.
 
     	'	IF YOU WANT TO KILL browser , uncomment next line
     'Call Kill_Browser
@@ -96,24 +93,23 @@ function PlayAndWait (macro)
     'log_str = "log_02-15-2019_19_39_30.txt"
     
     path_log = path_downloaddir & log_str
-    
-    rep_stat =  "Log file will show up at : "  & path_log
-    	Log_File.WriteLine rep_stat
+    'rep_stat =  "Log file will show up at : "  & path_log
+    'Log_File.WriteLine rep_stat
     
     
     path_autorun_html = "file:///" & Replace(path_autorun_html , "\" , "/" )
 
-	If Use_Chrome = 1 Then
-	
-	    	'	Build command line
+   	'Build command line
+	Select Case browser
+	Case 1
 	    cmd = Chr(34) & "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" & Chr(34) & " -- "
-
-   	Else
-   	
- 	    	'	Build command line
+	Case 2
 	    cmd = Chr(34) & "C:\Program Files\Mozilla Firefox\firefox.exe" & Chr(34) & " "
-
-   	End IF 	
+	Case 3
+	    cmd = Chr(34) &	"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"& Chr(34) & " "	
+	Case Else
+		MsgBox "Wrong browser number"
+   	End Select	
     
     	'	set arguments
     arg = Chr(34) & path_autorun_html & "?macro=" & macro & "&direct=1&savelog=" & log_str & Chr(34)
@@ -123,7 +119,7 @@ function PlayAndWait (macro)
 	Set oShell = WScript.CreateObject ("WScript.Shell")
 	
 	str_cmd = cmd & " " & arg
-		Log_File.WriteLine str_cmd
+	'Log_File.WriteLine str_cmd
 	
 	'int_ret = oShell.Run( str_cmd , 1 , False )
 	'	Log_File.WriteLine "oShell.Run " & time
@@ -147,9 +143,9 @@ function PlayAndWait (macro)
     Do While status_runtime < timeout_seconds 
 
         rep_stat =  "	Waiting for macro to finish, seconds= " & status_runtime
-        	Log_File.WriteLine rep_stat
+        'Log_File.WriteLine rep_stat
         
-        	'  WAIT  1 SEC  Start-Sleep 1
+        '  WAIT  1 SEC  Start-Sleep 1
         Call WScript.Sleep(1000)	'	1000 millsec = 1 sec
         
         If objFSO.FileExists( path_log ) Then Exit DO
