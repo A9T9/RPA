@@ -12,7 +12,7 @@ const
     repeatIntervalSeconds = 2,
 
     // *THIS MUST BE THE BROWSER DOWNLOAD FOLDER*, as specified in the browser settings
-    downloadDirPath = 'c://test//',
+    downloadDirPath = 'c:\\test\\',
 
     autorunHtmlPath = 'c://test//ui.vision.html',
     browserPath = 'c:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
@@ -22,11 +22,11 @@ const
     //autorunHtmlPath = '/Users/uitest/WebstormProjects/uitest/ui.vision.html',
     //browserPath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
 
-    closeKantu = true,
+    closeRPA = true,
     closeBrowser = true,
-    continueInLastUsedTab = false,
 
-    macro = "demo/core/demoframes",
+
+    macro = "Demo/Core/DemoFrames", //internal storage macro names are case sensitive
     cmdVar1 = '-',
     cmdVar2 = '-',
     cmdVar3 = '-';
@@ -43,7 +43,7 @@ async function run() {
         try {
             const res = await playAndWait(macro, [cmdVar1, cmdVar2, cmdVar3],
                                           { timeoutSeconds, downloadDirPath, autorunHtmlPath, browserPath,
-                                            closeKantu, closeBrowser, continueInLastUsedTab });
+                                            closeRPA, closeBrowser });
             console.log(`[#${i}] Macro run successful.\nExecution time: ${res.executionTimeMs / 1000} secs.\nStatus: ${res.statusText}\n`);
         } catch (e) {
             console.error(e);
@@ -58,7 +58,7 @@ async function run() {
 
 async function playAndWait(macro, cmdVars,
                            { timeoutSeconds, downloadDirPath, autorunHtmlPath, browserPath,
-                             closeKantu, closeBrowser, continueInLastUsedTab }) {
+                             closeRPA, closeBrowser }) {
 
     // Check if macro is defined
     if (macro === undefined) {
@@ -72,7 +72,7 @@ async function playAndWait(macro, cmdVars,
     const cmdVar3 = cmdVars[2] || '-';
 
     // bool -> int
-    closeKantu = closeKantu ? 1 : 0;
+    closeRPA = closeRPA ? 1 : 0;
     closeBrowser = closeBrowser ? 1 : 0;
 
     // Set default timeout of 10 seconds
@@ -93,14 +93,14 @@ async function playAndWait(macro, cmdVars,
     // Create log file name like log_2019-12-20T16-37-00.txt
     // The date is in the UTC timezone
     const date = new Date().toISOString().replace(/:/g, '-').slice(0, -5);
-    const logFile = `log_${date}.txt`;
+    const logFile = `logRPA_${date}.txt`;
     const logPath = path.join(downloadDirPath, logFile);
 
     // Save the time of the beginning of execution
     const startDate = new Date();
 
     // Make the browser argument string
-    const args = `file:///${autorunHtmlPath}?macro=${macro}&cmd_var1=${cmdVar1}&cmd_var2=${cmdVar2}&cmd_var3=${cmdVar3}&closeRPA=${closeKantu}&closeBrowser=${closeBrowser}&continueInLastUsedTab=${continueInLastUsedTab}&direct=1&savelog=${logFile}`;
+    const args = `file:///${autorunHtmlPath}?macro=${macro}&cmd_var1=${cmdVar1}&cmd_var2=${cmdVar2}&cmd_var3=${cmdVar3}&closeRPA=${closeRPA}&closeBrowser=${closeBrowser}&direct=1&savelog=${logFile}`;
 
     // Spawn the browser process
     const browserProcess = child_process.spawn(browserPath, [args]);
