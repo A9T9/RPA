@@ -1,7 +1,8 @@
 ###########################################################################
-#Script to run RPA macros and check on their result via the command line
-###########################################################################
+#Script to run RPA macros from within Powershell
 
+#Make sure to install the native RPA app (XModules): https://ui.vision/rpa/x
+###########################################################################
 
 
 function PlayAndWait2 ([string]$macro, [string]$close)
@@ -21,14 +22,14 @@ $path_log = $path_downloaddir + $log
 
 
 #Build command line (1=CHROME, 2=FIREFOX, 3=EDGE)
-$browser = 3
+$browser = 1
 Switch ($browser) {
 1 {$cmd = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"; break}
 2 {$cmd = "${env:ProgramFiles}\Mozilla Firefox\firefox.exe"; break} #For FIREFOX
 3 {$cmd = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"; break} #For EDGE 
 }
 
-$arg = """file:///"+ $path_autorun_html + "?macro="+ $macro + "&direct=1&closeRPA="+$close+"&closeBrowser="+$close1+"&savelog="+$log+""""
+$arg = """file:///"+ $path_autorun_html + "?macro="+ $macro + "&storage=xfile&direct=1&closeRPA="+$close+"&closeBrowser="+$close1+"&savelog="+$log+""""
 
 
 Start-Process -FilePath $cmd -ArgumentList $arg #Launch the browser and run the macro
@@ -75,13 +76,80 @@ return $status_int, $status_text, $status_runtime
 
 $testreport = "c:\test\testreport.txt"
 
+$json1 = @'
+{
+  "Name": "test",
+  "CreationDate": "2020-9-11",
+  "Commands": [
+    {
+      "Command": "bringBrowserToForeground",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/contact",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "id=ContactName",
+      "Value": "Hello"
+    }
+  ]
+}
+'@
+
+$json2 = @'
+{
+  "Name": "part2",
+  "CreationDate": "2020-9-11",
+  "Commands": [
+    {
+      "Command": "bringBrowserToForeground",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "id=Email",
+      "Value": "from (filled by 2nd macro)"
+    }
+  ]
+}
+'@
+
+$json3 = @'
+{
+  "Name": "part3",
+  "CreationDate": "2020-9-11",
+  "Commands": [
+    {
+      "Command": "bringBrowserToForeground",
+      "Target": "",
+      "Value": ""
+    },
+    {
+      "Command": "type",
+      "Target": "id=Subject",
+      "Value": "Powershell (filled by 3rd macro)"
+    }
+  ]
+}
+'@
+
+$path1 = "C:\Users\a9\Desktop\uivision\macros\robot\frompowershell1.json" #C:\Users\a9\Desktop\uivision\macros = RPA home folder (as set in XModule tab)
+Set-Content -Path $path1 -Value $json1
+$path2 = "C:\Users\a9\Desktop\uivision\macros\robot\frompowershell2.json"
+Set-Content -Path $path2 -Value $json2
+$path3 = "C:\Users\a9\Desktop\uivision\macros\robot\frompowershell3.json"
+Set-Content -Path $path3 -Value $json3
 
 ############
 # Macro 1  #
 ############
 
-$result = PlayAndWait2 Demo/Core/DemoFrames 0 #run the macro and keep browser open, so second macro continues in same tab.
-
+$result = PlayAndWait2 robot\frompowershell1.json 0 #0=keep browser open, so next macro continues in same tab.
 $errortext = $result[1] #Get error text or OK
 $runtime = $result[2] #Get runtime
 $report = "Macro1 runtime: ("+$runtime+" seconds), result: "+ $errortext
@@ -89,17 +157,22 @@ Write-Host $report
 Add-content $testreport -value ($report)
 
 
-############
-# Macro 2  #
-############
-
-PlayAndWait2 Demo/Core/DemoDragDrop 1
-
+$result = PlayAndWait2 robot\frompowershell2.json 0 #0=keep browser open, so next macro continues in same tab.
 $errortext = $result[1] #Get error text or OK
 $runtime = $result[2] #Get runtime
-$report = " Macro2 runtime: ("+$runtime+" seconds), result: "+ $errortext
+$report = "Macro2 runtime: ("+$runtime+" seconds), result: "+ $errortext
 Write-Host $report
 Add-content $testreport -value ($report)
+
+
+$result = PlayAndWait2 robot\frompowershell3.json 1 #run the macro and done => close browser
+$errortext = $result[1] #Get error text or OK
+$runtime = $result[2] #Get runtime
+$report = "Macro3 runtime: ("+$runtime+" seconds), result: "+ $errortext
+Write-Host $report
+Add-content $testreport -value ($report)
+
+
 
 
 
