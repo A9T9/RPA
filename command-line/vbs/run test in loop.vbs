@@ -1,7 +1,7 @@
 Option Explicit
 
 'set here what browser to use
-Const browser = 3	'1 means to use Chrome  2 means to use firefox 3 = Edge
+Const browser = 1	'1 means to use Chrome  2 means to use firefox 3 = Edge
 
 'set this path to report txt file
 Const testreport = "c:\test\testreport.txt"
@@ -246,22 +246,24 @@ End Function
 
 Function Kill_Browser
 
-		'	if you want to kill firefox , use  firefox.exe
+	'terminate the browser if it hangs and thus the normal closeRPA=1 failed
 
 	Dim ret_string , str_cmd
 	Dim oShell
 	
 	Set oShell = WScript.CreateObject ("WScript.Shell")
 	
-	If Use_Chrome = 1 Then 
-	
-		str_cmd = "taskkill /F /IM chrome.exe /T"
-	
-	Else
-	
-		str_cmd = "taskkill /F /IM firefox.exe /T"
-	
-	End if
+    Select Case browser
+	Case 1
+	    str_cmd = "taskkill /F /IM chrome.exe /T"
+	Case 2
+	    str_cmd = "taskkill /F /IM firefox.exe /T"
+	Case 3
+	    str_cmd = "taskkill /F /IM msedge.exe /T"
+	Case Else
+		MsgBox "Wrong browser number"
+   	End Select	
+
 	
 	oShell.run "cmd /C " & str_cmd , 0 , False 
 
