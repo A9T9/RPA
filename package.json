@@ -25,7 +25,7 @@
     "jszip": "^3.1.4",
     "kd-glob-to-regexp": "^0.4.1",
     "lodash.isequal": "^4.5.0",
-    "normalize-url": "^2.0.0",
+    "normalize-url": "^4.5.1",
     "parse-json": "^2.2.0",
     "pbkdf2": "^3.0.14",
     "prop-types": "^15.6.0",
