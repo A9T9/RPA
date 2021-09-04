@@ -20,7 +20,9 @@ module.exports = {
   entry: {
     popup:            './src/index.js',
     csv_editor:       './src/csv_editor.js',
-    vision_editor:    './src/vision_editor.js',
+    vision_editor:    './src/vision_editor/index.tsx',
+    desktop_screenshot_editor: './src/desktop_screenshot_editor/index.tsx',
+    options:          './src/options.ts',
     content_script:   './src/ext/content_script/index.js',
     inject:           './src/ext/inject.js',
     background:       './src/ext/bg.js'
@@ -80,16 +82,20 @@ module.exports = {
     ]
   },
   resolve: {
-    extensions: ['.tsx', '.ts', '.js']
+    extensions: ['.tsx', '.ts', '.js', '.json'],
+    alias: {
+      '@': path.join(__dirname, 'src'),
+      '$': __dirname
+    }
   },
   plugins: [
     new CleanWebpackPlugin(path.resolve(__dirname, distDir)),
     new CopyWebpackPlugin([
       { from: 'extension' },
-      'imagesearch-testextension/bin/js/kantusearch.js',
-      'imagesearch-testextension/bin/js/kantusearch.wasm',
-      'imagesearch-testextension/bin/js/worker-main.js',
-      'imagesearch-testextension/bin/js/worker.js'
+      'webextension-imagesearch-1.0.1-extension/extension/js/kantusearch.js',
+      'webextension-imagesearch-1.0.1-extension/extension/js/kantusearch.wasm',
+      'webextension-imagesearch-1.0.1-extension/extension/js/worker-main.js',
+      'webextension-imagesearch-1.0.1-extension/extension/js/worker.js'
     ]),
     new HtmlWebpackIncludeSiblingChunksPlugin(),
     new HtmlWebpackPlugin({
@@ -107,19 +113,40 @@ module.exports = {
       template: './extension/vision_editor.html',
       filename: 'vision_editor.html'
     }),
+    new HtmlWebpackPlugin({
+      chunks: ['desktop_screenshot_editor'],
+      template: './extension/desktop_screenshot_editor.html',
+      filename: 'desktop_screenshot_editor.html'
+    }),
+    new HtmlWebpackPlugin({
+      chunks: ['options'],
+      template: './extension/options.html',
+      filename: 'options.html'
+    }),
     new BrowserExtensionWebpackPlugin({
       createManifestJson: ({ getFilesForEntryPoint }) => {
         if (process.env.BROWSER === 'firefox') {
-          delete manifestJson['background']['persistent']
-          delete manifestJson['offline_enabled']
-
           manifestJson['permissions'] = manifestJson['permissions'].filter(p => {
             return [
-              'pageCapture', 'debugger', 'proxy',
-              'webNavigation', 'webRequest', 'webRequestBlocking',
-              'nativeMessaging', 'contextMenus', 'management'
+              'pageCapture', 'debugger', 'webNavigation', 'management', 'downloads.shelf'
             ].indexOf(p) === -1
           })
+
+          manifestJson['applications'] = {
+            gecko: {
+                id: 'kantu@a9t9.com'
+            }
+          }
+
+          if (manifestJson['options_page']) {
+            manifestJson['options_ui'] = {
+              page: manifestJson['options_page']
+            }
+          }
+
+          delete manifestJson['background']['persistent']
+          delete manifestJson['offline_enabled']
+          delete manifestJson['options_page']
         }
 
         manifestJson['background']['scripts']     = getFilesForEntryPoint('background')
@@ -148,6 +175,13 @@ module.exports = {
 
 if (process.env.NODE_ENV === 'production') {
   delete module.exports.devtool
+
+  // Note: Firefox AMO doesn't allow file size larger than 4mb, so have to minimize it
+  // For Chrome, minified code runs slower than before, so keep it as not minified
+  if (process.env.BROWSER === 'firefox') {
+    delete module.exports.optimization.minimizer
+  }
+
   module.exports.plugins = (module.exports.plugins || []).concat([
     new webpack.DefinePlugin({
       'process.env': {

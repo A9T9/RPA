@@ -5,15 +5,15 @@
   "description": "__MSG_description__",
   "short_name": "__MSG_short_name__",
   "default_locale": "en",
-  "version": "3.3.2",
+  "version": "6.2.6",
 
   "icons": {
-    "128": "logo.png"
+    "128": "logo128.png"
   },
 
   "browser_action": {
     "default_icon": {
-      "38": "logo.png"
+      "38": "logo38.png"
     }
   },
 
@@ -38,7 +38,11 @@
     }
   ],
 
+  "options_page": "options.html",
+
   "offline_enabled": true,
+
+  "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
 
   "permissions": [
     "bookmarks",
@@ -47,13 +51,11 @@
     "cookies",
     "debugger",
     "downloads",
+    "downloads.shelf",
     "notifications",
     "storage",
     "tabs",
-    "management",
-    "proxy", 
-    "pageCapture", 
-    "webNavigation",
+    "proxy",
     "webRequest",
     "webRequestBlocking",
     "nativeMessaging",

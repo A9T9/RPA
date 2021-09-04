@@ -1,6 +1,6 @@
 {
   "name": {
-    "message": "Kantu 浏览器自动化工具",
+    "message": "UI.Vision RPA 浏览器自动化工具",
     "description": "extension name"
   },
   "description": {
@@ -8,7 +8,7 @@
     "description": "extension description"
   },
   "short_name": {
-    "message": "Kantu 自动化",
+    "message": "UI.Vision自动化",
     "description": "extension short_name"
   }
 }

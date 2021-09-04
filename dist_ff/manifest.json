@@ -4,19 +4,19 @@
   "description": "__MSG_description__",
   "short_name": "__MSG_short_name__",
   "default_locale": "en",
-  "version": "3.3.2",
+  "version": "6.2.6",
   "icons": {
-    "128": "logo.png"
+    "128": "logo128.png"
   },
   "browser_action": {
     "default_icon": {
-      "38": "logo.png"
+      "38": "logo38.png"
     }
   },
   "background": {
     "scripts": [
       "vendor.js",
-      "background_csv_editor_popup_vision_editor.js",
+      "background_csv_editor_desktop_screenshot_editor_options_popup_vision_editor.js",
       "background.js"
     ]
   },
@@ -38,6 +38,7 @@
       "run_at": "document_start"
     }
   ],
+  "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
   "permissions": [
     "bookmarks",
     "clipboardRead",
@@ -47,12 +48,19 @@
     "notifications",
     "storage",
     "tabs",
+    "proxy",
+    "webRequest",
+    "webRequestBlocking",
     "nativeMessaging",
+    "contextMenus",
     "<all_urls>"
   ],
   "applications": {
     "gecko": {
       "id": "kantu@a9t9.com"
     }
+  },
+  "options_ui": {
+    "page": "options.html"
   }
 }

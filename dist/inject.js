@@ -81,17 +81,56 @@
 /******/
 /******/
 /******/ 	// Load entry module and return exports
-/******/ 	return __webpack_require__(__webpack_require__.s = 707);
+/******/ 	return __webpack_require__(__webpack_require__.s = 1078);
 /******/ })
 /************************************************************************/
 /******/ ({
 
-/***/ 35:
+/***/ 1078:
 /***/ (function(module, __webpack_exports__, __webpack_require__) {
 
 "use strict";
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "b", function() { return postMessage; });
-/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "a", function() { return onMessage; });
+__webpack_require__.r(__webpack_exports__);
+/* harmony import */ var _common_ipc_cs_postmessage__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(63);
+
+
+var clone = function clone(data) {
+  var str = JSON.stringify(data);
+  if (str === undefined) return undefined;
+  return JSON.parse(str);
+};
+
+Object(_common_ipc_cs_postmessage__WEBPACK_IMPORTED_MODULE_0__["onMessage"])(window, function (_ref) {
+  var cmd = _ref.cmd,
+      args = _ref.args;
+
+  switch (cmd) {
+    case 'INJECT_READY':
+      {
+        document.body.setAttribute('data-injected', 'done');
+        return true;
+      }
+
+    case 'INJECT_RUN_EVAL':
+      {
+        // Note: clone the data in case it contains some Object that can't be passed via postMessage (eg. HTMLDocument)
+        // eslint-disable-next-line no-eval
+        return Promise.resolve(window.eval(args.code)).then(function (result) {
+          return { result: clone(result) };
+        });
+      }
+  }
+});
+
+/***/ }),
+
+/***/ 63:
+/***/ (function(module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "postMessage", function() { return postMessage; });
+/* harmony export (binding) */ __webpack_require__.d(__webpack_exports__, "onMessage", function() { return onMessage; });
 var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
 
 var TYPE = 'SELENIUM_IDE_CS_MSG';
@@ -102,7 +141,7 @@ var postMessage = function postMessage(targetWin, myWin, payload) {
 
   return new Promise(function (resolve, reject) {
     if (!targetWin || !targetWin.postMessage) {
-      throw new Error('csPostMessage: targetWin is not a window', targetWin);
+      throw new Error('csPostMessage: targetWin is not a window');
     }
 
     if (!myWin || !myWin.addEventListener || !myWin.removeEventListener) {
@@ -135,6 +174,7 @@ var postMessage = function postMessage(targetWin, myWin, payload) {
     // * `secret` is for 1 to 1 relationship between a msg and a listener
     // * `payload` is the real data you want to send
     // * `isRequest` is to mark that it's not an answer to some previous request
+
     targetWin.postMessage({
       type: type,
       secret: secret,
@@ -194,42 +234,6 @@ var onMessage = function onMessage(win, fn) {
     return win.removeEventListener('message', onMsg);
   };
 };
-
-/***/ }),
-
-/***/ 707:
-/***/ (function(module, __webpack_exports__, __webpack_require__) {
-
-"use strict";
-__webpack_require__.r(__webpack_exports__);
-/* harmony import */ var _common_ipc_cs_postmessage__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(35);
-
-
-var clone = function clone(data) {
-  var str = JSON.stringify(data);
-  if (str === undefined) return undefined;
-  return JSON.parse(str);
-};
-
-Object(_common_ipc_cs_postmessage__WEBPACK_IMPORTED_MODULE_0__[/* onMessage */ "a"])(window, function (_ref) {
-  var cmd = _ref.cmd,
-      args = _ref.args;
-
-  switch (cmd) {
-    case 'INJECT_READY':
-      {
-        document.body.setAttribute('data-injected', 'done');
-        return true;
-      }
-
-    case 'INJECT_RUN_EVAL':
-      {
-        // Note: clone the data in case it contains some Object that can't be passed via postMessage (eg. HTMLDocument)
-        // eslint-disable-next-line no-eval
-        return { result: clone(window.eval(args.code)) };
-      }
-  }
-});
 
 /***/ })
 

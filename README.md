@@ -7,15 +7,6 @@ Questions? Suggestions? - Meet us in the UI.Vision [RPA user forum](https://foru
 Every user benefits from the questions and answers provided in the forum, that is why we would ask you to post the question [in the RPA forum](https://forum.ui.vision) first if a public forum is appropriate for your question. The forum is monitored by active users, tech support and the developers, so we would like to concentrate the discussion "over there" in one place
 
 
-# Are you interested in becoming a UI.Vision RPA beta tester?
-
-As beta tester, we will email you (hidden) install links for new  UI.Vision RPA versions before they go live in the Chrome store. **Beta versions never overwrite a regular  UI.Vision RPA version**. The beta channel is technically a separate extension with its own toolbar icon. So beta-testing  UI.Vision RPA does not interfere with your regular RPA projects and macros. We will notify you by email once a new version is available so you can grab it. 
-
-[If you are interested in helping out, please sign-up here](http://eepurl.com/dm0cTX).
-
-The link goes to a Mailchimp signup form. 
-
-
 # How to install  UI.Vision RPA:
 
  UI.Vision RPA for Chrome and Firefox is modern cross-platform RPA software for macOS, Linux and Windows. It includes a Selenium IDE and Web Macro Recorder. You find the latest version always in the Chrome and Firefox stores. You can use it _completely free for private and commercial purposes_: 
@@ -24,16 +15,30 @@ The link goes to a Mailchimp signup form.
 
 - [UI.Vision RPA in the Firefox Webstore](https://addons.mozilla.org/en-US/firefox/addon/rpa/)
 
+- [UI.Vision RPA in the Microsoft Edge Webstore](https://microsoftedge.microsoft.com/addons/detail/uivision-rpa/goapmjinbaeomoemgdcnnhoedopjnddd)
+
+
 - [UI.Vision RPA plus Selenium IDE Homepage](https://ui.vision/rpa)
 
 - List of supported [Selenium IDE commands](https://ui.vision/rpa/docs/selenium-ide/)
 
 
-# Building the Chrome and Firefox Extension
+# Building the Chrome, Edge and Firefox Extension
 
-We use Node V8.11.1 and NPM V5.6.0.
+We use Node V12.16.1 and NPM V6.13.4.
 
-You can [install UI.Vision RPA directly from the Chrome or Firefox stores](https://ui.vision/rpa), which is the easiest and the recommended way of using the UI.Vision RPA software. But of course developers can also build it directly from the source code with this command line:
+Building the extension is _not_ required if you "only" want to use it.
+
+You can [install UI.Vision RPA directly from the Chrome, Edge or Firefox stores](https://ui.vision/rpa), which is the easiest and the recommended way of using the UI.Vision RPA software. Older versions can be found in the [RPA software](https://ui.vision/rpa/archive) archive. 
+
+Besides, as a general piece of information: All browser extensions are written in Javascript and thus they are all open-source (in the technical sense) by nature. You can set break points and debug any extension right in your browser.
+
+This is for example our UI.Vision RPA software, installed from the Chrome store and debugged and inspected directly in the web browser. No Github repo or anything is required for that to work. Anyone can do it in any browser:
+
+
+
+
+But of course developers can also build it directly from the source code with this command line:
 
 ```
 npm i

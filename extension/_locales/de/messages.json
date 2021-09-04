@@ -1,14 +1,14 @@
 {
   "name": {
-    "message": "Kantu Browser Automation",
+    "message": "UI.Vision RPA",
     "description": "extension name"
   },
   "description": {
-    "message": "Moderner Open-Source Web Makro Rekorder mit Selenium IDE für die Automatisierung von Routinearbeit, Web Tests und Datenextraktion.",
+    "message": "Open-Source Robotic Process Automation (RPA) mit Selenium IDE für die Web und Desktop Test Automatisierung und Datenextraktion.",
     "description": "extension description"
   },
   "short_name": {
-    "message": "Kantu Makros",
+    "message": "UIVision RPA",
     "description": "extension short_name"
   }
 }
