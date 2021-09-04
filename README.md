@@ -31,12 +31,11 @@ Building the extension is _not_ required if you "only" want to use it.
 
 You can [install UI.Vision RPA directly from the Chrome, Edge or Firefox stores](https://ui.vision/rpa), which is the easiest and the recommended way of using the UI.Vision RPA software. Older versions can be found in the [RPA software](https://ui.vision/rpa/archive) archive. 
 
-Besides, as a general piece of information: All browser extensions are written in Javascript and thus they are all open-source (in the technical sense) by nature. You can set break points and debug any extension right in your browser.
+Besides, as a general piece of information: All browser extensions are written in Javascript and thus they are all open-source (in the technical sense) by nature. This [strict open-source security](https://ui.vision/rpa#security) approach makes UI.Vision RPA more secure than any other Robotic Process Automation (RPA) solution in the market. You can set break points and debug any extension right in your browser. Thus this Github repo is _not_ required for debugging and source code inspection to work:
 
-This is for example our UI.Vision RPA software, installed from the Chrome store and debugged and inspected directly in the web browser. No Github repo or anything is required for that to work. Anyone can do it in any browser:
+https://github.com/A9T9/RPA/blob/master/rpa-debug-chrome.png
 
-
-
+The link above shows a screenshot of our UI.Vision RPA software, installed from the Chrome store and debugged and inspected directly in the web browser. 
 
 But of course developers can also build it directly from the source code with this command line:
 
