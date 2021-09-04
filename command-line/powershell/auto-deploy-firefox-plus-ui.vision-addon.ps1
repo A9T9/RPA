@@ -9,6 +9,8 @@ does not remove these automatically.
 
 The automatic deployment works "only" if the extension was not already installed before OR if you do a complete Firefox uninstall and profile folder removal
 
+Screencast: https://youtu.be/LLWprebdLm4
+
 (c) Created 2021-09-03 by UI.Vision RPA Tech Support, License: MIT
 #>
 Add-Type -AssemblyName System.IO.Compression.FileSystem
