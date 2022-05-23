@@ -30,7 +30,7 @@
     "codemirror": "^5.31.0",
     "copy-to-clipboard": "^3.3.1",
     "csv": "^2.0.0",
-    "dexie": "^1.5.1",
+    "dexie": "^3.2.2",
     "dom-element-is-natively-editable": "^1.0.4",
     "error-polyfill": "^0.1.2",
     "event-emitter": "^0.3.5",
