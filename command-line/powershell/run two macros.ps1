@@ -23,7 +23,7 @@ $path_log = $path_downloaddir + $log
 #Build command line (1=CHROME, 2=FIREFOX, 3=EDGE)
 $browser = 3
 Switch ($browser) {
-1 {$cmd = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"; break}
+1 {$cmd = "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe"; break}
 2 {$cmd = "${env:ProgramFiles}\Mozilla Firefox\firefox.exe"; break} #For FIREFOX
 3 {$cmd = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"; break} #For EDGE 
 }

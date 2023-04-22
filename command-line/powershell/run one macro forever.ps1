@@ -9,7 +9,7 @@
 function PlayAndWait ([string]$macro)
 {
 $timeout_seconds = 60 #max time in seconds allowed for macro to complete. Change this value if  your macros takes longer to run.
-$path_downloaddir = "c:\test\" #Where the script finds the kantu log files => *THIS MUST BE THE BROWSER DOWNLOAD FOLDER*, as specified in the browser settings
+$path_downloaddir = "c:\test\" #Where the script finds the RPA log files =>Without XModules THIS MUST BE THE BROWSER DOWNLOAD FOLDER*, as specified in the browser settings. With XModules installed, the &savelog= command line parameter can also take a full path (recommended). It is faster with a full path, and then there is no need to change the browser download directory.
 $path_autorun_html = "c:/test/ui.vision.html" #autorun page exported from API setttings page.
 
 #Optional: Kill Chrome instances (if any open)
@@ -22,7 +22,7 @@ $path_log = $path_downloaddir + $log
 #Build command line (1=CHROME, 2=FIREFOX, 3=EDGE)
 $browser = 3
 Switch ($browser) {
-1 {$cmd = "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"; break}
+1 {$cmd = "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe"; break}
 2 {$cmd = "${env:ProgramFiles}\Mozilla Firefox\firefox.exe"; break} #For FIREFOX
 3 {$cmd = "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"; break} #For EDGE 
 }

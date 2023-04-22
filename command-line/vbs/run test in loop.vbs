@@ -102,7 +102,7 @@ function PlayAndWait (macro)
    	'Build command line
 	Select Case browser
 	Case 1
-	    cmd = Chr(34) & "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" & Chr(34) & " -- "
+	    cmd = Chr(34) & "C:\Program Files\Google\Chrome\Application\chrome.exe" & Chr(34) & " -- "
 	Case 2
 	    cmd = Chr(34) & "C:\Program Files\Mozilla Firefox\firefox.exe" & Chr(34) & " "
 	Case 3

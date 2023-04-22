@@ -43,4 +43,4 @@ def PlayAndWait(macro, timeout_seconds = 10, var1 = '-', var2 = '-', var3 = '-',
 
 if __name__ == '__main__':
 
-	PlayAndWait('Demo/Core/DemoAutofill', timeout_seconds = 35, path_downloaddir = r'C:\test\\', path_autorun_html = r'c:\test\ui.vision.html', browser_path=r'C:\Program Files (x86)\Google\Chrome\Application\chrome.exe')
+	PlayAndWait('Demo/Core/DemoAutofill', timeout_seconds = 35, path_downloaddir = r'C:\test\\', path_autorun_html = r'c:\test\ui.vision.html', browser_path=r'C:\Program Files\Google\Chrome\Application\chrome.exe')

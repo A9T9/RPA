@@ -15,7 +15,7 @@ const
     downloadDirPath = 'c:\\test\\',
 
     autorunHtmlPath = 'c://test//ui.vision.html',
-    browserPath = 'c:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    browserPath = 'c:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
 	
 	//macOS Example paths
 	//downloadDirPath = '/Users/uitest/Downloads',
