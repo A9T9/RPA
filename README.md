@@ -1,4 +1,4 @@
-# UI.Vision [RPA](https://ui.vision/rpa) (formerly Kantu)
+# UI.Vision [RPA](https://ui.vision/rpa)
 
 - Modern Robotic Process Automation plus Selenium IDE++
 
