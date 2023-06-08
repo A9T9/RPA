@@ -21,7 +21,7 @@ def PlayAndWait(macro, timeout_seconds = 10, var1 = '-', var2 = '-', var3 = '-',
 	
 	status_runtime = 0
 	
-	print("Log File with show up at " + path_log)
+	print("Log File will show up at " + path_log)
 	
 	while(not os.path.exists(path_log) and status_runtime < timeout_seconds):
 		print("Waiting for macro to finish, seconds=%d" % status_runtime)
