@@ -33,7 +33,7 @@ The information below is only required and intended for developers:
 
 The project uses Node V20.11.1 and NPM V10.2.4
 
-If you have any questions, please contact us at TEAM@UI.VISION - Thanks!
+If you have any questions, please contact us at TEAM AT UI.VISION - Thanks!
 
 # To build the extension bundle
 
