@@ -8,6 +8,12 @@ export default function postLogicMiddleWare (extra) {
       setTimeout(() => {
         post({dispatch, getState}, action, extra)
       }, 0)
+    } else if (Array.isArray(post)) {
+      post.forEach((fn) => {
+        setTimeout(() => {
+          fn({dispatch, getState}, action, extra)
+        }, 0)
+      })
     }
 
     return next(action)

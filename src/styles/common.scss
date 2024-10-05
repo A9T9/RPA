@@ -1,4 +1,19 @@
+$bgSuccess: #d1ffd8;
+$bgError: #f7c1c1;
+$bgErrorInSub: #f8cf9d;
+$bgSelected: #fdffd1;
+$bgRunning: #d5d6f9;
+
 @mixin flexcol() {
   display: flex;
   flex-direction: column;
 }
+
+@mixin bgColorWithBlur ($color) {
+  background-color: $color;
+
+  &.blur {
+    background-color: fade-out($color: $color, $amount: 0.4);
+  }
+}
+

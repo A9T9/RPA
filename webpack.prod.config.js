@@ -2,12 +2,12 @@ var webpack = require('webpack');
 var fs   = require('fs');
 var path = require('path');
 var CopyWebpackPlugin = require('copy-webpack-plugin')
-var CleanWebpackPlugin = require('clean-webpack-plugin')
+const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 var ZipPlugin = require('zip-webpack-plugin')
 var HtmlWebpackPlugin = require('html-webpack-plugin')
-var HtmlWebpackIncludeSiblingChunksPlugin = require('html-webpack-include-sibling-chunks-plugin')
 var BrowserExtensionWebpackPlugin = require('./build/browser_extension_webpack_plugin')
 var manifestJson = require('./extension/manifest.json')
+const BundleAnalyzerPlugin = require('webpack-bundle-analyzer').BundleAnalyzerPlugin;
 
 var distDir = (function () {
   switch (process.env.BROWSER) {
@@ -25,7 +25,7 @@ module.exports = {
     options:          './src/options.ts',
     content_script:   './src/ext/content_script/index.js',
     inject:           './src/ext/inject.js',
-    background:       './src/ext/bg.js'
+    bg:               './src/ext/bg.js'
   },
   output: {
     path: path.join(__dirname, distDir),
@@ -35,11 +35,11 @@ module.exports = {
     minimizer: [],
     splitChunks: {
       automaticNameDelimiter: '_',
-      chunks: chunk => ['content_script', 'inject'].indexOf(chunk.name) === -1,
+      chunks: chunk => ['content_script', 'inject', 'bg'].indexOf(chunk.name) === -1,
       cacheGroups: {
-        vendor: {
-          name: 'vendor',
-          test: /node_modules/,
+        reactVendors: {
+          name: 'react-essentials',
+          test: /[\\/]node_modules[\\/](react|react-dom)[\\/]/,
           priority: -10
         }
       }
@@ -48,18 +48,36 @@ module.exports = {
   module: {
     rules: [
       {
-        test: /\.(js|jsx)$/,
-        use: 'babel-loader',
-        exclude: /(node_modules|bower_components)/
+        test: /\.(ts|tsx)$/, // Handle TypeScript files
+        exclude: /(node_modules|bower_components)/,
+        use: {
+          loader: 'babel-loader',
+          options: {
+            presets: ['@babel/preset-env', '@babel/preset-react', '@babel/preset-typescript']
+          }
+        }
       },
       {
-        test: /\.(ts|tsx)$/,
-        use: 'ts-loader',
-        exclude: /node_modules/
+        test: /\.(js|jsx)$/, // Handle JavaScript files
+        exclude: /(node_modules|bower_components)/,
+        use: {
+          loader: 'babel-loader',
+          options: {
+            presets: ['@babel/preset-env', '@babel/preset-react']
+          }
+        }
       },
       {
         test: /\.scss$/,
-        use: ['style-loader', 'css-loader', 'postcss-loader', 'sass-loader']
+        use: [
+          "style-loader",
+          "css-loader",
+          "postcss-loader",
+          {
+            loader: "sass-loader",
+            options: { implementation: require("sass") },
+          },
+        ],
       },
       {
         test: /\.css$/,
@@ -67,7 +85,7 @@ module.exports = {
           {
             loader: 'style-loader',
             options: {
-              insertAt: 'top'
+              // insertAt: 'top'
             }
           },
           'css-loader',
@@ -86,22 +104,41 @@ module.exports = {
     alias: {
       '@': path.join(__dirname, 'src'),
       '$': __dirname
+    },
+    fallback: {
+      buffer: require.resolve('buffer'),
+      stream: require.resolve('stream-browserify'),
+      'process/browser': require.resolve('process/browser')
     }
   },
   plugins: [
-    new CleanWebpackPlugin(path.resolve(__dirname, distDir)),
-    new CopyWebpackPlugin([
-      { from: 'extension' },
-      'webextension-imagesearch-1.0.1-extension/extension/js/kantusearch.js',
-      'webextension-imagesearch-1.0.1-extension/extension/js/kantusearch.wasm',
-      'webextension-imagesearch-1.0.1-extension/extension/js/worker-main.js',
-      'webextension-imagesearch-1.0.1-extension/extension/js/worker.js'
-    ]),
-    new HtmlWebpackIncludeSiblingChunksPlugin(),
+    // new BundleAnalyzerPlugin(), // uncomment and run build to see bundle size
+    new webpack.ProvidePlugin({
+      process: 'process/browser'
+    }),
+    new webpack.ProvidePlugin({
+      Buffer: ['buffer', 'Buffer']
+    }),
+    new CleanWebpackPlugin(),
+    new CopyWebpackPlugin({
+      patterns: [
+        { 
+          from: 'extension', 
+          globOptions: {
+            ignore: ['**/*.html', '**/manifest.json']
+          },
+        },
+      ],
+    }),
     new HtmlWebpackPlugin({
       chunks: ['popup'],
       template: './extension/popup.html',
       filename: 'popup.html'
+    }),
+    new HtmlWebpackPlugin({
+      chunks: ['popup'],
+      template: './extension/sidepanel.html',
+      filename: 'sidepanel.html'
     }),
     new HtmlWebpackPlugin({
       chunks: ['csv_editor'],
@@ -124,6 +161,8 @@ module.exports = {
       filename: 'options.html'
     }),
     new BrowserExtensionWebpackPlugin({
+      backgroundEntry: 'bg',
+      backgroundFileName: 'background.js',
       createManifestJson: ({ getFilesForEntryPoint }) => {
         if (process.env.BROWSER === 'firefox') {
           manifestJson['permissions'] = manifestJson['permissions'].filter(p => {
@@ -132,9 +171,10 @@ module.exports = {
             ].indexOf(p) === -1
           })
 
-          manifestJson['applications'] = {
+          manifestJson['browser_specific_settings'] = {
             gecko: {
-                id: 'kantu@a9t9.com'
+				id: 'kantu@a9t9.com',
+				strict_min_version: '115.0'			
             }
           }
 
@@ -144,12 +184,30 @@ module.exports = {
             }
           }
 
-          delete manifestJson['background']['persistent']
+          if (manifestJson['background']['service_worker']) {
+            manifestJson['background']['scripts'] = [ manifestJson['background']['service_worker'] ]
+            delete manifestJson['background']['service_worker']
+          }
+
+          if (manifestJson['side_panel']) {
+            manifestJson['sidebar_action'] = {
+              default_title: '__MSG_name__',
+              default_panel: manifestJson['side_panel']['default_path'],
+              default_icon: manifestJson['icons']['128'],
+              open_at_install: false
+            }
+            delete manifestJson['side_panel']
+          }
+
           delete manifestJson['offline_enabled']
-          delete manifestJson['options_page']
+          delete manifestJson['options_page']    
+          
+          // remove  sidePanel from permissions
+          manifestJson['permissions'] = manifestJson['permissions'].filter(p => {
+            return p !== 'sidePanel'
+          })     
         }
 
-        manifestJson['background']['scripts']     = getFilesForEntryPoint('background')
         manifestJson['content_scripts'][0]['js']  = getFilesForEntryPoint('content_script')
 
         return manifestJson
@@ -172,6 +230,16 @@ module.exports = {
   ],
   devtool: 'inline-source-map'
 };
+
+if (process.env.BROWSER !== 'firefox') { 
+  // idb.filesystem.js cannot be used (nor needed) in service worker in Chrome or Edge
+  module.exports.plugins = (module.exports.plugins || []).concat([
+      new webpack.NormalModuleReplacementPlugin(
+      /idb.filesystem.js/,
+      './empty_module.js'
+    )
+  ])
+}
 
 if (process.env.NODE_ENV === 'production') {
   delete module.exports.devtool

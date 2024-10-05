@@ -1,4 +1,5 @@
 import { Macro } from './convert_utils'
+import { EntryNode } from '@/services/storage/std/standard_storage'
 
 export type TestSuiteCase = {
   testCaseId: string;
@@ -20,5 +21,5 @@ export type TestSuite  = {
   playStatus: TestSuiteStatus;
 }
 
-declare const stringifyTestSuite: (testSuite: TestSuite, testCases: Macro[], opts?: Record<string, boolean>) => string
-declare const parseTestSuite: (str: string, testCases: Macro[], opts?: Record<string, boolean>) => TestSuite
+declare const stringifyTestSuite: (testSuite: TestSuite, opts?: Record<string, boolean>) => string
+declare const parseTestSuite: (str: string, opts?: Record<string, any>) => TestSuite

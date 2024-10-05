@@ -1,15 +1,15 @@
+import { Button, Modal, Select, message } from 'antd'
 import React from 'react'
 import { connect } from 'react-redux'
-import { bindActionCreators, compose }  from 'redux'
-import { Modal, Tabs, Icon, Select, Input, Button, Menu, Dropdown, Alert, message } from 'antd'
-import ClickOutside from 'react-click-outside'
+import { bindActionCreators } from 'redux'
 
-import './sidebar.scss'
 import * as actions from '../../actions'
-import { setIn, updateIn, cn } from '../../common/utils'
-import SidebarTestSuites from './test_suites'
+import { cn, delayMs, setIn, waitForRenderComplete } from '../../common/utils'
+import { FocusArea } from '../../reducers/state'
+import { getLicenseService } from '../../services/license'
+import { StorageManagerEvent, StorageStrategyType, getStorageManager } from '../../services/storage'
+import './sidebar.scss'
 import SidebarTestCases from './test_cases'
-import { StorageStrategyType, StorageManagerEvent, getStorageManager } from '../../services/storage'
 
 class Sidebar extends React.Component {
   state = {
@@ -96,16 +96,47 @@ class Sidebar extends React.Component {
       message.warn(e.message)
 
       if (e.message && /xFile is not installed yet/.test(e.message)) {
-        this.props.updateUI({ showFileNotInstalledDialog: true })
+        this.props.updateUI({ showXFileNotInstalledDialog: true })
       } else {
         this.props.updateUI({ showSettings: true, settingsTab: 'xmodules' })
       }
     })
   }
 
+  openRegisterSettings = (e) => {
+    if (e && e.preventDefault)  e.preventDefault()
+    this.props.updateUI({ showSettings: true, settingsTab: 'register' })
+  }
+
+  onClickSidebar = () => {
+    this.props.updateUI({ focusArea: FocusArea.Sidebar })
+  }
+
+  applyTreeViewScrollTop = () => {
+    delayMs(200).then(() => {
+      waitForRenderComplete().then(() => {
+        // const { src } = this.props.editing.meta
+        // const selectedMacroId = src.id
+        const selectedFileNodeElement = document.querySelector('.sidebar-macros .file-node.selected')
+        if (selectedFileNodeElement) {
+          selectedFileNodeElement.scrollIntoView({ block: 'center' })
+        }
+
+        // TODO: remove macroTreeViewScrollTop from config if the change is accepted
+        // alternative way to scroll to the last scroll position
+        // const lastScrollTop = this.props.config.macroTreeViewScrollTop
+        // console.log('render complete macroTreeViewScrollTop:>> ', this.props.config.macroTreeViewScrollTop)
+        // const container =  document.querySelector('.sidebar-inner')
+        // container.scrollTo({ top: lastScrollTop, behavior: 'instant' })
+      })
+    })
+  }
+
   componentDidMount () {
     const type = getStorageManager().getCurrentStrategyType()
     this.setState({ storageMode: type })
+    // this.bindScroll()
+    this.applyTreeViewScrollTop()
   }
 
   prefixHardDisk (str) {
@@ -136,12 +167,12 @@ class Sidebar extends React.Component {
     return (
       <Modal
         title=""
-        className={cn('xfile-not-installed-modal', { 'left-bottom': this.props.ui.showFileNotInstalledDialog === true })}
+        className={cn('xfile-not-installed-modal', { 'left-bottom': this.props.ui.showXFileNotInstalledDialog === true })}
         width={350}
         footer={null}
-        visible={this.props.ui.showFileNotInstalledDialog}
+        open={this.props.ui.showXFileNotInstalledDialog}
         onCancel={() => {
-          this.props.updateUI({ showFileNotInstalledDialog: false })
+          this.props.updateUI({ showXFileNotInstalledDialog: false })
         }}
       >
         <p>
@@ -152,7 +183,7 @@ class Sidebar extends React.Component {
             type="primary"
             onClick={() => {
               this.props.updateUI({
-                showFileNotInstalledDialog: false,
+                showXFileNotInstalledDialog: false,
                 showSettings: true,
                 settingsTab: 'xmodules'
               })
@@ -165,29 +196,64 @@ class Sidebar extends React.Component {
     )
   }
 
+  shouldRenderMacroNote () {
+    const { xmodulesStatus, storageMode } = this.props.config
+
+    if (storageMode !== StorageStrategyType.XFile)  return false
+    if (xmodulesStatus === 'pro') return false
+
+    const macroStorage = getStorageManager().getMacroStorage()
+    return macroStorage.getDisplayCount() < macroStorage.getTotalCount()
+  }
+
+  renderMacroNote () {
+    if (!this.shouldRenderMacroNote())  return null
+
+    const max = getLicenseService().getMaxXFileMacros()
+    const link = getLicenseService().getUpgradeUrl()
+
+    return (
+      <div className="note-for-macros">
+        {getLicenseService().hasNoLicense() ? (
+          <div>
+            Hard-Drive Access (PRO Feature):
+            <br />In FREE version, only the first {max} files/folders are displayed.
+            <br /><a href={link} onClick={this.openRegisterSettings}>Upgrade to PRO</a> to remove limit.
+          </div>
+        ) : null}
+
+        {getLicenseService().isPersonalLicense() ? (
+          <div>
+            XModules in Free Edition:
+            <br />Only the first {max} files/folders displayed.
+            <br /><a href={link} onClick={this.openRegisterSettings}>Upgrade to PRO or Enterprise</a> for unlimited files
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
   render () {
     return (
       <div
-        className="sidebar"
+        className={cn('sidebar', { 'with-xmodules-note': this.shouldRenderMacroNote() })}
         ref={el => { this.$dom = el }}
         style={{ minWidth: this.getSideBarMinWidth() }}
+        onClickCapture={this.onClickSidebar}
       >
-        <div className="sidebar-inner">
-          <Tabs
-            defaultActiveKey="macros"
-            activeKey={this.props.ui.sidebarTab || 'macros'}
-            onChange={activeKey => this.props.updateUI({ sidebarTab: activeKey })}
-          >
-            <Tabs.TabPane tab={this.prefixHardDisk('Macros')} key="macros">
+        <div className={cn('sidebar-inner', { 'no-tab': !this.props.config.showTestCaseTab })}>
+          {!this.props.config.showTestCaseTab ? (
+            <SidebarTestCases />
+          ) : (
+            <section style={{ paddingTop: 20, overflowX: 'hidden' }}>
               <SidebarTestCases />
-            </Tabs.TabPane>
-            <Tabs.TabPane tab={this.prefixHardDisk('Test Suites')} key="test_suites">
-              <SidebarTestSuites />
-            </Tabs.TabPane>
-          </Tabs>
+            </section>
+          )}
         </div>
 
         <div className="sidebar-storage-mode">
+          {this.renderMacroNote()}
+
           <div className="storage-mode-header">
             <h3>Storage Mode</h3>
             {getStorageManager().isXFileMode() ? (
@@ -204,7 +270,7 @@ class Sidebar extends React.Component {
                 }}
               />
             ) : null}
-            <a href="https://a9t9.com/x/idehelp?help=storage_mode" target="_blank">More Info</a>
+            <a href="https://goto.ui.vision/x/idehelp?help=storage_mode" target="_blank">More Info</a>
           </div>
           <Select
             style={{ width: '100%' }}
@@ -238,7 +304,6 @@ class Sidebar extends React.Component {
 export default connect(
   state => ({
     status: state.status,
-    testCases: state.editor.testCases,
     testSuites: state.editor.testSuites,
     editing: state.editor.editing,
     player: state.player,

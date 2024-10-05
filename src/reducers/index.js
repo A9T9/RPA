@@ -1,94 +1,26 @@
 import URL from 'url-parse'
 import isEqual from 'lodash.isequal'
 import { types as T } from '../actions/action_types'
+import { ActionTypes } from '../actions/simple_actions'
 import { setIn, updateIn, compose, pick, partial } from '../common/utils'
 import { normalizeCommand, normalizeTestCase } from '../models/test_case_model'
 import { toJSONString } from '../common/convert_utils'
 import * as C from '../common/constant'
 import log from '../common/log';
-
-const newTestCaseEditing = {
-  commands: [],
-  meta: {
-    src: null,
-    hasUnsaved: true,
-    selectedIndex: -1
-  }
-}
-
-// * editor
-//    * testCases:          all test cases stored in indexedDB
-//    * editing:            the current test cases being edited
-//    * clipbard            for copy / cut / paste
-//
-// * player                 the state for player
-//    * nextCommandIndex    the current command beging executed
-//    * errorCommandIndices commands that encounters some error
-//    * doneCommandIndices  commands that have been executed
-//    * currentLoop         the current round
-//    * loops               how many rounds to run totally
-
-const initialState = {
-  status: C.APP_STATUS.NORMAL,
-  recorderStatus: C.RECORDER_STATUS.STOPPED,
-  inspectorStatus: C.INSPECTOR_STATUS.STOPPED,
-  editor: {
-    testSuites: [],
-    testCases: [],
-    editing: {
-      ...newTestCaseEditing
-    },
-    editingSource: {
-      // Saved version
-      original: null,
-      // Version before editing
-      pure:     null,
-      // Version keeping track of any editing
-      current:  null,
-      error:    null
-    },
-    clipboard: {
-      commands: []
-    },
-    activeTab: 'table_view'
-  },
-  player: {
-    mode: C.PLAYER_MODE.TEST_CASE,
-    status: C.PLAYER_STATUS.STOPPED,
-    stopReason: null,
-    currentLoop: 0,
-    loops: 0,
-    nextCommandIndex: null,
-    errorCommandIndices: [],
-    doneCommandIndices: [],
-    breakpointIndices: [],
-    playInterval: 0,
-    timeoutStatus: {
-      type: null,
-      total: null,
-      past: null
-    }
-  },
-  variables: [],
-  logs: [],
-  screenshots: [],
-  csvs: [],
-  visions: [],
-  config: {},
-  ui: {}
-}
+import { safeSetIn, safeUpdateIn } from '../common/ts_utils'
+import { getCurrentMacroId, getMacroFileNodeList, getShouldIgnoreTargetOptions } from '../recomputed'
+import { initialState, newTestCaseEditing } from './state'
 
 // Note: for update the `hasUnsaved` status in editing.meta
 const updateHasUnSaved = (state) => {
   const { meta, ...data } = state.editor.editing
   const id = meta.src && meta.src.id
-  if (!id)  return state
+  if (!id) return state
 
-  const tc = state.editor.testCases.find(tc => tc.id === id)
-  if (!tc)  return state
-
+  const currentMacro = state.editor.currentMacro
   const normalizedEditing = normalizeTestCase({ data })
-  const hasUnsaved = !isEqual(tc.data, normalizedEditing.data)
+  const hasUnsaved = !isEqual(currentMacro && currentMacro.data, normalizedEditing.data)
+
   return setIn(['editor', 'editing', 'meta', 'hasUnsaved'], hasUnsaved, state)
 }
 
@@ -145,7 +77,9 @@ const updateBreakpointIndices = (indices, action, actionIndex) => {
 
 const resetEditingSource = partial((macro, state) => {
   log('resetEditingSource', macro)
-  const str = toJSONString(macro)
+  const str = toJSONString(macro, {
+    ignoreTargetOptions: getShouldIgnoreTargetOptions(state)
+  })
   return setIn(
     ['editor', 'editingSource'],
     {
@@ -163,9 +97,11 @@ const setEditingSourceCurrent = (state) => {
     name:     state.editor.editing.meta.src ? state.editor.editing.meta.src.name : 'Untitled',
     commands: state.editor.editing.commands
   }
-  log('setEditingSourceCurrent', macro)
+  // log('setEditingSourceCurrent', macro)
 
-  const str = toJSONString(macro)
+  const str = toJSONString(macro, {
+    ignoreTargetOptions: getShouldIgnoreTargetOptions(state)
+  })
   return updateIn(['editor', 'editingSource'], editingSource => ({ ...editingSource, pure: str, current: str }), state)
 }
 
@@ -175,12 +111,20 @@ const saveEditingSourceCurrent = (state) => {
 }
 
 const setEditingSourceOriginalAndPure = (macro, state) => {
-  const str = toJSONString(macro)
+  const str = toJSONString(macro, {
+    ignoreTargetOptions: getShouldIgnoreTargetOptions(state)
+  })
   return updateIn(['editor', 'editingSource'], editingSource => ({ ...editingSource, pure: str, original: str }), state)
 }
 
+// for test purpose
+export const INCREMENT = 'INCREMENT';
+
 export default function reducer (state = initialState, action) {
   switch (action.type) {
+    // for test purpose
+    case INCREMENT:
+      return { ...state, count: state.count + 1 };
     case T.START_RECORDING_SUCCESS:
       return {
         ...state,
@@ -188,9 +132,7 @@ export default function reducer (state = initialState, action) {
         recorderStatus: C.APP_STATUS.PENDING,
         player: {
           ...state.player,
-          nextCommandIndex: null,
-          errorCommandIndices: [],
-          doneCommandIndices: []
+          nextCommandIndex: null
         }
       }
     case T.STOP_RECORDING_SUCCESS:
@@ -252,9 +194,9 @@ export default function reducer (state = initialState, action) {
             return newCommands
           }
         ),
-        updateIn(
-          ['player', 'breakpointIndices'],
-          (indices) => updateBreakpointIndices(indices, 'add', action.data.index + 1)
+        safeUpdateIn(
+          ['editor', 'macrosExtra', getCurrentMacroId(state), 'breakpointIndices'],
+          (indices) => updateBreakpointIndices(indices || [], 'add', action.data.index + 1)
         )
       )(state)
 
@@ -267,6 +209,15 @@ export default function reducer (state = initialState, action) {
           action.data.index
         ),
         updateIn(
+          ['editor', 'editing', 'meta', 'indexToInsertRecorded'],
+          (recordIndex) => {
+            if (recordIndex === undefined || recordIndex === null || recordIndex < 0) {
+              return recordIndex
+            }
+            return recordIndex + (action.data.index <= recordIndex ? 1 : 0)
+          }
+        ),
+        updateIn(
           ['editor', 'editing', 'commands'],
           (commands) => {
             const { index, command } = action.data
@@ -275,9 +226,11 @@ export default function reducer (state = initialState, action) {
             return newCommands
           }
         ),
-        updateIn(
-          ['player', 'breakpointIndices'],
-          (indices) => updateBreakpointIndices(indices, 'add', action.data.index)
+        safeUpdateIn(
+          ['editor', 'macrosExtra', getCurrentMacroId(state), 'breakpointIndices'],
+          (indices) => {
+            return updateBreakpointIndices(indices || [], 'add', action.data.index)
+          }
         )
       )(state)
 
@@ -285,9 +238,9 @@ export default function reducer (state = initialState, action) {
       return compose(
         setEditingSourceCurrent,
         updateHasUnSaved,
-        setIn(
+        updateIn(
           ['editor', 'editing', 'commands', action.data.index],
-          action.data.command
+          (cmdObj) => ({...cmdObj, ...action.data.command})
         )
       )(state)
 
@@ -295,6 +248,20 @@ export default function reducer (state = initialState, action) {
       return compose(
         setEditingSourceCurrent,
         updateHasUnSaved,
+        (state) => {
+          const { commands, meta } = state.editor.editing
+          const isSelectedIndexStillValid = meta.selectedIndex >= 0 && meta.selectedIndex < commands.length
+
+          if (isSelectedIndexStillValid) {
+            return state
+          }
+
+          const startDistance     = action.data.index
+          const endDistance       = commands.length - action.data.index - 1
+          const nextSelectedIndex = startDistance < endDistance ? 0 : (commands.length - 1)
+
+          return setIn(['editor', 'editing', 'meta', 'selectedIndex'], nextSelectedIndex, state)
+        },
         updateIn(
           ['editor', 'editing', 'commands'],
           (commands) => {
@@ -304,9 +271,9 @@ export default function reducer (state = initialState, action) {
             return newCommands
           }
         ),
-        updateIn(
-          ['player', 'breakpointIndices'],
-          (indices) => updateBreakpointIndices(indices, 'delete', action.data.index)
+        safeUpdateIn(
+          ['editor', 'macrosExtra', getCurrentMacroId(state), 'breakpointIndices'],
+          (indices) => updateBreakpointIndices(indices || [], 'delete', action.data.index)
         )
       )(state)
 
@@ -318,6 +285,21 @@ export default function reducer (state = initialState, action) {
             state.editor.editing.meta.selectedIndex !== action.data.index)
                 ? action.data.index
                 : -1
+        ),
+        // Note: normalize commands whenever switching between commands in normal mode
+        state.status === C.APP_STATUS.NORMAL
+          ? updateIn(
+            ['editor', 'editing', 'commands'],
+            (cmds) => cmds.map(normalizeCommand)
+          )
+          : x => x
+      )(state)
+
+    case T.UPDATE_EDITING:
+      return compose(
+        setIn(
+          ['editor', 'editing'],
+          action.data.editing
         ),
         // Note: normalize commands whenever switching between commands in normal mode
         state.status === C.APP_STATUS.NORMAL
@@ -342,9 +324,9 @@ export default function reducer (state = initialState, action) {
             return newCommands.filter((c, i) => action.data.indices.indexOf(i) === -1)
           }
         ),
-        updateIn(
-          ['player', 'breakpointIndices'],
-          (indices) => updateBreakpointIndices(indices, 'delete', action.data.indices)
+        safeUpdateIn(
+          ['editor', 'macrosExtra', getCurrentMacroId(state), 'breakpointIndices'],
+          (indices) => updateBreakpointIndices(indices || [], 'delete', action.data.indices)
         )
       )(state)
     }
@@ -368,10 +350,45 @@ export default function reducer (state = initialState, action) {
             return newCmds
           }
         ),
-        updateIn(
-          ['player', 'breakpointIndices'],
-          (indices) => updateBreakpointIndices(indices, 'add', commands.map(_ => action.data.index + 1))
+        safeUpdateIn(
+          ['editor', 'macrosExtra', getCurrentMacroId(state), 'breakpointIndices'],
+          (indices) => updateBreakpointIndices(indices || [], 'add', commands.map(_ => action.data.index + 1))
         )
+      )(state)
+    }
+
+    case ActionTypes.moveCommands: {
+      const { commands = [] } = state.editor.editing
+      const { startIndex, endIndex } = action.data
+
+      if (startIndex < 0 || startIndex >= commands.length) {
+        throw new Error('startIndex is out of range')
+      }
+
+      if (endIndex < 0 || endIndex >= commands.length) {
+        throw new Error('endIndex is out of range')
+      }
+
+      if (endIndex === startIndex) {
+        throw new Error('startIndex and endIndex must be different')
+      }
+
+      const newCommands = [...commands]
+
+      newCommands.splice(startIndex, 1)
+      newCommands.splice(endIndex, 0, commands[startIndex])
+
+      return compose(
+        setEditingSourceCurrent,
+        updateHasUnSaved,
+        setIn(['editor', 'editing', 'commands'], newCommands),
+        updateIn(['editor', 'editing', 'meta', 'selectedIndex'], (selectedIndex) => {
+          switch (selectedIndex) {
+            case startIndex:    return endIndex
+            case endIndex:      return startIndex
+            default:            return selectedIndex
+          }
+        })
       )(state)
     }
 
@@ -392,7 +409,7 @@ export default function reducer (state = initialState, action) {
         updateHasUnSaved,
         updateIn(
           ['editor', 'editing', 'commands', state.editor.editing.meta.selectedIndex],
-          (cmdObj) => ({...cmdObj, ...action.data})
+          (cmdObj) => normalizeCommand({...cmdObj, ...action.data})
         )
       )(state)
 
@@ -436,7 +453,7 @@ export default function reducer (state = initialState, action) {
     case T.SET_TEST_SUITES:
       return setIn(['editor', 'testSuites'], action.data, state)
 
-    case T.UPDATE_TEST_SUITE: {
+    case ActionTypes.updateTestSuite: {
       const { id, updated } = action.data
       const index = state.editor.testSuites.findIndex(ts => ts.id === id)
 
@@ -444,8 +461,19 @@ export default function reducer (state = initialState, action) {
       return setIn(['editor', 'testSuites', index], updated, state)
     }
 
+    case T.UPDATE_TEST_SUITE_STATUS: {
+      const { id, extra } = action.data
+      if (!id)  return state
+
+      return updateIn(
+        ['editor', 'testSuitesExtra'],
+        data => ({...data, [id]: extra}),
+        state
+      )
+    }
+
     case T.SET_EDITING:
-      log('REDUCER SET_EDITING', action.data)
+      // log('REDUCER SET_EDITING', action.data)
 
       if (!action.data) return state
       return compose(
@@ -455,20 +483,21 @@ export default function reducer (state = initialState, action) {
       )(state)
 
     case T.EDIT_TEST_CASE: {
-      const { testCases } = state.editor
-      const tc = testCases.find(tc => tc.id === action.data)
+      const { id } = state.editor.editing.meta.src || {}
 
-      if (!tc)  return state
+      if (!action.data.macro)  return state
+
+      const macro = action.data.macro
 
       return compose(
         setIn(
           ['editor', 'editing'],
           {
-            ...tc.data,
+            ...macro.data,
             meta: {
               selectedIndex: -1,
               hasUnsaved: false,
-              src: pick(['id', 'name'], tc)
+              src: pick(['id', 'name'], macro)
             }
           }
         ),
@@ -478,35 +507,42 @@ export default function reducer (state = initialState, action) {
             ...player,
             status: C.PLAYER_STATUS.STOPPED,
             stopReason: null,
-            nextCommandIndex: null,
-            errorCommandIndices: [],
-            doneCommandIndices: [],
-            breakpointIndices: []
+            nextCommandIndex: null
           })
         ),
         resetEditingSource({
-          name:     tc.name,
-          commands: tc.data.commands
-        })
+          name:     macro.name,
+          commands: macro.data.commands
+        }),
+        updateHasUnSaved
       )(state)
     }
 
-    case T.UPDATE_TEST_CASE_STATUS: {
-      const { id, status } = action.data
+    case T.SET_ONE_MACRO_EXTRA: {
+      const { id, extra } = action.data
+
       if (!id)  return state
 
-      const { testCases } = state.editor
-      const index = testCases.findIndex(tc => tc.id === id)
-      if (index === -1) return state
-
-      return setIn(
-        ['editor', 'testCases', index, 'status'],
-        status,
+      return safeSetIn(
+        ['editor', 'macrosExtra', id],
+        extra,
         state
       )
     }
 
-    case T.RENAME_TEST_CASE:
+    case T.UPDATE_ONE_MACRO_EXTRA: {
+      const { id, extra } = action.data
+
+      if (!id)  return state
+
+      return safeUpdateIn(
+        ['editor', 'macrosExtra', id],
+        (data) => ({ ...data, ...extra }),
+        state
+      )
+    }
+
+    case ActionTypes.renameTestCase:
       return setIn(['editor', 'editing', 'meta', 'src', 'name'], action.data, state)
 
     case T.REMOVE_TEST_CASE: {
@@ -547,10 +583,7 @@ export default function reducer (state = initialState, action) {
         ),
         updateIn(['player'], (player) => ({
           ...player,
-          nextCommandIndex: null,
-          errorCommandIndices: [],
-          doneCommandIndices: [],
-          breakpointIndices: []
+          nextCommandIndex: null
         })),
         resetEditingSource({
           name:     'Untitled',
@@ -559,29 +592,38 @@ export default function reducer (state = initialState, action) {
       )(state)
     }
 
+    case T.SET_MACROS_EXTRA: {
+      return setIn(['editor', 'macrosExtra'], action.data, state)
+    }
+
+    case T.SET_TEST_SUITES_EXTRA: {
+      return setIn(['editor', 'testSuitesExtra'], action.data, state)
+    }
+
+    case ActionTypes.setMacroFolderStructure: {
+      return setIn(['editor', 'macroFolderStructure'], action.data, state)
+    }
+
+    case ActionTypes.setTestSuiteFolderStructure: {
+      return setIn(['editor', 'testSuiteFolderStructure'], action.data, state)
+    }
+
     case T.SET_PLAYER_STATE:
-      return updateIn(['player'], (playerState) => ({...playerState, ...action.data}), state)
-
-    case T.PLAYER_ADD_ERROR_COMMAND_INDEX:
-      return updateIn(
-        ['player', 'errorCommandIndices'],
-        (indices) => [...indices, action.data],
-        state
-      )
-
-    case T.ADD_BREAKPOINT:
-      return updateIn(
-        ['player', 'breakpointIndices'],
-        (indices) => indices.indexOf(action.data) === -1 ? [...indices, action.data] : indices,
-        state
-      )
-
-    case T.REMOVE_BREAKPOINT:
-      return updateIn(
-        ['player', 'breakpointIndices'],
-        (indices) => indices.filter(index => index !== action.data),
-        state
-      )
+      return compose(
+        updateIn(['player'], (playerState) => ({...playerState, ...action.data})),
+        updateIn(['noDisplayInPlay'], (noDisplayInPlay) => {
+          // Reset noDisplay to false when macro stops playing
+          return action.data.status === C.PLAYER_STATUS.STOPPED ? false : noDisplayInPlay
+        }),
+        updateIn(['ocrInDesktopMode'], (ocrInDesktopMode) => {
+          // Reset ocrInDesktopMode to false when macro stops playing
+          return action.data.status === C.PLAYER_STATUS.STOPPED ? false : ocrInDesktopMode
+        }),
+        updateIn(['replaySpeedOverrideToFastMode'], (replaySpeedOverrideToFastMode) => {
+          // Reset replaySpeedOverrideToFastMode to false when macro stops playing
+          return action.data.status === C.PLAYER_STATUS.STOPPED ? false : replaySpeedOverrideToFastMode
+        })
+      )(state)
 
     case T.ADD_LOGS:
       return {
@@ -655,6 +697,61 @@ export default function reducer (state = initialState, action) {
 
     case T.SET_SOURCE_CURRENT: {
       return setIn(['editor', 'editingSource', 'current'], action.data, state)
+    }
+
+    case T.UPDATE_PROXY: {
+      return {
+        ...state,
+        proxy: action.data
+      }
+    }
+
+    case ActionTypes.setIsDraggingCommand: {
+      return setIn(['editor', 'isDraggingCommand'], action.data, state)
+    }
+
+    case ActionTypes.setCurrentMacro: {
+      return setIn(['editor', 'currentMacro'], action.data, state)
+    }
+
+    case ActionTypes.setIsLoadingMacros: {
+      return setIn(['isLoadingMacros'], action.data, state)
+    }
+
+    case ActionTypes.setFrom: {
+      return setIn(['from'], action.data, state)
+    }
+
+    case ActionTypes.setNoDisplayInPlay: {
+      return setIn(['noDisplayInPlay'], action.data, state)
+    }
+
+    case ActionTypes.setOcrInDesktopMode: {
+      return setIn(['ocrInDesktopMode'], action.data, state)
+    }
+
+    case ActionTypes.setReplaySpeedOverrideToFastMode: {
+      return setIn(['replaySpeedOverrideToFastMode'], action.data, state)
+    }
+
+    case ActionTypes.setMacroQuery: {
+      return setIn(['macroQuery'], action.data, state)
+    }
+
+    case ActionTypes.setIndexToInsertRecorded: {
+      return setIn(
+        ['editor', 'editing', 'meta', 'indexToInsertRecorded'],
+        action.data,
+        state
+      )
+    }
+
+    case ActionTypes.toggleRecorderSkipOpen: {
+      return updateIn(
+        ['recorder', 'skipOpen'],
+        (skipOpen) => action.data !== undefined ? action.data : !skipOpen,
+        state
+      )
     }
 
     default:

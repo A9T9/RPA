@@ -41,7 +41,11 @@ export const MethodTypeFriendlyNames: Array<string> = [
     "AppendAllText",
     "ReadAllBytes",
     "WriteAllBytes",
-    "AppendAllBytes"
+    "AppendAllBytes",
+    "GetMaxFileRange",
+    "GetFileSize",
+    "ReadFileRange",
+    "RunProcess"
 ];
 
 export const MethodTypeInvocationNames: Array<string> = [
@@ -63,5 +67,9 @@ export const MethodTypeInvocationNames: Array<string> = [
     "append_all_text",
     "read_all_bytes",
     "write_all_bytes",
-    "append_all_bytes"
+    "append_all_bytes",
+    "get_max_file_range",
+    "get_file_size",
+    "read_file_range",
+    "run_process"
 ];

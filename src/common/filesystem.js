@@ -1,10 +1,12 @@
+// idb.filesystem.js is required for Firefox because it doesn't support `requestFileSystem` and `webkitRequestFileSystem`
 import 'idb.filesystem.js'
 
 const fs = (function () {
-  const requestFileSystem = window.requestFileSystem || window.webkitRequestFileSystem
+  const requestFileSystem = self.requestFileSystem || self.webkitRequestFileSystem
 
   if (!requestFileSystem) {
-    throw new Error('requestFileSystem not supported')
+    console.warn('requestFileSystem not supported')
+    return undefined
   }
 
   const dumbSize  = 1024 * 1024
@@ -37,6 +39,28 @@ const fs = (function () {
     return pFS.then(fs => getDir(parts, fs.root))
   }
 
+  const ensureDirectory = (dir, fs) => {
+    return getDirectory(dir, true, fs)
+  }
+
+  const rmdir = (dir, fs) => {
+    return getDirectory(dir, false, fs)
+    .then((directoryEntry) => {
+      return new Promise((resolve, reject) => {
+        directoryEntry.remove(resolve, reject)
+      })
+    })
+  }
+
+  const rmdirR = (dir, fs) => {
+    return getDirectory(dir, false, fs)
+    .then((directoryEntry) => {
+      return new Promise((resolve, reject) => {
+        return directoryEntry.removeRecursively(resolve, reject)
+      })
+    })
+  }
+
   // @return a Promise of [FileSystemEntries]
   const list = (dir = '/') => {
     return getFS(dumbSize)
@@ -60,6 +84,10 @@ const fs = (function () {
         })
         .catch(reject)
       })
+    })
+    .catch(e => {
+      console.warn('list', e.code, e.name, e.message)
+      throw e
     })
   }
 
@@ -103,6 +131,10 @@ const fs = (function () {
         })
       })
     })
+    .catch(e => {
+      console.warn('readFile', e.code, e.name, e.message)
+      throw e
+    })
   }
 
   const writeFile = (filePath, blob, size) => {
@@ -122,6 +154,10 @@ const fs = (function () {
         })
       })
     })
+    .catch(e => {
+      console.warn(e.code, e.name, e.message)
+      throw e
+    })
   }
 
   const removeFile = (filePath) => {
@@ -135,6 +171,10 @@ const fs = (function () {
           }, reject)
         })
       })
+    })
+    .catch(e => {
+      console.warn('removeFile', e.code, e.name, e.message)
+      throw e
     })
   }
 
@@ -153,14 +193,57 @@ const fs = (function () {
 
         return new Promise((resolve, reject) => {
           srcDirEntry.getFile(srcFileName, {}, (fileEntry) => {
-            fileEntry.moveTo(tgtDirEntry, tgtFileName, resolve, reject)
+            try {
+              fileEntry.moveTo(tgtDirEntry, tgtFileName, resolve, reject)
+            } catch (e) {
+              // Note: For firefox, we use `idb.filesystem.js`, but it hasn't implemented `moveTo` method
+              // so we have to mock it with read / write / remove
+              readFile(srcPath, 'ArrayBuffer')
+              .then(arrayBuffer => writeFile(targetPath, new Blob([new Uint8Array(arrayBuffer)])))
+              .then(() => removeFile(srcPath))
+              .then(resolve, reject)
+            }
           }, reject)
         })
       })
     })
   }
 
-  const getMetadata = (filePath) => {
+  const copyFile = (srcPath, targetPath) => {
+    return getFS()
+    .then(fs => {
+      return Promise.all([
+        fileLocator(srcPath, fs),
+        fileLocator(targetPath, fs)
+      ])
+      .then(tuple => {
+        const srcDirEntry = tuple[0].directoryEntry
+        const srcFileName = tuple[0].fileName
+        const tgtDirEntry = tuple[1].directoryEntry
+        const tgtFileName = tuple[1].fileName
+
+        return new Promise((resolve, reject) => {
+          srcDirEntry.getFile(srcFileName, {}, (fileEntry) => {
+            try {
+              fileEntry.copyTo(tgtDirEntry, tgtFileName, resolve, reject)
+            } catch (e) {
+              // Note: For firefox, we use `idb.filesystem.js`, but it hasn't implemented `copyTo` method
+              // so we have to mock it with read / write
+              readFile(srcPath, 'ArrayBuffer')
+              .then(arrayBuffer => writeFile(targetPath, new Blob([new Uint8Array(arrayBuffer)])))
+              .then(resolve, reject)
+            }
+          }, reject)
+        })
+      })
+    })
+    .catch(e => {
+      console.warn('copyFile', e.code, e.name, e.message)
+      throw e
+    })
+  }
+
+  const getMetadata = (filePath, isDirectory = false) => {
     return getFS()
     .then(fs => {
       if (filePath.getMetadata) {
@@ -172,25 +255,42 @@ const fs = (function () {
       return fileLocator(filePath, fs)
       .then(({ directoryEntry, fileName }) => {
         return new Promise((resolve, reject) => {
-          directoryEntry.getFile(fileName, { create: true }, (fileEntry) => {
-            fileEntry.getMetadata(resolve)
-          }, reject)
+          const args = [
+            fileName,
+            { create: false },
+            (entry) => {
+              entry.getMetadata(resolve)
+            },
+            reject
+          ]
+
+          if (isDirectory) {
+            directoryEntry.getDirectory(...args)
+          } else {
+            directoryEntry.getFile(...args)
+          }
         })
       })
     })
+    .catch(e => {
+      console.warn('getMetadata', e.code, e.name, e.message)
+      throw e
+    })
   }
 
-  const exists = (filePath, { type } = {}) => {
+  const existsStat = (entryPath) => {
     return getFS()
     .then(fs => {
-      return fileLocator(filePath, fs)
+      return fileLocator(entryPath, fs)
       .then(({ directoryEntry, fileName }) => {
         const isSomeEntry = (getMethodName) =>  {
           return new Promise((resolve) => {
             directoryEntry[getMethodName](
               fileName,
               { create: false },
-              () => resolve(true),
+              (data) => {
+                resolve(true)
+              },
               () => resolve(false)
             )
           })
@@ -200,14 +300,41 @@ const fs = (function () {
         const pIsDir  = isSomeEntry('getDirectory')
 
         return Promise.all([pIsFile, pIsDir])
-        .then(([isFile, isDir]) => {
-          switch (type) {
-            case 'file':        return isFile
-            case 'directory':   return isDir
-            default:            return isFile || isDir
+        .then(([isFile, isDirectory]) => {
+          return {
+            isFile,
+            isDirectory
           }
         })
       })
+    })
+    .catch(e => {
+      // DOMException.NOT_FOUND_ERR === 8
+      if (e && e.code === 8) {
+        return {
+          isFile:      false,
+          isDirectory: false
+        }
+      }
+
+      console.warn('fs.exists', e.code, e.name, e.message)
+      throw e
+    })
+  }
+
+  const exists = (entryPath, { type } = {}) => {
+    return existsStat(entryPath)
+    .then((stat) => {
+      switch (type) {
+        case 'file':
+          return stat.isFile
+
+        case 'directory':
+          return stat.isDirectory
+
+        default:
+          return stat.isFile || stat.isDirectory
+      }
     })
   }
 
@@ -217,13 +344,18 @@ const fs = (function () {
     writeFile,
     removeFile,
     moveFile,
+    copyFile,
     getDirectory,
     getMetadata,
-    exists
+    ensureDirectory,
+    exists,
+    existsStat,
+    rmdir,
+    rmdirR
   }
 })()
 
 // For test only
-window.fs = fs
+self.fs = fs
 
 export default fs

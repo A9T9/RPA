@@ -1,12 +1,15 @@
-const { retry } = require('../utils')
+import config from '@/config'
+import { retry } from '@/common/utils'
 
-var TO_BE_REMOVED = false;
+let TO_BE_REMOVED = false;
 
-var log = function (msg) {
+let log = function (msg) {
   if (console && console.log) console.log(msg);
 };
 
-var transformError = function (err) {
+let transformError = function (err) {
+  console.error(err)
+
   if (err instanceof Error) {
     return {
       isError: true,
@@ -42,24 +45,30 @@ var transformError = function (err) {
 // })
 // ```
 function ipcPromise (options) {
-  var ask         = options.ask
-  var answer      = options.answer
-  var timeout     = options.timeout
-  var onAnswer    = options.onAnswer
-  var onAsk       = options.onAsk
-  var userDestroy = options.destroy
-  var checkReady  = options.checkReady || function () { return Promise.resolve(true) }
+  let ask         = options.ask
+  let answer      = options.answer
+  let timeout     = options.timeout
+  let onAnswer    = options.onAnswer
+  let onAsk       = options.onAsk
+  let userDestroy = options.destroy
+  let checkReady  = options.checkReady || function () { return Promise.resolve(true) }
 
-  var askCache = {}
-  var unhandledAsk = []
-  var markUnhandled = function (uid, cmd, args) {
+  let nid = 0
+  let askCache = {}
+  let unhandledAsk = []
+  let markUnhandled = function (uid, cmd, args) {
     unhandledAsk.push({ uid: uid, cmd: cmd, args: args });
   }
-  var handler = markUnhandled
+  let handler = markUnhandled
 
-  var runHandlers = (handlers, cmd, args, resolve, reject) => {
+  let getNextNid = () => {
+    nid = (nid + 1) % 100000
+    return nid
+  }
+
+  let runHandlers = (handlers, cmd, args, resolve, reject) => {
     for (let i = 0, len = handlers.length; i < len; i++) {
-      var res
+      let res
 
       try {
         res = handlers[i](cmd, args)
@@ -88,8 +97,8 @@ function ipcPromise (options) {
       return;
     }
 
-    var resolve = askCache[uid][0];
-    var reject  = askCache[uid][1];
+    let resolve = askCache[uid][0];
+    let reject  = askCache[uid][1];
 
     delete askCache[uid];
 
@@ -103,7 +112,7 @@ function ipcPromise (options) {
   onAsk(function (uid, cmd, args) {
     if (timeout > 0) {
       setTimeout(function () {
-        var found = unhandledAsk && unhandledAsk.find(function (item) {
+        let found = unhandledAsk && unhandledAsk.find(function (item) {
           return item.uid === uid;
         });
 
@@ -123,46 +132,78 @@ function ipcPromise (options) {
     })
     .then(
       function (data) {
-        // note: handler doens't handle the cmd => return undefined, should wait for timeout
+        // note: handler doesn't handle the cmd => return undefined, should wait for timeout
         if (data === undefined)  return markUnhandled(uid, cmd, args);
         answer(uid, null, data)
       },
-      function (err)  { answer(uid, transformError(err), null) }
+      function (err)  {
+        answer(uid, transformError(err), null)
+      }
     );
   });
 
-  var wrapAsk = function (cmd, args, timeoutToOverride) {
-    var uid = 'ipcp_' + new Date() * 1 + '_' + Math.round(Math.random() * 1000);
-    var finalTimeout = timeoutToOverride || timeout
+  let wrapAsk = function (cmd, args, timeoutToOverride) {
+    let uid = 'ipcp_' + new Date() * 1 + '_' + getNextNid();
+    let finalTimeout = timeoutToOverride || timeout
+    let timer
+
+    if (args && args.payload && args.payload.args && args.payload.args.command && args.payload.args.command.cmd) {
+      let cmd = args.payload.args.command.cmd
+      if (cmd === 'executeScript') {
+        let minimumTimeout = config.executeScript.minimumTimeout // 5000
+        finalTimeout = finalTimeout < minimumTimeout ? minimumTimeout : finalTimeout
+      }
+    }
 
     // Note: make it possible to disable timeout
     if (finalTimeout > 0) {
-      setTimeout(function () {
-        var reject;
+      timer = setTimeout(function () {
+        let reject;
 
         if (askCache && askCache[uid]) {
           reject = askCache[uid][1];
           askCache[uid] = TO_BE_REMOVED;
-          reject(new Error('ipcPromise: onAsk timeout ' + finalTimeout + ' for cmd "' + cmd + '", args "'  + args + '"'));
+          console.error('ipcPromise: onAsk timeout ' + finalTimeout + ' for cmd "' + cmd + '", args '  + stringify(args));
+          const errMsg = `Error #102: Lost contact to website`;
+          reject(new Error(errMsg));
         }
       }, finalTimeout);
     }
 
-    ask(uid, cmd, args || []);
-
     return new Promise(function (resolve, reject) {
       askCache[uid] = [resolve, reject];
-    });
+
+      Promise.resolve(
+        ask(uid, cmd, args || [])
+      )
+      .catch(e => {
+        reject(e)
+      })
+    })
+    .then(
+      (data) => {
+        if (timer) {
+          clearTimeout(timer)
+        }
+        return data
+      },
+      (e) => {
+        if (timer) {
+          clearTimeout(timer)
+        }
+        throw e
+      }
+    );
   }
 
-  var wrapOnAsk = function (fn) {
+  let wrapOnAsk = function (fn) {
     if (Array.isArray(handler)) {
       handler.push(fn)
     } else {
       handler = [fn]
     }
 
-    var ps = unhandledAsk.map(function (task) {
+    let ps = unhandledAsk.map(function (task) {
       return new Promise((resolve, reject) => {
         runHandlers(handler, task.cmd, task.args, resolve, reject)
       })
@@ -181,10 +222,10 @@ function ipcPromise (options) {
     });
 
     Promise.all(ps).then(function (uids) {
-      for (var uid of uids) {
+      for (let uid of uids) {
         if (uid === undefined)  continue;
 
-        var index = unhandledAsk.findIndex(function (item) {
+        let index = unhandledAsk.findIndex(function (item) {
           return item.uid === uid;
         });
 
@@ -193,7 +234,7 @@ function ipcPromise (options) {
     });
   };
 
-  var destroy = function (noReject) {
+  let destroy = function (noReject) {
     userDestroy && userDestroy();
 
     ask = null;
@@ -204,15 +245,15 @@ function ipcPromise (options) {
 
     if (!noReject) {
       Object.keys(askCache).forEach(function (uid) {
-        var tuple = askCache[uid];
-        var reject = tuple[1];
+        let tuple = askCache[uid];
+        let reject = tuple[1];
         reject && reject(new Error('IPC Promise has been Destroyed.'));
         delete askCache[uid];
       });
     }
   };
 
-  var waitForReady = function (checkReady, fn) {
+  let waitForReady = function (checkReady, fn) {
     return (...args) => {
       const makeSureReady = retry(checkReady, {
         shouldRetry: () => true,
@@ -246,5 +287,9 @@ ipcPromise.serialize = function (obj) {
     destroy: obj.destroy
   };
 };
+
+function stringify (v) {
+  return v === undefined ? 'undefined' : JSON.stringify(v)
+}
 
 module.exports = ipcPromise;

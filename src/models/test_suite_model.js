@@ -1,4 +1,5 @@
 import { uid, pick, compose, on, map } from '../common/utils'
+import { pickIfExist } from '../common/ts_utils'
 import db from './db'
 
 const model = {
@@ -46,3 +47,7 @@ const model = {
 }
 
 export default model
+
+export function normalizeTestSuite (ts) {
+  return pickIfExist(['id', 'name', 'cases'], ts)
+}

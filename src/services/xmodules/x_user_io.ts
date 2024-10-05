@@ -18,10 +18,13 @@ export class XUserIO extends XModule<NativeXYAPI> {
   sanityCheck (): Promise<boolean> {
     return Promise.all([
       this.getConfig(),
-      this.getAPI()
-        .reconnect()
+      this.getAPI().getVersion()
+        .then(
+          () => this.getAPI(),
+          () => this.getAPI().reconnect()
+        )
         .catch(e => {
-          throw new Error('Real User Simulation XModule is not installed yet')
+          throw new Error('Error #301: RealUser Simulation XModule is not installed yet')
         })
     ])
     .then(() => true)
@@ -32,18 +35,18 @@ export class XUserIO extends XModule<NativeXYAPI> {
 	}
 
   checkUpdateLink (modVersion: string, extVersion: string): string {
-    return `https://a9t9.com/x/idehelp?help=xclick_updatecheck&xversion=${modVersion}&kantuversion=${extVersion}`
+    return `https://goto.ui.vision/x/idehelp?help=xclick_updatecheck&xversion=${modVersion}&kantuversion=${extVersion}`
   }
 
   downloadLink (): string {
-    return 'https://a9t9.com/x/idehelp?help=xclick_download'
+    return 'https://goto.ui.vision/x/idehelp?help=xclick_download'
   }
 
   infoLink (): string {
-    return 'https://a9t9.com/x/idehelp?help=xclick'
+    return 'https://goto.ui.vision/x/idehelp?help=xclick'
   }
 }
 
-export const getXUserIO = singletonGetter<XUserIO>(() => {
+export const getXUserIO = singletonGetter(() => {
   return new XUserIO()
 })

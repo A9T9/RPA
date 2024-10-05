@@ -61,7 +61,7 @@ export default class EditTestSuite extends React.Component {
   render () {
     return (
       <Modal
-        visible={this.props.visible}
+        open={this.props.visible}
         okText="Save"
         onOk={this.onSave}
         onCancel={this.props.onClose}

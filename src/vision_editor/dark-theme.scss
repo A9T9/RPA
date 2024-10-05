@@ -1,0 +1,52 @@
+// Define base colors for dark theme
+$text-color: #dfdfdf;
+$text-color-active: #f6f6f9;
+$text-color-disabled: #a0a0a0;
+$background-color: #23272f;
+$background-color-active: #404755;
+$border-color: #353b46;
+$hover-color: #7ea3e1;
+
+$dark-scrollbar-background: #3a3a3a;
+$dark-scrollbar-thumb: #5a5a5a;
+$dark-scrollbar-thumb-hover: #7a7a7a;
+$dark-link-color: #1677ff;
+$dark-link-hover: #69b1ff;
+$dark-app-alert-background: #565656;
+
+$dark-green: #003100;
+$dark-pink: #33051d;
+
+html[data-theme="dark"] {
+
+  color: $text-color;
+  background-color: $background-color;
+
+  a {
+    color: $dark-link-color;
+
+    &:hover {
+      color: $dark-link-hover;
+    }
+  }
+
+  .vision-editor .editor-main .editor-toolbox .tool-item button {
+    &.green-button {
+      color: $text-color;
+      background: $dark-green;
+
+      &.active {
+        border: 2px solid lighten($dark-green, 20%);
+      }
+    }
+  
+    &.pink-button {
+      color: $text-color;
+      background: $dark-pink;
+
+      &.active {
+        border: 2px solid lighten($dark-pink, 20%);
+      }
+    }
+  }
+}

@@ -1,0 +1,689 @@
+@import "./_dark-theme-variables.scss";
+
+html[data-theme="dark"] {
+  .ant-btn {
+    background-color: $dark-background;
+    color: $dark-text;
+    border-color: $dark-border;
+
+    &[disabled]:not(.ant-btn-primary) {
+      background-color: $dark-secondary;
+      border-color: $dark-border;
+      color: $text-color-disabled;
+    }
+
+    &:not(:disabled):not(.ant-btn-disabled):not(.ant-btn-primary):hover {
+      background-color: $dark-hover;
+      color: $dark-text;
+      border-color: $dark-border;
+    }
+
+    &.ant-btn-primary {
+      background-color: $dark-link-color;
+      border-color: $dark-link-color;
+      &:hover {
+        background-color: $dark-link-hover;
+        border-color: $dark-link-hover;
+      }
+    }
+
+    &.ant-btn-circle:not(:disabled):not(.ant-btn-disabled):not(.ant-btn-primary) {
+      background-color: $dark-background;
+      color: $dark-text;
+      border-color: $dark-border;
+  
+      &:hover {
+        background-color: $dark-hover;
+        color: $dark-text;
+        border-color: $dark-border;
+      }
+    }
+  }
+
+  .ant-menu-light .ant-menu-item-disabled, 
+  .ant-menu-light>.ant-menu .ant-menu-item-disabled, 
+  .ant-menu-light .ant-menu-submenu-disabled, 
+  .ant-menu-light>.ant-menu .ant-menu-submenu-disabled {
+    color: #ababab !important;
+  }
+
+
+  .ant-input-search >.ant-input-group >.ant-input-group-addon:last-child .ant-input-search-button:not(.ant-btn-primary) {
+    color: $dark-text;
+  }
+
+  .ant-menu-light .ant-menu-item:not(.ant-menu-item-selected):not(.ant-menu-submenu-selected):hover, 
+  .ant-menu-light>.ant-menu .ant-menu-item:not(.ant-menu-item-selected):not(.ant-menu-submenu-selected):hover, 
+  .ant-menu-light .ant-menu-item:not(.ant-menu-item-selected):not(.ant-menu-submenu-selected) >.ant-menu-submenu-title:hover, 
+  .ant-menu-light>.ant-menu .ant-menu-item:not(.ant-menu-item-selected):not(.ant-menu-submenu-selected) >.ant-menu-submenu-title:hover {
+    
+    background-color: $dark-hover;
+    color: $dark-text;
+  }
+
+  .ant-dropdown .ant-dropdown-menu, 
+  .ant-dropdown-menu-submenu .ant-dropdown-menu {
+    background-color: $dark-app-alert-background;
+    color: $dark-text;
+    li {
+      color: $dark-text;
+      &:hover {
+        background-color: $dark-hover;
+        color: $dark-text;
+      }    
+    } 
+  }
+
+  .ant-table-wrapper .ant-table-tbody>tr.ant-table-placeholder:hover>th, 
+  .ant-table-wrapper .ant-table-tbody>tr.ant-table-placeholder:hover>td, 
+  .ant-table-wrapper .ant-table-tbody>tr.ant-table-placeholder {
+    background: $dark-hover; 
+  }
+
+  .ant-table-wrapper .ant-table-tbody>tr.ant-table-placeholder {
+    background: $dark-hover; 
+  }
+
+  .ant-empty .ant-empty-description {
+    color: $dark-text;
+  }
+
+  .ant-modal-confirm-title {
+    color: $dark-text;
+  }
+
+  .ant-modal-confirm-content {
+    color: $dark-text;
+  }
+
+  .ant-select-outlined:not(.ant-select-disabled):not(.ant-select-customize-input):not(.ant-pagination-size-changer):hover .ant-select-selector {
+    border-color: $dark-primary;
+  }
+
+  // Input
+  .ant-input {
+    background-color: $dark-background;
+    border-color: $dark-border;
+    color: $dark-text;
+
+    &.ant-input-disabled,
+    &[disabled] {
+      background-color: $dark-secondary;
+      border-color: $dark-border;
+    }
+
+    &:not(:disabled):not(.ant-input-disabled):hover,
+    &:not(:disabled):not(.ant-input-disabled):focus {
+      border-color: $dark-primary;
+    }
+
+    &::placeholder {
+      color: $text-color-disabled;
+    }
+  }
+
+  // Checkbox
+  .ant-checkbox-wrapper {
+    .ant-checkbox {
+      .ant-checkbox-inner {
+        background-color: $dark-background;
+        border-color: $dark-border;
+      }
+
+      &:hover .ant-checkbox-inner {
+        border-color: $dark-primary;
+      }
+
+      &-checked .ant-checkbox-inner {
+        background-color: $dark-primary;
+        border-color: $dark-primary;
+      }
+
+      &-checked::after {
+        border-color: $dark-primary;
+      }
+    }
+
+    .ant-checkbox-checked .ant-checkbox-inner {
+      background-color: $dark-primary;
+      border-color: $dark-primary;
+    }
+
+    .ant-checkbox-disabled .ant-checkbox-inner {
+      background-color: $dark-secondary;
+      border-color: $dark-border;
+    }
+
+    .ant-checkbox-disabled + span {
+      color: lighten($dark-text, 30%);
+    }
+  }
+
+  // Menu
+  .macro-table-container #context_menu .ant-menu.ant-menu-light,
+  .ant-menu {
+    background-color: $dark-app-alert-background;
+    color: $dark-text;
+    border-color: $dark-border;
+
+    .ant-menu-item,
+    .ant-menu-submenu-title {
+      color: $dark-text;
+      &:hover {
+        background-color: $dark-hover;
+      }
+    }
+
+    .ant-menu-item-selected {
+      background-color: $dark-primary;
+      color: $dark-text;
+    }
+
+    .ant-menu-item-disabled {
+      color: lighten($dark-text, 30%);
+    }
+
+    .ant-menu-divider {
+      background-color: $dark-divider;
+    }
+  }
+
+  // Modal
+  .ant-modal {
+    background-color: $dark-secondary;
+    color: $dark-text;
+    border-color: $dark-border;
+
+    .ant-modal-header {
+      background-color: $dark-secondary;
+      border-color: $dark-border;
+    }
+
+    .ant-modal-title {
+      color: $dark-text;
+    }
+
+    .ant-modal-body {
+      background-color: $dark-secondary;
+      color: $dark-text;
+    }
+
+    .ant-modal-footer {
+      background-color: $dark-secondary;
+      border-color: $dark-border;
+    }
+
+    .ant-btn {
+      background-color: $dark-background;
+      color: $dark-text;
+      border-color: $dark-border;
+
+      &:hover {
+        background-color: $dark-hover;
+        border-color: $dark-primary;
+        color: $dark-primary;
+      }
+
+      &-primary {
+        background-color: $dark-primary;
+        border-color: $dark-primary;
+
+        &:hover {
+          // background-color: lighten($dark-primary, 10%);
+          border-color: lighten($dark-primary, 10%);
+        }
+      }
+    }
+
+    // Modal close button
+    .ant-modal-close {
+      .ant-modal-close-x {
+        color: $dark-text;
+        background-color: $dark-background;
+
+        &:hover {
+          color: $dark-primary;
+        }
+      }
+    }
+  }
+
+  // Tooltip
+  .ant-tooltip {
+    .ant-tooltip-inner {
+      background-color: $dark-secondary;
+      color: $dark-text;
+    }
+
+    .ant-tooltip-arrow {
+      border-top-color: $dark-secondary;
+    }
+  }
+
+  // Tabs
+  .ant-tabs {
+    // Tab bar background
+    &-nav {
+      background-color: $dark-background;
+      .ant-tabs-nav-wrap {
+        background-color: $dark-secondary;
+      }
+    }
+
+    // Tab active and hover state
+    &-tab {
+      color: $dark-text;
+      &:hover {
+        color: $dark-primary;
+      }
+      &-active {
+        .ant-tabs-tab-btn {
+          color: $dark-primary;
+        }
+      }
+    }
+
+    // Tab bar ink
+    &-ink-bar {
+      background-color: $dark-primary;
+    }
+
+    // Tab content
+    &-content {
+      background-color: $dark-secondary;
+      color: $dark-text;
+    }
+
+    // Border colors
+    &-nav,
+    &-content {
+      border-color: $dark-border;
+    }
+
+    // Tab pane content
+    &-tabpane {
+      background-color: $dark-secondary;
+      color: $dark-text;
+    }
+  }
+
+  .ant-table {
+    // Table background
+    background-color: $dark-background;
+
+    // Table header
+    &-thead {
+      .ant-table-cell {
+        background-color: $dark-header-background;
+        color: $dark-text;
+        border-color: $dark-border;
+      }
+    }
+
+    // Table body
+    &-tbody {
+      .ant-table-cell {
+        background-color: $dark-secondary;
+        color: $dark-text;
+        border-color: $dark-border;
+      }
+    }
+
+    // Hover state for table rows
+    &-row:hover {
+      .ant-table-cell {
+        background-color: $dark-hover;
+      }
+    }
+
+    // Pagination
+    &-pagination {
+      .ant-pagination-item {
+        background-color: $dark-background;
+        border-color: $dark-border;
+        a {
+          color: $dark-text;
+        }
+      }
+      .ant-pagination-item-active {
+        background-color: $dark-primary;
+        border-color: $dark-primary;
+        a {
+          color: $dark-text;
+        }
+      }
+      .ant-pagination-prev,
+      .ant-pagination-next {
+        a {
+          color: $dark-text;
+        }
+      }
+      .ant-pagination-options {
+        .ant-select {
+          .ant-select-selector {
+            background-color: $dark-background;
+            color: $dark-text;
+          }
+          .ant-select-arrow {
+            color: $dark-text;
+          }
+        }
+      }
+    }
+
+    // Filter dropdown
+    &-filter-dropdown {
+      background-color: $dark-background;
+      .ant-dropdown-menu-item {
+        color: $dark-text;
+        &:hover {
+          background-color: $dark-hover;
+        }
+      }
+    }
+  }
+
+  // Scrollbar customization
+  .ant-table-body::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .ant-table-body::-webkit-scrollbar-thumb {
+    background-color: $dark-border;
+    border-radius: 4px;
+  }
+
+  .ant-table-body::-webkit-scrollbar-track {
+    background-color: $dark-secondary;
+  }
+
+  // Customizing table sorter icons
+  .ant-table-column-sorter {
+    .anticon {
+      color: $dark-text;
+    }
+  }
+
+  // Customizing table filters dropdown
+  .ant-table-filter-dropdown {
+    background-color: $dark-background;
+    .ant-dropdown-menu-item {
+      color: $dark-text;
+      &:hover {
+        background-color: $dark-hover;
+      }
+    }
+  }
+
+  // Summary row
+  .ant-table-summary {
+    .ant-table-cell {
+      background-color: $dark-secondary;
+      color: $dark-text;
+      border-color: $dark-border;
+    }
+  }
+
+  // Table sticky header
+  .ant-table-sticky {
+    .ant-table-header {
+      background-color: $dark-header-background;
+      .ant-table-cell {
+        background-color: $dark-header-background;
+        color: $dark-text;
+        border-color: $dark-border;
+      }
+    }
+  }
+
+  .ant-select {
+    // Select background and border
+    &-selector {
+      background-color: $dark-background;
+      border-color: $dark-border;
+      color: $dark-text;
+
+      &:hover {
+        border-color: $dark-primary;
+      }
+    }
+
+    // Select dropdown
+    &-dropdown {
+      background-color: $dark-secondary;
+      border-color: $dark-border;
+
+      .ant-select-item {
+        color: $dark-text;
+        background-color: $dark-secondary;
+
+        &:hover {
+          background-color: $dark-hover;
+        }
+      }
+
+      .ant-select-item-option-selected {
+        background-color: $dark-primary;
+        color: $dark-text;
+      }
+
+      .ant-select-item-option-disabled {
+        color: lighten($dark-text, 30%);
+        cursor: not-allowed;
+        background-color: $dark-secondary;
+
+        &:hover {
+          background-color: $dark-secondary;
+        }
+      }
+    }
+
+    // Arrow icon
+    &-arrow {
+      color: $dark-text;
+    }
+
+    // Clear icon
+    &-clear {
+      color: $dark-text;
+    }
+  }
+
+  // Customizing the scrollbar in dropdown
+  .ant-select-dropdown::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .ant-select-dropdown::-webkit-scrollbar-thumb {
+    background-color: $dark-border;
+    border-radius: 4px;
+  }
+
+  .ant-select-dropdown::-webkit-scrollbar-track {
+    background-color: $dark-secondary;
+  }
+
+  // Radio
+  .ant-radio-wrapper {
+    color: $dark-text;
+
+    .ant-radio {
+      .ant-radio-inner {
+        background-color: $dark-background;
+        border-color: $dark-border-lighter;
+      }
+
+      &:hover .ant-radio-inner {
+        border-color: $dark-primary;
+      }
+
+      &-checked .ant-radio-inner {
+        background-color: $dark-primary;
+        border-color: $dark-primary;
+      }
+
+      &-checked::after {
+        background-color: $dark-primary;
+      }
+    }
+
+    .ant-radio-disabled .ant-radio-inner {
+      background-color: $dark-secondary;
+      border-color: $dark-border;
+    }
+
+    .ant-radio-disabled + span {
+      color: lighten($dark-text, 30%);
+    }
+  }
+
+  // Radio button
+  .ant-radio-button-wrapper {
+    background-color: $dark-background;
+    color: $dark-text;
+    border-color: $dark-border;
+
+    &:hover {
+      color: $dark-primary;
+      border-color: $dark-primary;
+    }
+
+    &-checked {
+      background-color: $dark-primary;
+      border-color: $dark-primary;
+      color: $dark-text;
+
+      &:hover {
+        // background-color: lighten($dark-primary, 10%);
+        border-color: lighten($dark-primary, 10%);
+      }
+    }
+
+    &-disabled {
+      color: lighten($dark-text, 30%);
+      background-color: $dark-secondary;
+      border-color: $dark-border;
+
+      &:hover {
+        color: lighten($dark-text, 30%);
+        background-color: $dark-secondary;
+        border-color: $dark-border;
+      }
+    }
+  }
+
+  // Radio group
+  .ant-radio-group {
+    .ant-radio-button-wrapper:first-child {
+      border-radius: 4px 0 0 4px;
+    }
+
+    .ant-radio-button-wrapper:last-child {
+      border-radius: 0 4px 4px 0;
+    }
+  }
+
+  // Checkbox
+  .ant-checkbox-wrapper {
+    color: $dark-text;
+
+    .ant-checkbox {
+      .ant-checkbox-inner {
+        background-color: $dark-background;
+        border-color: $dark-border;
+      }
+
+      &:hover .ant-checkbox-inner {
+        border-color: $dark-primary;
+      }
+
+      &-checked .ant-checkbox-inner {
+        background-color: $dark-primary;
+        border-color: $dark-primary;
+      }
+
+      &-checked::after {
+        border-color: $dark-primary;
+      }
+    }
+
+    .ant-checkbox-disabled .ant-checkbox-inner {
+      background-color: $dark-secondary;
+      border-color: $dark-border;
+    }
+
+    .ant-checkbox-disabled + span {
+      color: lighten($dark-text, 30%);
+    }
+  }
+
+  // Form item label
+  .ant-form-item-label {
+    label {
+      color: $dark-text;
+      background-color: $dark-background;
+    }
+  }
+
+  // Checkbox
+  .ant-checkbox-wrapper {
+    color: $dark-text;
+
+    .ant-checkbox {
+      .ant-checkbox-inner {
+        background-color: $dark-background;
+        border-color: $dark-border;
+      }
+
+      &:hover .ant-checkbox-inner {
+        border-color: $dark-primary;
+      }
+
+      &-checked .ant-checkbox-inner {
+        background-color: $dark-primary;
+        border-color: $dark-primary;
+      }
+
+      &-checked::after {
+        border-color: $dark-primary;
+      }
+    }
+
+    .ant-checkbox-disabled .ant-checkbox-inner {
+      background-color: $dark-secondary;
+      border-color: $dark-border;
+    }
+
+    .ant-checkbox-disabled + span {
+      color: lighten($dark-text, 30%);
+    }
+  }
+
+  // Form item label
+  .ant-form-item-label {
+    label {
+      color: $dark-text;
+      background-color: $dark-background;
+    }
+  }
+
+  .drop-down {
+    .option-list {
+      background: $dark-background;
+      box-shadow: 0 1px 6px rgba(255,255,255,.2);
+      color: $dark-text;
+  
+      .plain-text-option {
+        &.selected {
+          background-color: $background-color-active;
+        }
+  
+        &:hover {
+          background-color: $dark-hover;
+        }
+      }
+    }
+  }
+}

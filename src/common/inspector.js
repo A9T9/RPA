@@ -1,6 +1,6 @@
 
 import log from './log'
-import { getElementByLocator } from './command_runner'
+import { getElementByXPath, getElementByLocator } from './dom_utils'
 
 /*
  * Basic tool function
@@ -274,29 +274,29 @@ var selector = function (dom) {
   // return ret.replace(/\s*>\s*tbody\s*>?/g, ' ')
 }
 
+var getTagIndex = function (dom) {
+  return Array.from(dom.parentNode.childNodes).filter(function (item) {
+    return item.nodeType === dom.nodeType && item.tagName === dom.tagName
+  }).reduce(function (prev, node, i) {
+    if (prev !== null)  return prev
+    return node === dom ? (i + 1) : prev
+  }, null)
+}
+
+var relativeXPath = function (dom) {
+  if (!dom)                 return null
+  if (dom.nodeType === 3)   return '@text'
+
+  var index = getTagIndex(dom)
+  var count = Array.from(dom.parentNode.childNodes).filter(function (item) {
+    return item.nodeType === dom.nodeType && item.tagName === dom.tagName
+  }).length
+  var tag   = dom.tagName.toLowerCase()
+
+  return index > 1 ? (tag + '[' + index + ']') : tag
+}
+
 var xpath = function (dom, cur, list) {
-  var getTagIndex = function (dom) {
-    return Array.from(dom.parentNode.childNodes).filter(function (item) {
-      return item.nodeType === dom.nodeType && item.tagName === dom.tagName
-    }).reduce(function (prev, node, i) {
-      if (prev !== null)  return prev
-      return node === dom ? (i + 1) : prev
-    }, null)
-  }
-
-  var name = function (dom) {
-    if (!dom)                 return null
-    if (dom.nodeType === 3)   return '@text'
-
-    var index = getTagIndex(dom)
-    var count = Array.from(dom.parentNode.childNodes).filter(function (item) {
-      return item.nodeType === dom.nodeType && item.tagName === dom.tagName
-    }).length
-    var tag   = dom.tagName.toLowerCase()
-
-    return count > 1 ? (tag + '[' + index + ']') : tag
-  }
-
   var helper = function (dom, cur, list) {
     if (!dom)   return null
 
@@ -320,7 +320,7 @@ var xpath = function (dom, cur, list) {
       return [`*[@id="${cur.id}"]`].concat(list)
     }
 
-    return helper(dom, cur.parentNode, [name(cur)].concat(list))
+    return helper(dom, cur.parentNode, [relativeXPath(cur)].concat(list))
   }
 
   var parts   = helper(dom, cur, list)
@@ -328,6 +328,129 @@ var xpath = function (dom, cur, list) {
   var ret     = prefix + parts.join('/')
 
   return ret
+}
+
+var xpathPosition = function (dom) {
+  let path = ''
+  let current = dom
+
+  try {
+    while (current !== null) {
+      let currentPath
+
+      if (current.parentNode != null) {
+        currentPath = '/' + relativeXPath(current)
+      } else if (current.tagName === 'BODY') {
+        currentPath = 'html/body'
+      } else {
+        currentPath = '/' + current.nodeName.toLowerCase()
+      }
+
+      path = currentPath + path
+      const locator = '/' + path
+
+      if (dom === getElementByXPath(locator)) {
+        return locator
+      }
+
+      current = current.parentNode
+    }
+  } catch (e) {}
+
+  return null
+}
+
+var attributeValue = function (value) {
+  if (value.indexOf("'") < 0) {
+    return "'" + value + "'"
+  } else if (value.indexOf('"') < 0) {
+    return '"' + value + '"'
+  } else {
+    let result = 'concat('
+    let part = ''
+    let didReachEndOfValue = false
+    while (!didReachEndOfValue) {
+      let apos = value.indexOf("'")
+      let quot = value.indexOf('"')
+      if (apos < 0) {
+        result += "'" + value + "'"
+        didReachEndOfValue = true
+        break
+      } else if (quot < 0) {
+        result += '"' + value + '"'
+        didReachEndOfValue = true
+        break
+      } else if (quot < apos) {
+        part = value.substring(0, apos)
+        result += "'" + part + "'"
+        value = value.substring(part.length)
+      } else {
+        part = value.substring(0, quot)
+        result += '"' + part + '"'
+        value = value.substring(part.length)
+      }
+      result += ','
+    }
+    result += ')'
+    return result
+  }
+}
+
+var xpathAttr = function (dom) {
+  function attributesXPath (name, attNames, attributes) {
+    let locator = '//' + name + '['
+    for (let i = 0; i < attNames.length; i++) {
+      if (i > 0) {
+        locator += ' and '
+      }
+      let attName = attNames[i]
+      locator += '@' + attName + '=' + attributeValue(attributes[attName])
+    }
+    locator += ']'
+    return locator
+  }
+
+  try {
+    const PREFERRED_ATTRIBUTES = [
+      'id',
+      'name',
+      'value',
+      'type',
+      'action',
+      'onclick'
+    ]
+    let i = 0
+
+    if (dom.attributes) {
+      let atts = dom.attributes
+      let attsMap = {}
+      for (i = 0; i < atts.length; i++) {
+        let att = atts[i]
+        attsMap[att.name] = att.value
+      }
+      let names = []
+      // try preferred attributes
+      for (i = 0; i < PREFERRED_ATTRIBUTES.length; i++) {
+        let name = PREFERRED_ATTRIBUTES[i]
+
+        if (attsMap[name] != null) {
+          names.push(name)
+
+          let locator = attributesXPath(
+            dom.nodeName.toLowerCase(),
+            names,
+            attsMap
+          )
+
+          if (dom === getElementByXPath(locator)) {
+            return locator
+          }
+        }
+      }
+    }
+  } catch (e) {}
+
+  return null
 }
 
 var atXPath = function (xpath, document) {
@@ -359,7 +482,15 @@ var domText = ($dom) => {
 
 var getFirstWorkingLocator = (locators, $el) => {
   for (let i = 0, len = locators.length; i < len; i++) {
-    if ($el === getElementByLocator(locators[i])) {
+    const $match = (() => {
+      try {
+        return getElementByLocator(locators[i])
+      } catch (e) {
+        return null
+      }
+    })()
+
+    if ($el === $match) {
       return locators[i]
     }
   }
@@ -372,7 +503,13 @@ var getLocator = ($dom, withAllOptions) => {
   const id      = $dom.getAttribute('id')
   const name    = $dom.getAttribute('name')
   const isLink  = $dom.tagName.toLowerCase() === 'a'
-  const text    = domText($dom)
+  const text    = (() => {
+    try {
+      return domText($dom)
+    } catch (e) {
+      return null
+    }
+  })()
   const classes = Array.from($dom.classList)
   const candidates = []
 
@@ -384,7 +521,7 @@ var getLocator = ($dom, withAllOptions) => {
 
     if (index !== -1) {
       candidates.push(
-        index === 0 ? `link=${text}` : `link=${text}@POS=${index + 1}`
+        index === 0 ? `linkText=${text}` : `linkText=${text}@POS=${index + 1}`
       )
     }
   }
@@ -400,7 +537,19 @@ var getLocator = ($dom, withAllOptions) => {
   }
 
   // xpath
-  candidates.push(xpath($dom))
+  candidates.push('xpath=' + xpath($dom))
+
+  const attrXPath = xpathAttr($dom)
+
+  if (attrXPath) {
+    candidates.push('xpath=' + attrXPath)
+  }
+
+  const positionXPath = xpathPosition($dom)
+
+  if (positionXPath) {
+    candidates.push('xpath=' + positionXPath)
+  }
 
   // css
   // Try with simple css selector first. If not unqiue, use full css selector

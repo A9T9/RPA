@@ -1,7 +1,10 @@
-{
-  "presets": [["env", {"modules": false}], "stage-0", "react"],
+{  
+  "presets": [
+    "@babel/preset-env",
+    "@babel/preset-react",
+    "@babel/preset-typescript" // For TypeScript support
+  ],
   "plugins": [
-    "transform-object-assign",
-    ["import", { "libraryName": "antd" }]
+    "@babel/plugin-transform-modules-commonjs"
   ]
 }

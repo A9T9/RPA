@@ -16,7 +16,10 @@ onMessage(window, ({ cmd, args }) => {
     case 'INJECT_RUN_EVAL': {
       // Note: clone the data in case it contains some Object that can't be passed via postMessage (eg. HTMLDocument)
       // eslint-disable-next-line no-eval
-      return { result: clone(window.eval(args.code)) }
+      return Promise.resolve(window.eval(args.code))
+      .then(result => {
+        return { result: clone(result) }
+      })
     }
   }
 })

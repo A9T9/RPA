@@ -2,27 +2,67 @@
 
 import { message } from 'antd'
 import { type3, types as T } from './action_types'
-import { pick, until, on, map, compose, uid, delay, loadCsv, loadImage } from '../common/utils'
+import { pick, until, on, map, compose, uid, delay, loadCsv, loadImage, withFileExtension, validateStandardName } from '../common/utils'
 import csIpc from '../common/ipc/ipc_cs'
 import storage from '../common/storage'
 import { getStorageManager, StorageTarget, StorageStrategyType } from '../services/storage'
-import { normalizeCommand } from '../models/test_case_model'
+import { normalizeCommand, normalizeTestCase } from '../models/test_case_model'
 import { getPlayer } from '../common/player'
-import backup from '../common/backup'
+import { backup } from '../services/backup/backup'
 import log from '../common/log'
 import { fromJSONString } from '../common/convert_utils'
-import { parseTestSuite } from '../common/convert_suite_utils'
 import config from '../config'
 import preTcs from '../config/preinstall_macros'
-import preTss from '../config/preinstall_suites'
+import { getMacroExtraKeyValueData } from '../services/kv_data/macro_extra_data'
+import { getTestSuitesWithAllInfo, getBreakpoints, getBreakpointsByMacroId, getCurrentMacroId, getErrorCommandIndices, getWarningCommandIndices, getMacrosExtra, getMacroFileNodeList, hasUnsavedMacro } from '../recomputed'
+import { prompt } from '../components/prompt'
+import { isValidCmd } from '../common/command'
+import { getMacroCallStack } from '../services/player/call_stack/call_stack'
+import { MacroStatus } from '../services/player/macro'
+import getSaveTestCase from '../components/save_test_case'
+import { posix as path } from '../common/lib/path'
+import { uniqueStrings, flow } from '../common/ts_utils'
+import { renderLog } from '../common/macro_log'
+import { getLogService } from '../services/log'
+import { getMiscData, MiscKey } from '../services/kv_data/misc_data'
+import { INCREMENT } from '../reducers'
 
 let recordedCount = 0
 
-const saveEditing = ({dispatch, getState}) => {
-  const { editor }  = getState()
-  const { editing } = editor
+const saveEditing = ({ dispatch, getState }) => {
+  const state  = getState()
+  const { editing, isDraggingCommand } = state.editor
+
+  if (isDraggingCommand) {
+    return
+  }
 
   storage.set('editing', editing)
+}
+
+const saveMacroExtra = (id) => ({ dispatch, getState }) => {
+  const state   = getState()
+
+  if (state.editor.isDraggingCommand) {
+    return
+  }
+
+  const macroId = id || getCurrentMacroId(state)
+  const updated = state.editor.macrosExtra[macroId] || {}
+
+  return getMacroExtraKeyValueData().update(macroId, (data) => {
+    return {
+      ...data,
+      ...updated
+    }
+  })
+}
+
+const saveWholeMacrosExtra = ({ dispatch, getState }) => {
+  const state       = getState()
+  const macrosExtra = getMacrosExtra(state)
+
+  return getMacroExtraKeyValueData().set('', macrosExtra)
 }
 
 const saveConfig = (function () {
@@ -36,7 +76,7 @@ const saveConfig = (function () {
     const finalSize = savedSize || (
       config.showSidebar
         ? {
-          width: 850,
+          width: 860,
           height: 775
         } : {
           width: 520,
@@ -48,7 +88,7 @@ const saveConfig = (function () {
       finalSize.height !== lastSize.height) {
       storage.get('config')
       .then(oldConfig => {
-        if (oldConfig.showSidebar === config.showSidebar) return
+        if ((oldConfig && oldConfig.showSidebar) === config.showSidebar) return
 
         if (finalSize.width !== window.outerWidth || finalSize.height !== window.outerHeight) {
           csIpc.ask('PANEL_RESIZE_WINDOW', { size: finalSize })
@@ -60,6 +100,41 @@ const saveConfig = (function () {
     lastSize = finalSize
   }
 })()
+
+const toLower = (str) => (str || '').toLowerCase()
+
+export function findSameNameMacro (name, macros) {
+  return macros.find(tc => toLower(tc.name) === toLower(name))
+}
+
+export function findSamePathMacro (path, macroNodes) {
+  const converPath = (str) => toLower(str).replace(/.json$/, '')
+  return macroNodes.find(node => converPath(node.relativePath) === converPath(path))
+}
+
+export function findMacrosInFolder (folderPath, macroNodes) {
+  const lowerFolderPath = toLower(folderPath)
+
+  return macroNodes.filter(macroNode => {
+    const lowerMacroFullPath = toLower(macroNode.fullPath)
+
+    if (lowerMacroFullPath.indexOf(lowerFolderPath) !== 0) {
+      return false
+    }
+
+    const parts = lowerMacroFullPath.substr(lowerFolderPath.length).split(/\/|\\/g)
+
+    if (parts.length !== 2 || parts[0] !== '') {
+      return false
+    }
+
+    return true
+  })
+}
+
+export function findSameNameTestSuite (name, testSuites) {
+  return testSuites.find(ts => toLower(ts.name) === toLower(name))
+}
 
 export function setRoute (data) {
   return {
@@ -74,11 +149,9 @@ export function startRecording () {
   return {
     types: type3('START_RECORDING'),
     promise: () => {
-      setTimeout(() => {
-        csIpc.ask('PANEL_TRY_TO_RECORD_OPEN_COMMAND')
+      return csIpc.ask('PANEL_START_RECORDING', {}).then(() => {
+        return csIpc.ask('PANEL_TRY_TO_RECORD_OPEN_COMMAND')
       })
-
-      return csIpc.ask('PANEL_START_RECORDING', {})
     }
   }
 }
@@ -131,20 +204,27 @@ export function doneInspecting () {
   }
 }
 
+export function increaseRecordedCount () {
+  recordedCount += 1
+  // Note: show in badge the recorded count
+  csIpc.ask('PANEL_UPDATE_BADGE', {
+    type: 'record',
+    text: '' + recordedCount
+  })
+}
+
 export function appendCommand (cmdObj, fromRecord = false) {
   if (fromRecord) {
-    recordedCount += 1
-    // Note: show in badge the recorded count
-    csIpc.ask('PANEL_UPDATE_BADGE', {
-      type: 'record',
-      text: '' + recordedCount
-    })
+    increaseRecordedCount()
   }
 
   return {
     type: T.APPEND_COMMAND,
-    data: { command: cmdObj },
-    post: saveEditing
+    data: { command: normalizeCommand(cmdObj) },
+    post: [
+      saveEditing,
+      saveMacroExtra()
+    ]
   }
 }
 
@@ -152,18 +232,28 @@ export function duplicateCommand (index) {
   return {
     type: T.DUPLICATE_COMMAND,
     data: { index },
-    post: saveEditing
+    post: [
+      saveEditing,
+      saveMacroExtra()
+    ]
   }
 }
 
-export function insertCommand (cmdObj, index) {
+export function insertCommand (cmdObj, index, fromRecord = false) {
+  if (fromRecord) {
+    increaseRecordedCount()
+  }
+
   return {
     type: T.INSERT_COMMAND,
     data: {
       index,
-      command: cmdObj
+      command: normalizeCommand(cmdObj)
     },
-    post: saveEditing
+    post: [
+      saveEditing,
+      saveMacroExtra()
+    ]
   }
 }
 
@@ -171,7 +261,7 @@ export function updateCommand (cmdObj, index) {
   return {
     type: T.UPDATE_COMMAND,
     data: {
-      command: cmdObj,
+      command: normalizeCommand(cmdObj),
       index: index
     },
     post: saveEditing
@@ -182,7 +272,10 @@ export function removeCommand (index) {
   return {
     type: T.REMOVE_COMMAND,
     data: { index },
-    post: saveEditing
+    post: [
+      saveEditing,
+      saveMacroExtra()
+    ]
   }
 }
 
@@ -194,11 +287,23 @@ export function selectCommand (index, forceClick) {
   }
 }
 
+// Note: consider this action as patch for updating commands in redux state only
+export function updateEditing (editing) {
+  return {
+    type: T.UPDATE_EDITING,
+    data: { editing },
+    post: []
+  }
+}
+
 export function cutCommand (index) {
   return {
     type: T.CUT_COMMAND,
     data: { indices: [index] },
-    post: saveEditing
+    post: [
+      saveEditing,
+      saveMacroExtra()
+    ]
   }
 }
 
@@ -213,7 +318,10 @@ export function pasteCommand (index) {
   return {
     type: T.PASTE_COMMAND,
     data: { index },
-    post: saveEditing
+    post: [
+      saveEditing,
+      saveMacroExtra()
+    ]
   }
 }
 
@@ -230,6 +338,56 @@ export function updateSelectedCommand (obj) {
     type: T.UPDATE_SELECTED_COMMAND,
     data: obj,
     post: saveEditing
+  }
+}
+
+export function toggleComment (commandIndex) {
+  return (dispatch, getState) => {
+    const state    = getState()
+    const commands = state.editor.editing.commands
+    const command  = commands[commandIndex]
+
+    if (!command || !command.cmd || !command.cmd.length)  {
+      return
+    }
+
+    // Note: for commented out command, its data looks like:
+    // {
+    //   cmd:     'comment',
+    //   target:  'originalCmd // originalTarget
+    //   value:   not touched
+    // }
+    if (command.cmd === 'comment') {
+      const separator = ' // '
+      const index     = command.target.indexOf(separator)
+      if (index === -1) return
+
+      const cmd = command.target.substr(0, index)
+      if (!isValidCmd(cmd)) return
+
+      const target = command.target.substr(index + separator.length)
+
+      return dispatch(updateCommand({
+        ...command,
+        cmd,
+        target
+      }, commandIndex))
+    } else {
+      return dispatch(updateCommand({
+        ...command,
+        cmd:    'comment',
+        target: `${command.cmd} // ${command.target || ''}`
+      }, commandIndex))
+    }
+  }
+}
+
+export function toggleCommentOnSelectedCommand () {
+  return (dispatch, getState) => {
+    const state    = getState()
+    const index    = state.editor.editing.meta.selectedIndex
+
+    dispatch(toggleComment(index))
   }
 }
 
@@ -252,7 +410,7 @@ export function saveSourceCodeToEditing (str) {
     const { editing, editingSource } = getState().editor
     if (editingSource.pure === editing.current) return
 
-    log('ACTION, saveSourceCodeToEditing', str)
+    // log('ACTION, saveSourceCodeToEditing', str)
 
     try {
       const obj = fromJSONString(str, 'untitled')
@@ -273,17 +431,38 @@ export function saveSourceCodeToEditing (str) {
 // In the form of redux-thunnk, it saves current editing test case to local storage
 export function saveEditingAsExisted () {
   return (dispatch, getState) => {
-    const state = getState()
-    const src   = state.editor.editing.meta.src
-    const tc    = state.editor.testCases.find(tc => tc.id === src.id)
-    const data  = pick(['commands'], state.editor.editing)
+    
+    const state   = getState()
+    const src     = state.editor.editing.meta.src
+    const macroId = src.id
+    const data    = pick(['commands'], state.editor.editing)
+    const macroStorage = getStorageManager().getMacroStorage()
+
+    if (!macroId) {
+      throw new Error(`Can't find macro with path '${macroId}'`)
+    }
 
     // Make sure, only 'cmd', 'value', 'target' are saved in storage
     data.commands = data.commands.map(normalizeCommand)
 
-    return getStorageManager()
-    .getMacroStorage()
-    .write(tc.name, { ...tc, data })
+    if (hasUnsavedMacro(state)) {
+      // Reset test case status
+      dispatch(
+        updateMacroPlayStatus(macroId, null)
+      )
+    }
+
+    return macroStorage.read(macroId, 'Text')
+    .then(macro => {
+      const updatedMacro = { ...macro, data }
+
+      dispatch({
+        type: 'setCurrentMacro',
+        data: updatedMacro
+      })
+
+      return macroStorage.write(macroId, updatedMacro)
+    })
     .then(() => {
       dispatch({
         type: T.SAVE_EDITING_AS_EXISTED,
@@ -299,19 +478,26 @@ export function saveEditingAsNew (name) {
   return (dispatch, getState) => {
     const state = getState()
     const data  = pick(['commands'], state.editor.editing)
-    const sameName = state.editor.testCases.find(tc => tc.name === name)
+    const sameName = findSameNameMacro(name, state.editor.testCases)
 
     if (sameName) {
       return Promise.reject(new Error('The macro name already exists!'))
     }
 
-    const id = uid()
+    const relativePath = '/' + name + '.json'
+    const id = getStorageManager().getMacroStorage().filePath(relativePath)
+    const newMacro = { id, name, data }
 
     return getStorageManager()
     .getMacroStorage()
-    .write(name, { name, data, id })
+    .write(relativePath, newMacro)
     .then(() => {
       dispatch({
+        type: 'setCurrentMacro',
+        data: newMacro
+      })
+
+      return dispatch({
         type: T.SAVE_EDITING_AS_NEW,
         data: {
           id,
@@ -323,18 +509,30 @@ export function saveEditingAsNew (name) {
   }
 }
 
-export function setTestCases (tcs) {
+export function setTestCases (testCases) {
+  const tcs = testCases.slice()
+
+  tcs.sort((a, b) => {
+    const nameA = a.name.toLowerCase()
+    const nameB = b.name.toLowerCase()
+
+    if (nameA < nameB) return -1
+    if (nameA === nameB)  return 0
+    return 1
+  })
+
   return {
     type: T.SET_TEST_CASES,
     data: tcs,
     post: ({dispatch, getState}) => {
       const state = getState()
-      const shouldSelectDefault = state.editor.testCases.length > 0 &&
+      const macroNodes = getMacroFileNodeList(state)
+      const shouldSelectDefault = macroNodes.length > 0 &&
                                   !state.editor.editing.meta.src &&
                                   state.editor.editing.commands.length === 0
 
       if (shouldSelectDefault) {
-        dispatch(editTestCase(state.editor.testCases[0].id))
+        dispatch(editTestCase(macroNodes[0].fullPath))
       }
     }
   }
@@ -343,24 +541,27 @@ export function setTestCases (tcs) {
 export function resetEditing () {
   return (dispatch, getState) => {
     const state = getState()
-    const { editing, testCases } = state.editor
+    const { editing } = state.editor
+    const macroNodes = getMacroFileNodeList(state)
 
     // Leave it if it's a new macro
     if (editing.meta && !editing.meta.src)  return
-    if (testCases.length === 0) {
+    if (macroNodes.length === 0) {
       dispatch(editNewTestCase())
     } else {
-      const tcs = testCases.slice()
-      tcs.sort((a, b) => {
-        const nameA = a.name.toLowerCase()
-        const nameB = b.name.toLowerCase()
-
-        if (nameA < nameB) return -1
-        if (nameA === nameB)  return 0
-        return 1
-      })
-      dispatch(editTestCase(tcs[0].id))
+      dispatch(editTestCase(macroNodes[0].fullPath))
     }
+  }
+}
+
+export function resetEditingIfNeeded () {
+  return (dispatch, getState) => {
+    const state = getState()
+    const { editing } = state.editor
+    const lastTcId = editing.meta.src && editing.meta.src.id
+
+    if (!lastTcId)  return resetEditing()(dispatch, getState)
+    dispatch(editTestCase(lastTcId))
   }
 }
 
@@ -372,10 +573,45 @@ export function setEditing (editing) {
 }
 
 export function editTestCase (id) {
-  return {
-    type: T.EDIT_TEST_CASE,
-    data: id,
-    post: saveEditing
+  return (dispatch, getState) => {
+    return getStorageManager().getMacroStorage().read(id, 'Text')
+    .then(rawMacro => {
+      const macro = normalizeTestCase(rawMacro)
+
+      dispatch({
+        type: 'setCurrentMacro',
+        data: macro
+      })
+
+      dispatch({
+        type: T.EDIT_TEST_CASE,
+        data: {
+          id,
+          macro
+        },
+        post: saveEditing
+      })
+
+      // Save last edited macro id for each mode,
+      // so that we can recover to it after switching mode
+      const mode = getStorageManager().getCurrentStrategyType()
+      const key = (() => {
+        switch (mode) {
+          case StorageStrategyType.Browser:
+            return MiscKey.BrowserModeLastMacroId
+
+          case StorageStrategyType.XFile:
+            return MiscKey.XFileModeLastMacroId
+
+          default:
+            throw new Error(`Invalid mode: ${mode}`)
+        }
+      })()
+
+      getMiscData().set(key, id)
+
+      return macro
+    })
   }
 }
 
@@ -389,11 +625,6 @@ export function editNewTestCase () {
 
 export function upsertTestCase (tc) {
   return (dispatch, getState) => {
-    const state     = getState()
-    const testCases = state.editor.testCases
-
-    log('upsertTestCase', tc)
-
     return getStorageManager()
     .getMacroStorage()
     .write(tc.name, {
@@ -403,87 +634,82 @@ export function upsertTestCase (tc) {
   }
 }
 
-export function addTestCases (tcs, overwrite = false, storageStrategyType = null) {
+export function addTestCases ({ macros, folder = '/', overwrite = false, storageStrategyType = null }) {
   return (dispatch, getState) => {
-    const state     = getState()
-    const testCases = state.editor.testCases
-    const validTcs  = overwrite ? tcs : tcs.filter(tc => !testCases.find(tcc => tcc.name === tc.name))
-    const failTcs   = overwrite ? [] : tcs.filter(tc => testCases.find(tcc => tcc.name === tc.name))
+    const storage = getStorageManager()
+                    .getStorageForTarget(
+                      StorageTarget.Macro,
+                      storageStrategyType || getStorageManager().getCurrentStrategyType()
+                    )
+    const state        = getState()
+    const dirToCompare = folder === '/' ? '' : storage.relativePath(folder, true)
+    const allMacros    = getMacroFileNodeList(state)
+    const macroNodes   = allMacros.filter(node => {
+      const rawDir = storage.getPathLib().dirname(node.fullPath)
+      const dir    = storage.relativePath(rawDir, true)
+
+      return dirToCompare === dir
+    })
+    const failTcs    = []
+    const validTcs   = []
+
+    macros.forEach(macro => {
+      const isValid = overwrite || !macroNodes.find(node => node.name === macro.name)
+
+      if (isValid) {
+        validTcs.push(macro)
+      } else {
+        failTcs.push(macro)
+      }
+    })
 
     const passCount = validTcs.length
-    const failCount = tcs.length - passCount
+    const failCount = macros.length - passCount
 
     if (passCount === 0) {
       return Promise.resolve({ passCount, failCount, failTcs })
     }
 
-    return getStorageManager()
-    .getStorageForTarget(StorageTarget.Macro, storageStrategyType || getStorageManager().getCurrentStrategyType())
-    .bulkWrite(
-      validTcs.map(tc => ({
-        fileName: tc.name,
-        content: {
-          ...tc,
-          id: uid(),
-          udpateTime: new Date() * 1
-        }
-      }))
-    )
+    const macrosToWrite = validTcs.map(tc => ({
+      filePath: path.join(folder, `${tc.name}.json`),
+      content: {
+        ...tc,
+        id: uid(),
+        udpateTime: new Date() * 1
+      }
+    }))
+
+    return storage.ensureDirectory(folder)
+    .then(() => storage.bulkWrite(macrosToWrite))
     .then(() => ({ passCount, failCount, failTcs }))
   }
 }
 
-export function renameTestCase (name, tcId) {
-  return (dispatch, getState) => {
-    const state     = getState()
-    const editingId = state.editor.editing.meta.src.id
-    const tc        = state.editor.testCases.find(tc => tc.id === tcId)
-    const sameName  = state.editor.testCases.find(tc => tc.name === name)
-
-    if (!tc) {
-      return Promise.reject(new Error(`No macro found with id '${tcId}'!`))
-    }
-
-    if (sameName) {
-      return Promise.reject(new Error('The macro name already exists!'))
-    }
-
-    return getStorageManager()
-    .getMacroStorage()
-    .rename(tc.name, name)
-    .then(() => {
-      if (editingId === tcId) {
-        dispatch({
-          type: T.RENAME_TEST_CASE,
-          data: name,
-          post: saveEditing
-        })
-      }
-    })
-  }
-}
-
-export function removeTestCase (tcId) {
+export function removeTestCase (macroId) {
   return (dispatch, getState) => {
     const state = getState()
-    const tc    = state.editor.testCases.find(tc => tc.id === tcId)
-    const curId = state.editor.editing.meta.src.id
+    const curId = state.editor.editing.meta.src && state.editor.editing.meta.src.id
     const tss   = state.editor.testSuites.filter(ts => {
-      return ts.cases.find(m => m.testCaseId === tcId)
+      return ts.cases.find(m => m.testCaseId === macroId)
     })
 
     if (tss.length > 0) {
       return Promise.reject(new Error(`Can't delete this macro for now, it's currently used in following test suites: ${tss.map(item => item.name)}`))
     }
 
+    // Reset test case status
+    dispatch(
+      updateMacroPlayStatus(macroId, null)
+    )
+
     return getStorageManager()
     .getMacroStorage()
-    .remove(tc.name)
+    .remove(macroId)
     .then(() => {
       dispatch({
         type: T.REMOVE_TEST_CASE,
         data: {
-          isCurrent: curId === tcId
+          isCurrent: curId === macroId
         },
         post: saveEditing
       })
@@ -498,31 +724,6 @@ export function removeCurrentTestCase () {
     const id    = state.editor.editing.meta.src.id
 
     return removeTestCase(id)(dispatch, getState)
-  }
-}
-
-// Note: duplicate current editing and save to another
-export function duplicateTestCase (newTestCaseName, tcId) {
-  return (dispatch, getState) => {
-    const state     = getState()
-    const tc        = state.editor.testCases.find(tc => tc.id === tcId)
-    const sameName  = state.editor.testCases.find(tc => tc.name === newTestCaseName)
-
-    if (!tc) {
-      return Promise.reject(new Error(`No macro found with id '${tcId}'!`))
-    }
-
-    if (sameName) {
-      return Promise.reject(new Error('The macro name already exists!'))
-    }
-
-    return getStorageManager()
-    .getMacroStorage()
-    .write(newTestCaseName, {
-      ...tc,
-      id: uid(),
-      name: newTestCaseName
-    })
   }
 }
 
@@ -547,23 +748,70 @@ export function setTimeoutStatus (args) {
   }
 }
 
-export function addPlayerErrorCommandIndex (index) {
-  return {
-    type: T.PLAYER_ADD_ERROR_COMMAND_INDEX,
-    data: index
+export function addPlayerWarningCommandIndex (index) {
+  return (dispatch, getState) => {
+    const state               = getState()
+    const macroId             = getCurrentMacroId(state)
+    const indices             = getWarningCommandIndices(state)
+    const warningCommandIndices = indices.indexOf(index) === -1
+                                  ? [...indices, index]
+                                  :  indices
+    dispatch(
+      updateMacroExtra(macroId, { warningCommandIndices })
+    )
   }
 }
 
+export function addPlayerErrorCommandIndex (index) {
+  return (dispatch, getState) => {
+    const state               = getState()
+    const macroId             = getCurrentMacroId(state)
+    const indices             = getErrorCommandIndices(state)
+    const errorCommandIndices = indices.indexOf(index) === -1
+                                  ? [...indices, index]
+                                  :  indices
+    dispatch(
+      updateMacroExtra(macroId, { errorCommandIndices })
+    )
+  }
+}
+
+// test function
+export const increment = () => ({ type: INCREMENT, data: 'anything' });
+
 export function addLog (type, text, options = {}) {
-  return {
-    type: T.ADD_LOGS,
-    data: [{
+  return (dispatch, getState) => {
+    const state = getState()
+    const callStack = options.noStack ? [] : getMacroCallStack().toArray()
+    const logItem = {
       type,
       text,
       options,
       id: uid(),
-      createTime: new Date()
-    }]
+      createTime: new Date(),
+      stack: callStack.map((item, i) => ({
+        macroId:      item.resource.id,
+        macroName:    item.resource.name,
+        commandIndex: i === callStack.length - 1 ? state.player.nextCommandIndex : item.runningStatus.nextIndex,
+        isSubroutine: i !== 0
+      }))
+    }
+
+    if (state.config.logFilter !== 'None') {
+      // Also write file to hard drive when it's in xfile mode
+      setTimeout(() => {
+        if(logItem.type == "report"){
+          let report = document.querySelector('.report').textContent;
+          logItem.text = report;
+        }
+        csIpc.ask('PANEL_LOG', { log: renderLog(logItem, true) })
+      }, 0)
+    }
+
+    return dispatch({
+      type: T.ADD_LOGS,
+      data: [logItem]
+    })
   }
 }
 
@@ -624,61 +872,170 @@ export function updateConfig (data) {
   }
 }
 
-export function updateTestCasePlayStatus (id, status) {
-  return (dispatch, getState) => {
-    const state = getState()
-    const tc    = state.editor.testCases.find(tc => tc.id === id)
+export function setMacrosExtra (data, options = {}) {
+  const opts = {
+    shouldPersist: false,
+    ...options
+  }
 
-    return getStorageManager()
-    .getMacroStorage()
-    .write(tc.name, { ...tc, status })
-    .then(() => {
-      dispatch({
-        type: T.UPDATE_TEST_CASE_STATUS,
-        data: { id, status }
-      })
-    })
+  return {
+    type: T.SET_MACROS_EXTRA,
+    data: data || {},
+    post: opts.shouldPersist ? saveWholeMacrosExtra : () => {}
   }
 }
 
-export function playerPlay (options) {
+export function setTestSuitesExtra (data) {
+  return {
+    type: T.SET_TEST_SUITES_EXTRA,
+    data: data || {}
+  }
+}
+
+export function updateMacroExtra (id, extra) {
+  // TODO: the key for extra info should be different,
+  // something like storage mode + storage path + file name
+  return {
+    type: T.UPDATE_ONE_MACRO_EXTRA,
+    data: { id, extra },
+    post: saveMacroExtra(id)
+  }
+}
+
+export function updateMacroPlayStatus (id, status) {
   return (dispatch, getState) => {
-    const state       = getState()
-    const { config }  = state
-    const cfg         = pick(['playHighlightElements', 'playScrollElementsIntoView'], config)
-    const macroName   = state.editor.editing.meta.src ? state.editor.editing.meta.src.name : 'Untitled'
-    const scope       = {
-      '!MACRONAME':         macroName,
-      '!TIMEOUT_PAGELOAD':  parseInt(config.timeoutPageLoad, 10),
-      '!TIMEOUT_WAIT':      parseInt(config.timeoutElement, 10),
-      '!TIMEOUT_MACRO':     parseInt(config.timeoutMacro, 10),
-      '!TIMEOUT_DOWNLOAD':  parseInt(config.timeoutDownload, 10),
-      '!REPLAYSPEED': ({
-        '0':    'FAST',
-        '0.3':  'MEDIUM',
-        '2':    'SLOW'
-      })[options.postDelay / 1000] || 'MEDIUM',
-      ...(options.overrideScope || {})
+    dispatch(updateMacroExtra(id, { status }))
+  }
+}
+
+export function updateMacroBreakpoints (id, breakpointIndices) {
+  return (dispatch, getState) => {
+    dispatch(updateMacroExtra(id, { breakpointIndices }))
+  }
+}
+
+export function updateMacroDoneCommandsIndices (id, doneCommandIndices) {
+  return (dispatch, getState) => {
+    dispatch(updateMacroExtra(id, { doneCommandIndices }))
+  }
+}
+
+export function updateMacroErrorCommandsIndices (id, errorCommandIndices) {
+  return (dispatch, getState) => {
+    dispatch(updateMacroExtra(id, { errorCommandIndices }))
+  }
+}
+
+export function updateMacroWarningCommandsIndices (id, warningCommandIndices) {
+  return (dispatch, getState) => {
+    dispatch(updateMacroExtra(id, { warningCommandIndices }))
+  }
+}
+
+export function updateProxy (proxy) {
+  return {
+    type: T.UPDATE_PROXY,
+    data: proxy
+  }
+}
+
+export function commonPlayerState (state, options, macroId, macroName) {
+  const { config }  = state
+  const cfg         = pick(['playHighlightElements', 'playScrollElementsIntoView'], config)
+  const finalMacroName = (() => {
+    if (macroName) {
+      return macroName
     }
-    const breakpoints = state.player.breakpointIndices || []
 
-    const opts = compose(
-      on('resources'),
-      map,
-      on('extra')
-    )((extra = {}) => ({
-      ...extra,
-      ...cfg,
-      ...(options.commandExtra || {})
-    }))(options)
+    if (!macroId) {
+      return state.editor.editing.meta.src ? state.editor.editing.meta.src.name : 'Untitled'
+    }
 
-    getPlayer().play({
-      breakpoints,
-      ...opts,
-      public: {
-        ...(opts.public || {}),
-        scope
-      }
+    const macro = getMacroFileNodeList(state).find(node => node.fullPath === macroId)
+
+    if (!macro) {
+      throw new Error(`can't find macro with id '${macroId}'`)
+    }
+
+    return macro.name
+  })()
+  const scope       = {
+    '!MACRONAME':         finalMacroName,
+    '!TIMEOUT_PAGELOAD':  parseFloat(config.timeoutPageLoad),
+    '!TIMEOUT_WAIT':      parseFloat(config.timeoutElement),
+    '!TIMEOUT_MACRO':     parseFloat(config.timeoutMacro),
+    '!TIMEOUT_DOWNLOAD':  parseFloat(config.timeoutDownload),
+    '!OCRLANGUAGE':       config.ocrLanguage,
+    '!CVSCOPE':           config.cvScope,
+    '!REPLAYSPEED': ({
+      '0':    'FASTV1',
+      '0':    'FAST',
+      '0.3':  'MEDIUMV1',
+      '0.3':  'MEDIUM',
+      '2':    'SLOWV1',
+      '2':    'SLOW'
+    })[options.postDelay / 1000] || 'MEDIUM',
+    ...(options.overrideScope || {})
+  }
+
+  const breakpoints = macroId ? getBreakpointsByMacroId(state, macroId) : getBreakpoints(state)
+
+  const opts = compose(
+    on('resources'),
+    map,
+    on('extra')
+  )((extra = {}) => ({
+    ...extra,
+    ...cfg,
+    ...(options.commandExtra || {})
+  }))(options)
+
+  const playerState = {
+    title: finalMacroName,
+    ...opts,
+    public: {
+      ...(opts.public || {}),
+      scope
+    },
+    breakpoints: [...breakpoints, ...(options.breakpoints || [])]
+  }
+
+  return playerState
+}
+
+export function playerPlay (options) {
+  // Filter out empty commands
+  const opts = {
+    ...options,
+    resources: (options.resources || []).filter(res => res.cmd && res.cmd.length > 0)
+  }
+
+  return (dispatch, getState) => {
+    return getSaveTestCase()
+    .saveOrNot({
+      getContent: (data) => 'You must save macro before replay',
+      okText:           'Save',
+      cancelText:       'Cancel',
+      autoSaveExisting: true
+    })
+    .then(saved => {
+      if (!saved) return
+
+      const state       = getState()
+      const playerState = commonPlayerState(state, opts, opts.macroId, opts.title)
+
+      getMacroCallStack().clear()
+
+      return getMacroCallStack().call({
+        id:       opts.macroId,
+        name:     playerState.title,
+        commands: opts.resources
+      }, {
+        playerState,
+        status:           MacroStatus.Running,
+        nextIndex:        opts.startIndex,
+        commandResults:   []
+      })
     })
   }
 }
@@ -690,13 +1047,12 @@ export function listCSV () {
     csvStorage.list()
     .then(list => {
       return Promise.all(list.map(item => {
-        return csvStorage.getLink(item.fileName)
-        .then(url => ({
-          url,
-          name:       item.fileName,
+        return {
+          name:       item.name,
           size:       item.size,
+          fullPath:   item.fullPath,
           createTime: new Date(item.lastModified)
-        }))
+        }
       }))
     })
     .then(list => {
@@ -705,6 +1061,10 @@ export function listCSV () {
         data: list
       })
     })
+    .catch(e => {
+      log.error('listCSV error', e)
+      return Promise.reject(e)
+    })
   }
 }
 
@@ -712,24 +1072,24 @@ export function listScreenshots () {
   return (dispatch, getState) => {
     const man = getStorageManager().getScreenshotStorage()
 
-    man.list().then(list => {
-      list.reverse()
+    return man.list().then(list => {
+      // log('listScreenshots', list)
 
-      log('listScreenshots', list)
-
-      return Promise.all(list.map(item => {
-        return man.getLink(item.fileName)
-        .then(url => ({
-          url,
-          name:       item.fileName,
-          createTime: new Date(item.lastModified)
-        }))
+      return list.map(item => ({
+        name:       item.name,
+        fullPath:   item.fullPath,
+        createTime: new Date(item.lastModified)
       }))
-    }).then(list => {
+    })
+    .then(list => {
       dispatch({
         type: T.SET_SCREENSHOT_LIST,
         data: list
       })
+    })
+    .catch(e => {
+      log.error('listScreenshots error', e)
+      return Promise.reject(e)
     })
   }
 }
@@ -738,23 +1098,100 @@ export function listVisions () {
   return (dispatch, getState) => {
     const visionStorage = getStorageManager().getVisionStorage()
 
-    visionStorage.list().then(list => {
-      list.reverse()
-      log('listVisions', list)
+    return visionStorage.list().then(list => {
+      // log('listVisions', list)
 
-      return Promise.all(list.map(item => {
-        return visionStorage.getLink(item.fileName)
-        .then(url => ({
-          url,
-          name:       item.fileName,
-          createTime: new Date(item.lastModified)
-        }))
+      return list.map(item => ({
+        name:       item.name,
+        fullPath:   item.fullPath,
+        createTime: new Date(item.lastModified)
       }))
-    }).then(list => {
+    })
+    .then(list => {
       dispatch({
         type: T.SET_VISION_LIST,
         data: list
       })
+    })
+    .catch(e => {
+      log.error('listVisions error', e)
+      return Promise.reject(e)
+    })
+  }
+}
+
+export function renameVisionImage (fileName, shouldUpdateCommand = true) {
+  return (dispatch, getState) => {
+    return withFileExtension(fileName, (baseName, addExtName) => {
+      return prompt({
+        title:   'Image Name',
+        message: `Note: Please keep the '_dpi_xx' postfix`,
+        value:   baseName,
+        keepOpenOnError: true,
+        selectionEnd: (() => {
+          const m = baseName.match(/_dpi_\d+/i)
+          if (!m) return undefined
+          return m.index
+        })(),
+        onOk: (finalBaseName) => {
+          // Note: a small timeout to prevent "select" button from accepting "enter" keypress
+          const timeout = delay(() => true, 100)
+          if (finalBaseName === baseName) return timeout
+
+          try {
+            validateStandardName(finalBaseName, true)
+          } catch (e) {
+            message.error(e.message)
+            throw e
+          }
+
+          return getStorageManager()
+          .getVisionStorage()
+          .exists(addExtName(finalBaseName))
+          .then(result => {
+            if (result) {
+              const msg = `'${addExtName(finalBaseName)}' already exists`
+              message.error(msg)
+              throw new Error(msg)
+            }
+
+            return getStorageManager()
+            .getVisionStorage()
+            .rename(fileName, addExtName(finalBaseName))
+            .then(() => timeout)
+            .catch(e => {
+              // Note: If there is error in renaming like duplicate names,
+              // it should show error message and let users try again
+              message.error(e.message)
+              throw e
+            })
+          })
+        }
+      })
+      .then(finalFullName => {
+        // If users click "Cancel" button, we should delete it #479
+        // Have to give it private name, since withFileExtenion will try to add '.png'
+        if (!finalFullName) {
+          return getStorageManager()
+          .getVisionStorage()
+          .remove(addExtName(baseName))
+          .then(() => dispatch(listVisions()))
+          .then(() => '__kantu_deleted__')
+        }
+
+        return finalFullName
+      })
+    })
+    .then(finalFullName => {
+      // It means it's deleted (user clicks "cancel")
+      if (/__kantu_deleted__/.test(finalFullName)) return
+
+      if (shouldUpdateCommand) {
+        dispatch(updateSelectedCommand({ target: finalFullName }))
+      }
+      dispatch(listVisions())
+      message.success(`Saved vision as ${finalFullName}`)
+      return finalFullName
     })
   }
 }
@@ -768,6 +1205,14 @@ export function setTestSuites (tss) {
 
 export function addTestSuite (ts) {
   return (dispatch, getState) => {
+    const state = getState()
+    const existingtestSuites  = getTestSuitesWithAllInfo(state)
+    const hasDuplicateName    = !!existingtestSuites.find(item => ts.name === item.name)
+
+    if (hasDuplicateName) {
+      return Promise.reject(new Error(`The test suite name '${ts.name}' already exists!`))
+    }
+
     return getStorageManager()
     .getTestSuiteStorage()
     .write(ts.name, {
@@ -780,11 +1225,10 @@ export function addTestSuite (ts) {
 
 export function addTestSuites (tss, storageStrategyType = null) {
   return (dispatch, getState) => {
-    const state     = getState()
-    // const testCases = state.editor.testCases
-    const validTss  = tss
-    // const failTcs   = tcs.filter(tc => testCases.find(tcc => tcc.name === tc.name))
+    const state = getState()
+    const existingtestSuites = getTestSuitesWithAllInfo(state)
 
+    const validTss  = tss.filter(ts => !existingtestSuites.find(item => item.name === ts.name))
     const passCount = validTss.length
     const failCount = tss.length - passCount
 
@@ -792,48 +1236,24 @@ export function addTestSuites (tss, storageStrategyType = null) {
       return Promise.resolve({ passCount, failCount, failTss: [] })
     }
 
-    return getStorageManager()
-    .getStorageForTarget(StorageTarget.TestSuite, storageStrategyType || getStorageManager().getCurrentStrategyType())
-    .bulkWrite(
-      validTss.map(ts => ({
-        fileName: ts.name,
-        content: {
-          ...ts,
-          id: uid(),
-          updateTime: new Date() * 1
-        }
-      }))
-    )
-    .then(() => ({ passCount, failCount, failTss: [] }))
-  }
-}
+    const storage = getStorageManager()
+                    .getStorageForTarget(
+                      StorageTarget.TestSuite, storageStrategyType ||
+                      getStorageManager().getCurrentStrategyType()
+                    )
 
-export function updateTestSuite (id, data) {
-  return (dispatch, getState) => {
-    const state = getState()
-    const ts    = state.editor.testSuites.find(ts => ts.id === id)
-
-    const realData  = typeof data === 'function' ? data(ts) : data
-    const revised   = {
-      ...ts,
-      ...realData
-    }
-
-    dispatch({
-      type: T.UPDATE_TEST_SUITE,
-      data: {
-        id: id,
-        updated: revised
+    const testSuitesToWrite = validTss.map(ts => ({
+      filePath: ts.name,
+      content: {
+        ...ts,
+        id: uid(),
+        updateTime: new Date() * 1
       }
-    })
+    }))
 
-    const suiteStorage  = getStorageManager().getTestSuiteStorage()
-    const pRename       = realData.name && ts.name !== realData.name
-                            ? suiteStorage.rename(ts.name, realData.name)
-                            : Promise.resolve()
-    const suiteName     = realData.name && ts.name !== realData.name ? realData.name : ts.name
-
-    return pRename.then(() => suiteStorage.write(suiteName, revised))
+    return storage.ensureDir()
+    .then(() => storage.bulkWrite(testSuitesToWrite))
+    .then(() => ({ passCount, failCount, failTss: [] }))
   }
 }
 
@@ -843,6 +1263,18 @@ export function removeTestSuite (id) {
     const ts = state.editor.testSuites.find(ts => ts.id === id)
 
     if (!ts) throw new Error(`can't find test suite with id '${id}'`)
+
+    // Reset test suite status
+    dispatch({
+      type: T.UPDATE_TEST_SUITE_STATUS,
+      data: {
+        id,
+        extra: {
+          fold:       false,
+          playStatus: {}
+        }
+      }
+    })
 
     return getStorageManager()
     .getTestSuiteStorage()
@@ -859,7 +1291,8 @@ export function setPlayerMode (mode) {
 
 export function runBackup () {
   return (dispatch, getState) => {
-    const { config, editor } = getState()
+    const state = getState()
+    const { config, editor } = state
     const {
       autoBackupTestCases,
       autoBackupTestSuites,
@@ -880,7 +1313,7 @@ export function runBackup () {
         csvs,
         screenshots,
         visions,
-        testCases: editor.testCases,
+        macroNodes: getMacroFileNodeList(state),
         testSuites: editor.testSuites,
         backup: {
           testCase: autoBackupTestCases,
@@ -917,17 +1350,29 @@ export function updateUI (data) {
   }
 }
 
-export function addBreakpoint (commandIndex) {
-  return {
-    type: T.ADD_BREAKPOINT,
-    data: commandIndex
+export function addBreakpoint (macroId, commandIndex) {
+  return (dispatch, getState) => {
+    const state      = getState()
+    const extra      = state.editor.macrosExtra[macroId] || {}
+    const indices    = extra.breakpointIndices || []
+    const newIndices = indices.indexOf(commandIndex) === -1 ? [...indices, commandIndex] : indices
+
+    dispatch(
+      updateMacroBreakpoints(macroId, newIndices)
+    )
   }
 }
 
-export function removeBreakpoint (commandIndex) {
-  return {
-    type: T.REMOVE_BREAKPOINT,
-    data: commandIndex
+export function removeBreakpoint (macroId, commandIndex) {
+  return (dispatch, getState) => {
+    const state      = getState()
+    const extra      = state.editor.macrosExtra[macroId] || {}
+    const indices    = extra.breakpointIndices || []
+    const newIndices = indices.filter(index => index !== commandIndex)
+
+    dispatch(
+      updateMacroBreakpoints(macroId, newIndices)
+    )
   }
 }
 
@@ -944,7 +1389,7 @@ export function preinstall (yesInstall = true) {
       return storage.get('preinstall_info')
       .then((info = {}) => {
         const prevVersions = info.askedVersions || []
-        const thisVersion  = config.preinstallVersion
+        const thisVersion  = config.preinstall.version
         const hasThisOne   = prevVersions.indexOf(thisVersion) !== -1
 
         if (hasThisOne) return true
@@ -964,23 +1409,40 @@ export function preinstall (yesInstall = true) {
     const installMacrosAndSuites = () => {
       if (!preTcs || !Object.keys(preTcs).length)  return Promise.resolve()
 
-      const tcs = Object.keys(preTcs).map(key => {
-        const str = JSON.stringify(preTcs[key])
-        return fromJSONString(str, key)
-      })
-
-      dispatch(addTestCases(tcs, true, StorageStrategyType.Browser))
-
-      // Note: test cases need to be save to indexed db before it reflects in store
-      // so it may take some time before we can preinstall test suites
-      return delay(() => {
-        const state = getState()
-
-        const tss   = preTss.map(ts => {
-          return parseTestSuite(JSON.stringify(ts), state.editor.testCases)
+      const installMacros = () => {
+        const macroStorage = getStorageManager().getMacroStorage()
+        const path = macroStorage.getPathLib()
+        const folders = Object.keys(preTcs).map(relativePath => {
+          return path.join(
+            config.preinstall.macroFolder,
+            path.dirname(relativePath)
+          )
         })
-        dispatch(addTestSuites(tss, StorageStrategyType.Browser))
-      }, 1000)
+        const uniqueFolders = uniqueStrings(...folders)
+
+        return flow(
+          ...uniqueFolders.map(dirPath => () => macroStorage.ensureDirectory(dirPath))
+        )
+        .then(() => {
+          return Promise.all(
+            Object.keys(preTcs).map(relativePath => {
+              const macroName = path.basename(relativePath)
+              const filePath  = macroStorage.filePath(
+                path.join(
+                  config.preinstall.macroFolder,
+                  relativePath
+                )
+              )
+              const str   = JSON.stringify(preTcs[relativePath])
+              const macro = fromJSONString(str, macroName)
+
+              return macroStorage.write(filePath, macro)
+            })
+          )
+        })
+      }
+
+      return flow(installMacros)
     }
 
     // Preinstall csv
@@ -990,21 +1452,25 @@ export function preinstall (yesInstall = true) {
 
       // Note: preinstalled resources all go into browser mode
       const csvStorage  = getStorageManager().getStorageForTarget(StorageTarget.CSV, StorageStrategyType.Browser)
-      const ps          = list.map(url => {
-        const parts     = url.split('/')
-        const fileName  = parts[parts.length - 1]
 
-        return loadCsv(url)
-        .then(text => {
-          return csvStorage.write(fileName, new Blob([text]))
-        })
-      })
-
-      return Promise.resolve(ps)
-      // Note: delay needed for Firefox and slow Chrome
-      .then(() => delay(() => {}, 3000))
+      return csvStorage.ensureDir()
       .then(() => {
-        dispatch(listCSV())
+        const ps          = list.map(url => {
+          const parts     = url.split('/')
+          const fileName  = parts[parts.length - 1]
+
+          return loadCsv(url)
+          .then(text => {
+            return csvStorage.write(fileName, new Blob([text]))
+          })
+        })
+
+        return Promise.resolve(ps)
+        // Note: delay needed for Firefox and slow Chrome
+        .then(() => delay(() => {}, 3000))
+        .then(() => {
+          dispatch(listCSV())
+        })
       })
     }
 
@@ -1015,21 +1481,25 @@ export function preinstall (yesInstall = true) {
 
       // Note: preinstalled resources all go into browser mode
       const visionStorage   = getStorageManager().getStorageForTarget(StorageTarget.Vision, StorageStrategyType.Browser)
-      const ps              = list.map(url => {
-        const parts     = url.split('/')
-        const fileName  = parts[parts.length - 1]
 
-        return loadImage(url)
-        .then(blob => {
-          return visionStorage.write(fileName, blob)
-        })
-      })
-
-      return Promise.resolve(ps)
-      // Note: delay needed for Firefox and slow Chrome
-      .then(() => delay(() => {}, 3000))
+      return visionStorage.ensureDir()
       .then(() => {
-        dispatch(listVisions())
+        const ps              = list.map(url => {
+          const parts     = url.split('/')
+          const fileName  = parts[parts.length - 1]
+
+          return loadImage(url)
+          .then(blob => {
+            return visionStorage.write(fileName, blob)
+          })
+        })
+
+        return Promise.resolve(ps)
+        // Note: delay needed for Firefox and slow Chrome
+        .then(() => delay(() => {}, 3000))
+        .then(() => {
+          dispatch(listVisions())
+        })
       })
     }
 

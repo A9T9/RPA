@@ -10,6 +10,7 @@
 // Important: You need to specify whatever API you need to use in `UsedAPI` below
 
 (function () {
+  var isDevelopment = process.env.NODE_ENV !== 'production'
   var adaptChrome = function (obj, chrome) {
     var adapt = function (src, ret, obj, fn) {
       return Object.keys(obj).reduce(function (prev, key) {
@@ -29,30 +30,39 @@
         ])
 
         obj[key].forEach(function (method) {
-          fn(method, source, target)
+          fn(method, source, target, isDevelopment)
         })
 
         return prev
       }, ret)
     }
 
-    var promisify = function (method, source, target) {
+    var promisify = function (method, source, target, isDevelopment) {      
       if (!source)  return
-      var reg = /The message port closed before a res?ponse was received/
+      // array of error messages that should not be shown
+      const ignoredErrors = [
+        /The message port closed before a res?ponse was received/,
+        /Extension context invalidated/,
+        /Could not establish connection. Receiving end does not exist/
+      ]
 
       target[method] = (...args) => {
         return new Promise(function (resolve, reject) {
           var callback = function (result) {
-            // Note: The message port closed before a reponse was received.
-            // Ignore this message
-            if (chrome.runtime.lastError &&
-                !reg.test(chrome.runtime.lastError.message)) {
-              console.error(`${chrome.runtime.lastError.message}, ${method}, ${JSON.stringify(args)}`)
-              return reject(chrome.runtime.lastError)
+            if (chrome.runtime.lastError) {
+              if (ignoredErrors.some((error) => error.test(chrome.runtime.lastError.message))) {
+                // don't show the error
+                // console.error(`#31 never-show ${chrome.runtime.lastError.message}, ${method}, ${JSON.stringify(args)}`)
+              } else {
+                if (isDevelopment) {
+                  // #31 show in development only
+                  console.error(`${chrome.runtime.lastError.message}, ${method}, ${JSON.stringify(args)}`)
+                }
+                return reject(chrome.runtime.lastError)
+              }
             }
             resolve(result)
           }
-
           source[method].apply(source, args.concat(callback))
         })
       }
@@ -74,25 +84,34 @@
 
   var UsedAPI = {
     toPromisify: {
-      tabs: ['create', 'sendMessage', 'get', 'update', 'query', 'captureVisibleTab', 'remove'],
+      tabs: ['create', 'sendMessage', 'get', 'update', 'query', 'captureVisibleTab', 'remove', 'getZoom'],
       windows: ['update', 'getLastFocused', 'getCurrent', 'getAll', 'remove', 'create', 'get'],
       runtime: ['sendMessage', 'setUninstallURL'],
       cookies: ['get', 'getAll', 'set', 'remove'],
       notifications: ['create', 'clear'],
-      browserAction: ['getBadgeText'],
+      action: ['getBadgeText', 'setIcon'],
       bookmarks: ['create', 'getTree'],
       debugger: ['attach', 'detach', 'sendCommand', 'getTargets'],
-      'storage.local': ['get', 'set']
+      downloads: ['search', 'setShelfEnabled'],
+      extension: ['isAllowedFileSchemeAccess'],
+      contextMenus: ['create', 'update', 'remove', 'removeAll'],
+      'storage.local': ['get', 'set'],
+      scripting: ['executeScript'],
+      permissions: ['request', 'contains'],
     },
     toCopy: {
-      tabs: ['onActivated', 'onUpdated'],
+      tabs: ['onActivated', 'onUpdated', 'onRemoved'],
       windows: ['onFocusChanged'],
-      runtime: ['onMessage', 'onInstalled', 'getManifest'],
+      runtime: ['onMessage', 'onInstalled', 'getManifest', 'getURL', 'onStartup', 'getPlatformInfo', 'onConnect', 'id'],
       storage: ['onChanged'],
-      browserAction: ['setBadgeText', 'setBadgeBackgroundColor', 'onClicked'],
+      action: ['setBadgeText', 'setBadgeBackgroundColor', 'onClicked'],
+      contextMenus: ['onClicked'],
       extension: ['getURL'],
       debugger: ['onEvent', 'onDetach'],
-      downloads: ['onCreated', 'onChanged', 'onDeterminingFilename']
+      downloads: ['onCreated', 'onChanged', 'onDeterminingFilename'],
+      webRequest: ['onAuthRequired'],
+      sidePanel: ['setOptions', 'open'],
+      sidebarAction: ['open', 'close', 'toggle'],
     }
   }
 
@@ -100,7 +119,7 @@
 
   Object.assign(Ext, {
     isFirefox: () => {
-      return /Firefox/.test(window.navigator.userAgent)
+      return /Firefox/.test(self.navigator.userAgent)
     }
   })
 

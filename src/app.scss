@@ -19,14 +19,36 @@ body {
   display: flex;
   flex-direction: column;
 
-  .app-inner {
-    flex: 1;
-    display: flex;
-    flex-direction: row;
+  &.ocr-overlay {
+    background-color: white;
+    z-index: 10000;
+  }
+
+  &.no-display {
+    .status {
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+
+    .content {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
   }
 
   &.with-alert .backup-alert {
     display: block;
+  }
+
+  .app-inner {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
   }
 
   .backup-alert {
@@ -49,7 +71,34 @@ body {
     @include flexcol();
 
     flex: 3;
+    min-width: 520px;
     background: #fff;
     overflow-y: auto;
+  }
+
+  .content.sidepanel {
+    min-width: 100%;
+    width: 100%;
+  }
+
+  .hidden-during-replay {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    padding-top: 15px;
+    font-size: 14px;
+    color: #999;
+  }
+
+  .list-not-loaded {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+
+    button {
+      margin-top: 20px;
+    }
   }
 }

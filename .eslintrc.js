@@ -17,6 +17,7 @@ module.exports = {
     'semi': 'off',
     'indent': 'off',
     'no-unused-vars': 'off',
-    'camelcase': 'off'
+    'camelcase': 'off',
+    'no-debugger': 'off'
   }
 }

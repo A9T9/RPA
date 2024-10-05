@@ -1,6 +1,7 @@
 import React from 'react'
 import PropTypes from 'prop-types'
-import { Input, Icon } from 'antd'
+import { Input } from 'antd'
+import { EditOutlined } from '@ant-design/icons';
 
 export default class EditableText extends React.Component {
   static propTypes = {
@@ -50,6 +51,14 @@ export default class EditableText extends React.Component {
 
     if (this.props.onChange) {
       this.props.onChange(this.state.value)
+      .catch(() => false)
+      .then(success => {
+        if (!success) {
+          this.setState({
+            value: this.props.value
+          })
+        }
+      })
     }
   }
 
@@ -112,7 +121,7 @@ export default class EditableText extends React.Component {
           <span onClick={this.onClickText}>
             <span>{value}</span>
             {this.props.clickToEdit ? (
-              <Icon type="edit" style={{ marginLeft: '10px' }} />
+              <EditOutlined style={{ marginLeft: '10px' }} />
             ) : null}
           </span>
         )}

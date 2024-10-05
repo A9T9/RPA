@@ -1,7 +1,47 @@
 import React from 'react'
 import { Input, Icon } from 'antd'
+import { CloseCircleOutlined, SearchOutlined } from '@ant-design/icons';
 
-export default class SearchBox extends Input {
+
+const SearchOrCloseIcon = ({ canClear, inputProps }) => {
+  const handleClear = () => {
+    if (!inputProps || !inputProps.onChange) {
+      return; // Handle potential errors gracefully, e.g., log a warning
+    }
+    inputProps.onChange({ target: { value: '' } });
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      {/* Your input component here */}
+      {canClear ? (
+        <CloseCircleOutlined
+          style={{
+            position: 'absolute',
+            right: '10px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            cursor: 'pointer',
+          }}
+          onClick={handleClear} // Clear function directly referenced
+        />
+      ) : (
+        <SearchOutlined
+          style={{
+            position: 'absolute',
+            right: '10px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            cursor: 'pointer',
+          }}
+          onClick={handleClear} // Clear function directly referenced
+        />
+      ) }
+    </div>
+  );
+};
+
+export default class SearchBox extends React.Component {
   render () {
     const { value } = this.props.inputProps || {}
     const canClear  = value !== undefined && value.length > 0
@@ -15,7 +55,7 @@ export default class SearchBox extends Input {
         }}
       >
         <Input {...(this.props.inputProps || {})} />
-        <Icon
+        {/* <Icon
           type={canClear ? 'close' : 'search'}
           onClick={e => {
             if (!canClear)  return
@@ -29,7 +69,8 @@ export default class SearchBox extends Input {
             transform:  'translateY(-50%)',
             cursor:     canClear ? 'pointer' : 'auto'
           }}
-        />
+        /> */}
+        <SearchOrCloseIcon canClear={canClear} inputProps={this.props.inputProps} />
       </span>
     )
   }

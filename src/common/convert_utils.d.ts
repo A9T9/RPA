@@ -1,8 +1,10 @@
+import { MacroInState } from "@/reducers/state"
 
 export type MacroCommand = {
-  cmd: string;
-  target?: string;
-  value?: string;
+  cmd:      string;
+  target?:  string;
+  value?:   string;
+  targetOptions?: string[];
 }
 
 export type Macro = {
@@ -14,4 +16,8 @@ export type Macro = {
 
 declare const toJSONString: (macro: Macro, opts?: Record<string, boolean>) => string
 
-declare const fromJSONString: (str: string, fileName: string, opts?: Record<string, boolean>) => Macro
+declare const fromJSONString: (str: string, fileName?: string, opts?: Record<string, boolean>) => MacroInState
+
+declare const fromHtml: (html: string) => Macro
+
+declare const toHtml: (data: Macro) => string

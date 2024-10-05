@@ -1,0 +1,59 @@
+@import '../../../../styles/common.scss';
+
+.log-controls {
+    width: 100%;
+    text-align: right;
+    padding: 2px 5px;
+}
+
+.log-content {
+    list-style: none;
+    margin: 0;
+    padding: 0 10px;
+    height: calc(100% - 38px);
+
+    li {
+    padding: 5px 0;
+    font-size: 12px;
+    border-bottom: 1px solid #f3f3f3;
+
+    // clearfix
+    &:after {
+        content: "";
+        display: table;
+        clear: both;
+    }
+
+    a.info {
+        color: #108ee9 !important;
+    }
+
+    &.error {
+        color: red;
+        font-weight: bold;
+
+        a {
+        color: red;
+        text-decoration: underline;
+        }
+    }
+
+    &.warning {
+        color: orange;
+    }
+
+    pre {
+        margin-bottom: 0;
+    }
+
+    .log-type {
+        float: left;
+        margin-right: 10px;
+    }
+
+    .log-detail {
+        white-space: pre-wrap;
+    }
+    }
+}
+

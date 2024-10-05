@@ -1,31 +1,38 @@
 {
-  "manifest_version": 2,
+  "manifest_version": 3,
 
   "name": "__MSG_name__",
   "description": "__MSG_description__",
   "short_name": "__MSG_short_name__",
   "default_locale": "en",
-  "version": "6.2.6",
+  "version": "9.3.2",
 
   "icons": {
     "128": "logo128.png"
   },
 
-  "browser_action": {
+  "action": {
     "default_icon": {
       "38": "logo38.png"
     }
   },
 
   "background": {
-    "scripts": ["background.js"],
-    "persistent": true
+    "service_worker": "background.js"
   },
 
   "web_accessible_resources": [
-    "content_script.js",
-    "inject.js",
-    "logo.png"
+    {
+      "resources": [
+        "content_script.js",
+        "inject.js",
+        "logo.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "extension_ids": []
+    }
   ],
 
   "content_scripts": [
@@ -37,12 +44,14 @@
       "run_at": "document_start"
     }
   ],
+  
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
 
   "options_page": "options.html",
 
   "offline_enabled": true,
-
-  "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
 
   "permissions": [
     "bookmarks",
@@ -51,17 +60,24 @@
     "cookies",
     "debugger",
     "downloads",
-    "downloads.shelf",
     "notifications",
     "storage",
     "tabs",
     "proxy",
-    "webRequest",
-    "webRequestBlocking",
     "nativeMessaging",
     "contextMenus",
+    "webRequest",
+    "webRequestAuthProvider",
+    "sidePanel",
+    "scripting"
+  ],
+  "host_permissions": [
     "\u003Call_urls>"
-  ]
+  ],
+  
+  "content_security_policy": {
+     "extension_pages": "script-src 'self' 'wasm-unsafe-eval';"
+  }
 }
 
 

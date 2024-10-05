@@ -7,13 +7,18 @@ import 'codemirror/mode/javascript/javascript'
 import 'codemirror/addon/edit/matchbrackets'
 import 'codemirror/addon/edit/closebrackets'
 import 'codemirror/lib/codemirror.css'
-import 'antd/dist/antd.css'
+
+// import 'antd/dist/antd.css'
 import './csv_editor.scss'
 
 import storage from './common/storage'
 import { getStorageManager, StorageStrategyType } from './services/storage'
 import { getXFile } from './services/xmodules/xfile'
 import { parseQuery } from './common/utils'
+import csIpc from './common/ipc/ipc_cs'
+import { polyfillTimeoutFunctions } from './services/timeout/cs_timeout'
+
+polyfillTimeoutFunctions(csIpc)
 
 const rootEl      = document.getElementById('root');
 const render      = () => ReactDOM.render(<App />, rootEl)
@@ -64,7 +69,7 @@ class App extends React.Component {
 
     if (!csvFile) return
 
-    document.title = csvFile + ' - Kantu CSV Editor'
+    document.title = csvFile + ' - RPA CSV Editor'
 
     getStorageManager()
     .getCSVStorage()

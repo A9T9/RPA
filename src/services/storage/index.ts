@@ -1,18 +1,20 @@
-import * as EventEmitter from 'eventemitter3'
-import { FlatStorage, IWithLinkStorage } from './storage'
-import { getIndexeddbFlatStorage } from './indexeddb_storage'
-import { getBrowserFileSystemFlatStorage } from './browser_filesystem_storage'
-import { getNativeFileSystemFlatStorage } from './native_filesystem_storage'
-import { getNativeFileSystemAPI } from '../filesystem'
-import { singletonGetter } from '../../common/ts_utils'
+import EventEmitter from 'eventemitter3'
+import { IWithLinkStorage } from './flat/storage'
+import { getBrowserFileSystemStandardStorage } from './std/browser_filesystem_storage'
+import { getNativeFileSystemStandardStorage } from './std/native_filesystem_storage'
+import { singletonGetter, forestSlice } from '../../common/ts_utils'
 import { getXFile } from '../xmodules/xfile'
 import { Macro, fromJSONString, toJSONString } from '../../common/convert_utils'
-import { stringifyTestSuite, parseTestSuite, TestSuite } from '../../common/convert_suite_utils'
-import { uid, blobToDataURL } from '../../common/utils'
+import { stringifyTestSuite, parseTestSuite } from '../../common/convert_suite_utils'
+import { blobToDataURL } from '../../common/utils'
+import { StandardStorage, Entry, EntryNode, Content } from './std/standard_storage';
+import path from '@/common/lib/path';
+import { ReadFileType } from '@/common/filesystem'
 
 export enum StorageStrategyType {
   Browser = 'browser',
-  XFile = 'xfile'
+  XFile = 'xfile',
+  Nil = 'nil'
 }
 
 export enum StorageTarget {
@@ -31,26 +33,36 @@ export enum StorageManagerEvent {
 
 export interface IStorageManager {
   getCurrentStrategyType: () => StorageStrategyType;
-  setCurrentStrategyType: (type: StorageStrategyType) => void;
-  getStorageForTarget: (target: StorageTarget) => FlatStorage;
+  setCurrentStrategyType: (type: StorageStrategyType) => boolean;
+  getStorageForTarget: (target: StorageTarget) => StandardStorage;
   isStrategyTypeAvailable: (type: StorageStrategyType) => Promise<boolean>;
 }
 
 export type StorageManagerOptions = {
-  getMacros: () => Macro[]
+  getMacros: () => EntryNode[];
+  getMaxMacroCount: (strategyType: StorageStrategyType) => Promise<number>;
+  getConfig?: () => Record<string, any>;
 }
 
 export class StorageManager extends EventEmitter implements IStorageManager {
-  private strategyType: StorageStrategyType = StorageStrategyType.Browser
-  private getMacros: (() => Macro[]) = () => []
+  private strategyType: StorageStrategyType = StorageStrategyType.Nil
+  private getMacros: (() => EntryNode[]) = () => []
+  private getMaxMacroCount: ((strategyType: StorageStrategyType) => Promise<number>) = (s) => Promise.resolve(Infinity)
+  private getConfig?: () => Record<string, any>;
 
   constructor (strategyType: StorageStrategyType, extraOptions?: StorageManagerOptions) {
     super()
     this.setCurrentStrategyType(strategyType)
 
-    if (extraOptions) {
+    if (extraOptions && extraOptions.getMacros) {
       this.getMacros = extraOptions.getMacros
     }
+
+    if (extraOptions && extraOptions.getMaxMacroCount) {
+      this.getMaxMacroCount = extraOptions.getMaxMacroCount
+    }
+
+    this.getConfig = extraOptions?.getConfig;
   }
 
   isXFileMode () {
@@ -65,14 +77,18 @@ export class StorageManager extends EventEmitter implements IStorageManager {
     return this.strategyType
   }
 
-  setCurrentStrategyType (type: StorageStrategyType) {
-    if (type !== this.strategyType) {
+  setCurrentStrategyType (type: StorageStrategyType): boolean {
+    const needChange = type !== this.strategyType
+
+    if (needChange) {
       setTimeout(() => {
         this.emit(StorageManagerEvent.StrategyTypeChanged, type)
       }, 0)
+
+      this.strategyType = type
     }
 
-    this.strategyType = type
+    return needChange
   }
 
   isStrategyTypeAvailable (type: StorageStrategyType): Promise<boolean> {
@@ -88,33 +104,98 @@ export class StorageManager extends EventEmitter implements IStorageManager {
     }
   }
 
-  getStorageForTarget (target: StorageTarget, forceStrategytype?: StorageStrategyType): FlatStorage {
+  getStorageForTarget (target: StorageTarget, forceStrategytype?: StorageStrategyType): StandardStorage {
     switch (forceStrategytype || this.strategyType) {
       case StorageStrategyType.Browser: {
         switch (target) {
-          case StorageTarget.Macro:
-            return getIndexeddbFlatStorage({
-              table: 'testCases'
+          case StorageTarget.Macro: {
+            const storage = getBrowserFileSystemStandardStorage({
+              baseDir: 'macros',
+              extensions: ['json'],
+              shouldKeepExt: false,
+              decode: (text: string, filePath: string) => {
+                const obj = fromJSONString(text, path.basename(filePath), { withStatus: true })
+
+                // Note: use filePath as id
+                return {
+                  ...obj,
+                  id:   storage.filePath(filePath),
+                  path: storage.relativePath(filePath)
+                } as any
+              },
+              encode: (data: any, fileName: string) => {
+                const str = toJSONString({ ...data, commands: data.data.commands }, {
+                  withStatus: true,
+                  ignoreTargetOptions: false //!!this.getConfig?.()?.saveAlternativeLocators
+                })
+                // Note: BrowserFileSystemStorage only supports writing file with Blob
+                // so have to convert it here in `encode`
+                return new Blob([str])
+              }
             })
 
-          case StorageTarget.TestSuite:
-            return getIndexeddbFlatStorage({
-              table: 'testSuites'
+            // FIXE: it's for test
+            ;(window as any).newMacroStorage = storage
+
+            return storage
+          }
+
+          case StorageTarget.TestSuite: {
+            const storage = getBrowserFileSystemStandardStorage({
+              baseDir: 'testsuites',
+              extensions: ['json'],
+              shouldKeepExt: false,
+              decode: (text: string, filePath: string) => {
+                console.log('test suite raw content', filePath, text, this.getMacros())
+                const obj = parseTestSuite(text, { fileName: path.basename(filePath) })
+
+                // Note: use filePath as id
+                return {
+                  ...obj,
+                  id:   storage.filePath(filePath),
+                  path: storage.relativePath(filePath)
+                } as any
+              },
+              encode: (suite: any, fileName: string) => {
+                const str = stringifyTestSuite(suite)
+                return new Blob([str])
+              }
             })
+
+            // FIXE: it's for test
+            ;(window as any).newTestSuiteStorage = storage
+
+            return storage
+          }
 
           case StorageTarget.CSV:
-            return getBrowserFileSystemFlatStorage({
-              baseDir: 'spreadsheets'
+            return getBrowserFileSystemStandardStorage({
+              baseDir:        'spreadsheets',
+              extensions:     ['csv'],
+              shouldKeepExt:  true,
+              transformFileName: (path: string) => {
+                return path.toLowerCase()
+              }
             })
 
           case StorageTarget.Screenshot:
-            return getBrowserFileSystemFlatStorage({
-              baseDir: 'screenshots'
+            return getBrowserFileSystemStandardStorage({
+              baseDir:        'screenshots',
+              extensions:     ['png'],
+              shouldKeepExt:  true,
+              transformFileName: (path: string) => {
+                return path.toLowerCase()
+              }
             })
 
           case StorageTarget.Vision:
-            return getBrowserFileSystemFlatStorage({
-              baseDir: 'visions'
+            return getBrowserFileSystemStandardStorage({
+              baseDir:        'visions',
+              extensions:     ['png'],
+              shouldKeepExt:  true,
+              transformFileName: (path: string) => {
+                return path.toLowerCase()
+              }
             })
         }
       }
@@ -124,24 +205,29 @@ export class StorageManager extends EventEmitter implements IStorageManager {
 
         switch (target) {
           case StorageTarget.Macro: {
-            const storage = getNativeFileSystemFlatStorage({
+            const storage = getNativeFileSystemStandardStorage({
               rootDir,
               baseDir: 'macros',
               extensions: ['json'],
-              decode: (text: string, fileName: string) => {
-                const obj = fromJSONString(text, fileName, { withStatus: true, withId: true })
+              shouldKeepExt: false,
+              listFilter: (entryNodes: EntryNode[]): Promise<EntryNode[]> => {
+                return this.getMaxMacroCount(this.strategyType)
+                .then(maxCount => {
+                  return forestSlice(maxCount, entryNodes)
+                })
+              },
+              decode: (text: string, filePath: string) => {
+                const obj = fromJSONString(text, path.basename(filePath), { withStatus: true })
 
-                // FIXME: Here is a side effect when decoding
-                // To keep macro id consistent, have to write new generated id back to storage
-                if (!obj.id) {
-                  obj.id = uid()
-                  storage.write(fileName, obj)
-                }
-                
-                return obj
+                // Note: use filePath as id
+                return {
+                  ...obj,
+                  id:   storage.filePath(filePath),
+                  path: storage.relativePath(filePath)
+                } as any
               },
               encode: (data: any, fileName: string) => {
-                const str = toJSONString({ ...data, commands: data.data.commands }, { withStatus: true, withId: true })
+                const str = toJSONString({ ...data, commands: data.data.commands }, { withStatus: true, ignoreTargetOptions:false })
                 // Note: NativeFileSystemStorage only supports writing file with DataURL
                 // so have to convert it here in `encode`
                 return blobToDataURL(new Blob([str]))
@@ -151,24 +237,24 @@ export class StorageManager extends EventEmitter implements IStorageManager {
           }
 
           case StorageTarget.TestSuite: {
-            const storage = getNativeFileSystemFlatStorage({
+            const storage = getNativeFileSystemStandardStorage({
               rootDir,
               baseDir: 'testsuites',
               extensions: ['json'],
-              decode: (text: string, fileName: string) => {
-                const obj = parseTestSuite(text, this.getMacros(), { withFold: true, withId: true, withPlayStatus: true })
-                
-                // FIXME: Here is a side effect when decoding
-                // To keep macro id consistent, have to write new generated id back to storage
-                if (!obj.id) {
-                  obj.id = uid()
-                  storage.write(fileName, obj)
-                }
-                
-                return obj
+              shouldKeepExt: false,
+              decode: (text: string, filePath: string) => {
+                const obj = parseTestSuite(text, { fileName: path.basename(filePath) })
+
+                // Note: use filePath as id
+                return {
+                  ...obj,
+                  id:   storage.filePath(filePath),
+                  path: storage.relativePath(filePath)
+                } as any
               },
               encode: (suite: any, fileName: string) => {
-                const str = stringifyTestSuite(suite, this.getMacros(), { withFold: true, withId: true, withPlayStatus: true })
+                const str = stringifyTestSuite(suite)
+
                 return blobToDataURL(new Blob([str]))
               }
             })
@@ -176,30 +262,39 @@ export class StorageManager extends EventEmitter implements IStorageManager {
           }
 
           case StorageTarget.CSV:
-            return getNativeFileSystemFlatStorage({
+            return getNativeFileSystemStandardStorage({
               rootDir,
               baseDir: 'datasources',
               extensions: ['csv'],
               shouldKeepExt: true,
-              encode: (text: string, fileName: string) => {
+              allowAbsoluteFilePath: true,
+              encode: ((text: string, fileName: string) => {
                 return blobToDataURL(new Blob([text]))
-              }
+              }) as any
             })
 
           case StorageTarget.Vision:
-            return getNativeFileSystemFlatStorage({
+            return getNativeFileSystemStandardStorage({
               rootDir,
               baseDir: 'images',
               extensions: ['png'],
               shouldKeepExt: true,
-              encode: (imageBlob: Blob, fileName: string) => {
+              decode: xFileDecodeImage,
+              encode: ((imageBlob: Blob, fileName: string) => {
                 return blobToDataURL(imageBlob)
-              }
+              }) as any
             })
 
           case StorageTarget.Screenshot:
-            return getBrowserFileSystemFlatStorage({
-              baseDir: 'screenshots'
+            return getNativeFileSystemStandardStorage({
+              rootDir,
+              baseDir: 'screenshots',
+              extensions: ['png'],
+              shouldKeepExt: true,
+              decode: xFileDecodeImage,
+              encode: ((imageBlob: Blob, fileName: string) => {
+                return blobToDataURL(imageBlob)
+              }) as any
             })
         }
       }
@@ -209,30 +304,42 @@ export class StorageManager extends EventEmitter implements IStorageManager {
     }
   }
 
-  getMacroStorage (): FlatStorage {
+  getMacroStorage (): StandardStorage {
     return this.getStorageForTarget(StorageTarget.Macro)
   }
 
-  getTestSuiteStorage (): FlatStorage {
+  getTestSuiteStorage (): StandardStorage {
     return this.getStorageForTarget(StorageTarget.TestSuite)
   }
 
-  getCSVStorage (): FlatStorage & IWithLinkStorage {
-    return <FlatStorage & IWithLinkStorage>this.getStorageForTarget(StorageTarget.CSV)
-  }
-  
-  getVisionStorage () {
-    return <FlatStorage & IWithLinkStorage>this.getStorageForTarget(StorageTarget.Vision)
+  getCSVStorage (): StandardStorage & IWithLinkStorage {
+    return <StandardStorage & IWithLinkStorage>this.getStorageForTarget(StorageTarget.CSV)
   }
 
-  getScreenshotStorage (): FlatStorage & IWithLinkStorage {
-    return <FlatStorage & IWithLinkStorage>this.getStorageForTarget(StorageTarget.Screenshot)
+  getVisionStorage () {
+    return <StandardStorage & IWithLinkStorage>this.getStorageForTarget(StorageTarget.Vision)
   }
+
+  getScreenshotStorage (): StandardStorage & IWithLinkStorage {
+    return <StandardStorage & IWithLinkStorage>this.getStorageForTarget(StorageTarget.Screenshot)
+  }
+}
+
+function xFileDecodeImage (data: Content, fileName: string, readFileType: ReadFileType): any {
+  if (readFileType !== 'DataURL') {
+    return data
+  }
+
+  if ((data as string).substr(0, 11) === 'data:image') {
+    return data
+  }
+
+  return 'data:image/png;base64,' + (data as string)
 }
 
 // Note: in panel window (`src/index.js`), `getStorageManager` is provided with `getMacros` in `extraOptions`
 // While in `bg.js` or `csv_edtior.js`, `vision_editor.js`, `extraOptions` is omitted with no harm,
 // because they don't read/write test suites
-export const getStorageManager = singletonGetter<StorageManager>((strategyType?: StorageStrategyType, extraOptions?: StorageManagerOptions) => {
+export const getStorageManager = singletonGetter((strategyType?: StorageStrategyType, extraOptions?: StorageManagerOptions) => {
   return new StorageManager(strategyType || StorageStrategyType.XFile, extraOptions)
 })

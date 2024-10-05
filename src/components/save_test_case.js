@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
 import { Modal, message, Input } from 'antd'
-import { saveEditingAsExisted, saveEditingAsNew } from '../actions/index'
+import { saveEditingAsExisted, saveEditingAsNew, updateUI } from '../actions/index'
 import { hasUnsavedMacro } from '../recomputed'
 
 class SaveAsModal extends React.Component {
@@ -27,14 +27,14 @@ class SaveAsModal extends React.Component {
         title="Save macro as.."
         okText="Save"
         cancelText="Cancel"
-        visible={true}
+        open={true}
         onOk={() => this.props.onOk(this.state.name)}
         onCancel={this.props.onCancel}
         className="save-modal"
       >
         <Input
           style={{ width: '100%' }}
-          onKeyDown={e => { if (e.keyCode === 13) this.props.onOk(this.state.name) }}
+          onKeyDown={e => { e.keyCode === 13 && this.props.onOk(this.state.name) }}
           onChange={e => this.setState({ name: e.target.value })}
           value={this.state.name || ''}
           placeholder="macro name"
@@ -69,58 +69,93 @@ const tryToSave = (store, testCaseName) => {
 
   if (existed) {
     return store.dispatch(saveEditingAsExisted())
+    .then(() => true)
   }
 
   return new Promise((resolve, reject) => {
     const onSave = (name) => {
       return store.dispatch(saveEditingAsNew(name))
       .then(
-        () => message.success('successfully saved!', 1.5),
-        e  => message.error(e.message, 1.5)
+        () => {
+          message.success('successfully saved!', 1.5)
+          resolve(true)
+        },
+        e  => {
+          message.error(e.message, 1.5)
+          reject(e)
+        }
       )
-      .then(resolve, reject)
     }
 
     ReactDOM.render(
       <SaveAsModal
         name={testCaseName}
         onOk={onSave}
-        onCancel={resolve}
+        onCancel={() => resolve(false)}
       />,
       $container
     )
     // TODO
   })
-  .then(() => {
+  .then(saved => {
     ReactDOM.unmountComponentAtNode($container)
+    return saved
   })
   .catch(e => {
     console.error(e.message)
+    throw e
   })
 }
 
 const factory = (store) => {
+  const withIsSaving = (fn) => {
+    store.dispatch(updateUI({ isSaving: true }))
+
+    return new Promise(resolve => {
+      resolve(fn())
+    })
+    .finally(() => {
+      store.dispatch(updateUI({ isSaving: false }))
+    })
+  }
+
   return {
-    saveOrNot: () => {
-      const state = store.getState()
-      const hasUnsaved = hasUnsavedMacro(state)
+    saveOrNot: (options = {}) => {
+      const state       = store.getState()
+      const hasUnsaved  = hasUnsavedMacro(state)
+      const isExisting  = !!state.editor.editing.meta.src
+      const opts        = {
+        getTitle:   (data) => `Unsaved changes in macro "${data.macroName}"`,
+        getContent: (data) => 'Do you want to discard or save these changes?',
+        okText:     'Save',
+        cancelText: 'Discard',
+        ...(options || {})
+      }
 
-      if (!hasUnsaved)  return Promise.resolve()
+      return withIsSaving(() => {
+        if (!hasUnsaved)  return Promise.resolve(true)
 
-      return new Promise((resolve, reject) => {
-        Modal.confirm({
-          title: `Unsaved changes in macro "${getTestCaseName(state)}"`,
-          content: 'Do you want to discard or save these changes?',
-          okText: 'Save',
-          cancelText: 'Discard',
-          onOk: () => {
-            tryToSave(store).then(resolve)
-            return Promise.resolve(true)
-          },
-          onCancel: () => {
-            resolve()
-            return Promise.resolve(true)
-          }
+        if (isExisting && options.autoSaveExisting) {
+          return tryToSave(store)
+        }
+
+        return new Promise((resolve, reject) => {
+          const macroName = getTestCaseName(state)
+
+          Modal.confirm({
+            title:      opts.getTitle({ macroName }),
+            content:    opts.getContent({ macroName }),
+            okText:     opts.okText,
+            cancelText: opts.cancelText,
+            onOk: () => {
+              tryToSave(store).then(resolve, reject)
+              return Promise.resolve(true)
+            },
+            onCancel: () => {
+              resolve(false)
+              return Promise.resolve(true)
+            }
+          })
         })
       })
     },
@@ -128,8 +163,10 @@ const factory = (store) => {
       const state = store.getState()
       const hasUnsaved = hasUnsavedMacro(state)
 
-      if (!hasUnsaved)  return
-      return tryToSave(store, defaultName)
+      return withIsSaving(() => {
+        if (!hasUnsaved)  return Promise.resolve(true)
+        return tryToSave(store, defaultName)
+      })
     }
   }
 }

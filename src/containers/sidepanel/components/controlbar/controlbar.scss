@@ -1,0 +1,31 @@
+.control-panel-container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 100px;
+  padding: 5px 10px 15px;
+}
+
+.control-panel {
+  .action-button-container {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    margin-bottom: 6px;
+
+    button > svg {
+      width: 15px;
+      height: 15px;
+      margin-right: 5px;
+    }
+
+    a {
+      font-size: 14px;
+      text-decoration: underline;
+      // link color
+      color: #007bff;
+      cursor: pointer;
+    }
+  }
+}

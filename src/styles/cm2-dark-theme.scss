@@ -1,0 +1,97 @@
+$dark-background: #1e1e1e;
+$dark-gutter-background: #2e2e2e;
+$dark-text: #ffffff;
+$dark-cursor: #ffcc00;
+$dark-selection-background: #555555;
+$dark-line-number: #cccccc;
+$dark-active-line: #333333;
+
+
+html[data-theme="dark"] {
+
+  .CodeMirror {
+    // Main background and text color
+    background-color: $dark-background;
+    color: $dark-text;
+
+    // Gutter (line numbers and folding markers) background and text color
+    .CodeMirror-gutters {
+      background-color: $dark-gutter-background;
+      border-right: 1px solid darken($dark-gutter-background, 10%);
+      color: $dark-line-number;
+    }
+
+    // Line number color
+    .CodeMirror-linenumber {
+      color: $dark-line-number;
+    }
+
+    // Cursor color
+    .CodeMirror-cursor {
+      border-left: 1px solid $dark-cursor;
+    }
+
+    // Selection background color
+    .CodeMirror-selected {
+      background-color: $dark-selection-background;
+    }
+
+    // Active line background color
+    .CodeMirror-activeline-background {
+      background-color: $dark-active-line;
+    }
+
+    // Matching bracket highlight color
+    .CodeMirror-matchingbracket {
+      text-decoration: underline;
+      color: lighten($dark-text, 10%);
+    }
+
+    // Text colors for different types of code tokens
+    .cm-keyword {
+      color: #c586c0;
+    }
+
+    .cm-operator {
+      color: #d4d4d4;
+    }
+
+    .cm-variable-2,
+    .cm-variable-3,
+    .cm-def {
+      color: #9cdcfe;
+    }
+
+    .cm-comment {
+      color: #6a9955;
+    }
+
+    .cm-string {
+      color: #ce9178;
+    }
+
+    .cm-number {
+      color: #b5cea8;
+    }
+
+    .cm-builtin {
+      color: #dcdcaa;
+    }
+
+    .cm-tag {
+      color: #569cd6;
+    }
+
+    .cm-attribute {
+      color: #9cdcfe;
+    }
+
+    .cm-property {
+      color: #4ec9b0;
+    }
+
+    .cm-variable {
+      color: #dcdcaa;
+    }
+  }
+}

@@ -42,11 +42,11 @@ const calcOffset = (screenTotal, screenOffset, oldOffset, oldSize, newSize, pref
 
 // winSize.width
 // winSize.height
-export function resizeWindow (winId, winSize) {
-  const sw    = screen.availWidth
-  const sh    = screen.availHeight
-  const sl    = screen.availLeft
-  const st    = screen.availTop
+export function resizeWindow (winId, winSize, screenAvailableRect) {
+  const sw    = screenAvailableRect.width
+  const sh    = screenAvailableRect.height
+  const sx    = screenAvailableRect.x
+  const sy    = screenAvailableRect.y
 
   return Ext.windows.get(winId)
   .then(win => {
@@ -57,8 +57,8 @@ export function resizeWindow (winId, winSize) {
 
     return Ext.windows.update(winId, winSize)
     .then(win => {
-      const left = calcOffset(sw, sl, lastLeft, lastWidth, win.width)
-      const top  = calcOffset(sh, st, lastTop, lastHeight, win.height, true)
+      const left = calcOffset(sw, sx, lastLeft, lastWidth, win.width)
+      const top  = calcOffset(sh, sy, lastTop, lastHeight, win.height, true)
 
       Ext.windows.update(winId, { left, top })
 
@@ -82,13 +82,12 @@ export function resizeWindow (winId, winSize) {
 // referenceViewportWindowSize.window.height
 // referenceViewportWindowSize.viewport.width
 // referenceViewportWindowSize.viewport.height
-export function resizeViewport (winId, pureViewportSize, count = 1) {
+export function resizeViewport (winId, pureViewportSize, screenAvailableRect, count = 1) {
   const maxRetry = 2
   log('resizeViewport, ROUND', count)
 
   return getWindowSize(winId)
   .then(currentSize => {
-    log('currentSize!!!!')
     logWindowSize(currentSize)
 
     const dx = currentSize.window.width - currentSize.viewport.width
@@ -100,10 +99,9 @@ export function resizeViewport (winId, pureViewportSize, count = 1) {
     }
 
     log('size set to', newWinSize)
-    return resizeWindow(winId, newWinSize)
+    return resizeWindow(winId, newWinSize, screenAvailableRect)
     .then(() => getWindowSize(winId))
     .then(newSize => {
-      log('newSize!!!!')
       logWindowSize(newSize)
 
       const data = {
@@ -117,14 +115,14 @@ export function resizeViewport (winId, pureViewportSize, count = 1) {
       }
 
       return delay(() => {}, 0)
-      .then(() => resizeViewport(winId, pureViewportSize, count + 1))
+      .then(() => resizeViewport(winId, pureViewportSize, screenAvailableRect, count + 1))
     })
   })
 }
 
-export function resizeViewportOfTab (tabId, pureViewportSize) {
+export function resizeViewportOfTab (tabId, pureViewportSize, screenAvailableRect) {
   return Ext.tabs.get(tabId)
-  .then(tab => resizeViewport(tab.windowId, pureViewportSize))
+  .then(tab => resizeViewport(tab.windowId, pureViewportSize, screenAvailableRect))
 }
 
 // size.window.width

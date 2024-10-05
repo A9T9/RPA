@@ -1,5 +1,7 @@
 import { uid, pick, compose, on, map } from '../common/utils'
+import { pickIfExist } from '../common/ts_utils'
 import db from './db'
+import { doesCommandSupportTargetOptions } from '../common/command'
 
 const model = {
   table: db.testCases,
@@ -48,15 +50,23 @@ const model = {
 export default model
 
 export const normalizeCommand = (command) => {
-  return pick(['cmd', 'target', 'value'], command)
+  const result = pickIfExist(['cmd', 'target', 'value', 'targetOptions', 'description'], command)
+
+  if (!doesCommandSupportTargetOptions(result.cmd)) {
+    delete result.targetOptions
+  }
+
+  return result
 }
 
 export const normalizeTestCase = (testCase) => {
-  return compose(
+  const intermediate = compose(
     on('data'),
     on('commands'),
     map
   )(normalizeCommand)(testCase)
+
+  return pickIfExist(['id', 'data', 'name', 'path'], intermediate)
 }
 
 export const commandWithoutBaseUrl = (baseUrl) => (command) => {

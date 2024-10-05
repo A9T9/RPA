@@ -1,8 +1,11 @@
 import storage from '../../common/storage'
 
 export enum XModuleTypes {
-  XFile = 'xFile',
-  XUserIO = 'xClick'
+  XFile    = 'xFile',
+  XLocal    = 'xLocal',
+  XUserIO  = 'xClick',
+  XDesktop = 'xDesktop',
+  XScreenCapture = 'xScreenCapture'
 }
 
 export type VersionInfo = {
@@ -53,7 +56,7 @@ export abstract class XModule<T extends IXModuleBasicAPI> implements IXModule, I
     return this.getAPI()
     .reconnect()
     .catch(e => {
-      throw new Error(`${this.getName} is not installed yet`)
+      throw new Error(`${this.getName()} is not installed yet`)
     })
     .then(api => {
       return api.getVersion()

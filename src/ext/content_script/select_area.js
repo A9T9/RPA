@@ -43,11 +43,28 @@ export const createRect = (opts) => {
     ...(opts.rectStyle || {})
   }
 
+  const circleStyle = {
+    ...commonStyle,
+    width:    '8px',
+    height:   '8px',
+    border:   `${opts.rectBorderWidth}px solid rgb(239, 93, 143)`,
+    cursor:   'pointer',
+    background: 'red',
+    position: 'absolute',
+    'border-radius': '50%',
+    top: '50%',
+    left:'50%',
+    transform: 'translate(-50%, -50%)',
+    ...(opts.rectStyle || {})
+  }
+
   const $container = createEl({ style: containerStyle })
   const $rectangle = createEl({ style: rectStyle })
+  const $circlePointer = createEl({ style: circleStyle })
 
   $container.appendChild($rectangle)
-  document.body.appendChild($container)
+  $container.appendChild($circlePointer)
+  document.documentElement.appendChild($container)
 
   return {
     $container,
@@ -64,7 +81,7 @@ export const createRect = (opts) => {
   }
 }
 
-const createOverlay = () => {
+const createOverlay = (extraStyles) => {
   const $overlay = createEl({
     style: {
       position:   'fixed',
@@ -74,15 +91,27 @@ const createOverlay = () => {
       left:       0,
       right:      0,
       background: 'transparent',
-      cursor:     'crosshair'
+      cursor:     'crosshair',
+      ...extraStyles
     }
   })
 
-  document.body.appendChild($overlay)
-  return () => $overlay.remove()
+  document.documentElement.appendChild($overlay)
+
+  return {
+    $overlay,
+    destroy: () => $overlay.remove()
+  }
 }
 
-export const selectArea = ({ done, promise = false }) => {
+export const selectArea = ({
+  done,
+  onDestroy = () => {},
+  allowCursor = (e) => true,
+  overlayStyles = {},
+  clickToDestroy = true,
+  preventGlobalClick = true
+}) => {
   const go = (done) => {
     const state = {
       box: null,
@@ -103,11 +132,13 @@ export const selectArea = ({ done, promise = false }) => {
       return () => setStyle(document.body, { cursor: oldCursor, [userSelectKey]: oldUserSelect })
     })()
 
-    const removeOverlay = createOverlay()
+    const overlayApi = createOverlay(overlayStyles)
     const unbindDrag = bindDrag({
-      $el: document,
+      preventGlobalClick,
+      $el: overlayApi.$overlay,
       onDragStart: (e) => {
         e.preventDefault()
+        if (!allowCursor(e))  return
 
         state.activated = true
         state.startPos  = {
@@ -128,14 +159,20 @@ export const selectArea = ({ done, promise = false }) => {
 
           // Note: API.hide() takes some time to have effect
           setTimeout(() => {
-            done(state.rect, boundingRect)
-            API.destroy()
+            state.box = null
+
+            return Promise.resolve(
+              done(state.rect, boundingRect)
+            )
+            .catch(e => {})
+            .then(() => API.destroy())
           }, 100)
         }
       },
       onDrag: (e, { dx, dy }) => {
         e.preventDefault()
 
+        if (!allowCursor(e))  return
         if (!state.activated) return
 
         if (!state.box) {
@@ -173,8 +210,8 @@ export const selectArea = ({ done, promise = false }) => {
       width:        0,
       height:       0,
       rectStyle: {
-        border:     '1px solid #ff00ff',
-        background: 'rgba(0, 0, 255, 0.1)'
+        border:     '1px solid #ff0000',
+        background: 'rgba(255, 0, 0, 0.1)'
       }
     })
     const API = {
@@ -189,13 +226,15 @@ export const selectArea = ({ done, promise = false }) => {
       destroy: () => {
         resetBodyStyle()
         unbindDrag()
-        removeOverlay()
+        overlayApi.destroy()
         rectObj.destroy()
 
         setTimeout(() => {
           document.removeEventListener('click', onClick, true)
           document.removeEventListener('keydown', onKeyDown, true)
         }, 0)
+
+        onDestroy()
       },
       hide: () => {
         rectObj.hide()
@@ -206,27 +245,45 @@ export const selectArea = ({ done, promise = false }) => {
     }
 
     const onClick = (e) => {
-      console.log('trigger select_area onclick')
+      // If drag starts, we should ignore click event
+      if (state.box)  return
+
       e.preventDefault()
       e.stopPropagation()
       API.destroy()
     }
     const onKeyDown = (e) => e.keyCode === 27 && API.destroy()
 
-    document.addEventListener('click', onClick, true)
     document.addEventListener('keydown', onKeyDown, true)
+
+    if (clickToDestroy) {
+      document.addEventListener('click', onClick, true)
+    }
 
     API.hide()
     return API
   }
 
-  if (!promise) return go(done)
+  return go(done)
+}
 
+export const selectAreaPromise = (opts) => {
   return new Promise((resolve, reject) => {
     const wrappedDone = (...args) => {
-      resolve(done(...args))
+      resolve(opts.done(...args))
+    }
+    const wrappedOnDestroy = (...args) => {
+      try {
+        if (opts.onDestroy) opts.onDestroy(args)
+      } catch (e) {}
+
+      resolve()
     }
 
-    go(wrappedDone)
+    selectArea({
+      ...opts,
+      done:       wrappedDone,
+      onDestroy:  wrappedOnDestroy
+    })
   })
 }

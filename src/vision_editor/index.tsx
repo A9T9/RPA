@@ -1,7 +1,8 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
-import { LocaleProvider, Button, Checkbox, Modal, message } from 'antd'
-import enUS from 'antd/lib/locale-provider/en_US'
+import { ConfigProvider, Button, Checkbox, Modal, message } from 'antd'
+// import enUS from 'antd/lib/locale-provider/en_US'
+import en_US from "antd/lib/locale/en_US"
 
 import storage from '../common/storage'
 import FileSaver from '../common/lib/file_saver'
@@ -15,16 +16,18 @@ import { Point, BoxAnchorPosition, getAnchorRects as getAnchorRectsForBox } from
 import { polyfillTimeoutFunctions } from '@/services/timeout/cs_timeout'
 import csIpc from '@/common/ipc/ipc_cs'
 
-import 'antd/dist/antd.css'
+// import 'antd/dist/antd.css'
 import './index.scss'
+import '../styles/antd-dark-theme.scss'
+import './dark-theme.scss'
 
 polyfillTimeoutFunctions(csIpc)
 
 const rootEl = document.getElementById('root');
 const render = () => ReactDOM.render(
-  <LocaleProvider locale={enUS}>
+  <ConfigProvider locale={en_US}>
     <App />
-  </LocaleProvider>,
+  </ConfigProvider>,
   rootEl
 );
 
@@ -592,7 +595,7 @@ class App extends React.Component<Props, State> {
           <a
             className="editor-tips"
             target="_blank"
-            href="https://ui.vision/x/idehelp?help=relative_clicks"
+            href="https://goto.ui.vision/x/idehelp?help=relative_clicks"
           >
             Info: What are relative clicks?
           </a>
@@ -619,6 +622,10 @@ class App extends React.Component<Props, State> {
 function restoreConfig () {
   return storage.get('config')
   .then((config = {}) => {
+    if (config && config.useDarkTheme) {
+      document.documentElement.setAttribute('data-theme', 'dark')
+    }
+
     return {
       storageMode: StorageStrategyType.Browser,
       ...config

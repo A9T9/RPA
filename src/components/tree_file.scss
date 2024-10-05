@@ -1,0 +1,193 @@
+
+@import '../styles/common.scss';
+
+.file-root {
+  padding-top: 10px;
+  font-size: 14px;
+  line-height: 18px;
+
+  &.drag-over {
+    background: $bgRunning;
+  }
+
+  // .tree-node {
+  //   .tree-node {
+  //     margin-left: 20px;
+  //   }
+  // }
+
+  .tree-node-content {
+    position: relative;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 5px 10px;
+    cursor: pointer;
+    user-select: none;
+
+    .tree-node-icon-wrapper {
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      margin-right: 5px;
+      width: 20px;
+    }
+
+    .more-button {
+      display: none;
+      position: absolute;
+      top: 50%;
+      right: 10px;
+      transform: translateY(-50%);
+    }
+
+    &:hover .more-button {
+      display: block;
+    }
+  }
+
+  .file-node {
+    &.drag-over {
+      background: $bgRunning
+    }
+
+    &.success {
+      & > .tree-node-content {
+        background: $bgSuccess;
+      }
+
+      &.blur > .tree-node-content {
+        background: fade-out($color: $bgSuccess, $amount: 0.4);
+      }
+    }
+
+    &.error {
+      & > .tree-node-content {
+        background: $bgError;
+      }
+
+      &.blur > .tree-node-content {
+        background: fade-out($color: $bgError, $amount: 0.4);
+      }
+    }
+
+    &.error-in-sub {
+      & > .tree-node-content {
+        background: $bgErrorInSub;
+      }
+
+      &.blur > .tree-node-content {
+        background: fade-out($color: $bgErrorInSub, $amount: 0.4);
+      }
+    }
+
+    &.selected {
+      & > .tree-node-content {
+        background:  $bgSelected;
+      }
+
+      &.blur > .tree-node-content {
+        background: fade-out($color: $bgSelected, $amount: 0.4);
+      }
+
+      &.error,
+      &.error-in-sub,
+      &.success {
+        & > .tree-node-content {
+          position: relative;
+
+          &::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            pointer-events: none;
+          }
+        }
+      }
+
+      &.error {
+        & > .tree-node-content {
+          &::after {
+            border: 4px solid $bgError;
+          }
+        }
+
+        &.blur > .tree-node-content::after {
+          border-color: fade-out($color: $bgError, $amount: 0.4);
+        }
+      }
+
+      &.error-in-sub {
+        & > .tree-node-content {
+          &::after {
+            border: 4px solid $bgErrorInSub;
+          }
+        }
+
+        &.blur > .tree-node-content::after {
+          border-color: fade-out($color: $bgErrorInSub, $amount: 0.4);
+        }
+      }
+
+      &.success {
+        & > .tree-node-content {
+          &::after {
+            border: 4px solid $bgSuccess;
+          }
+        }
+
+        &.blur > .tree-node-content::after {
+          border-color: fade-out($color: $bgSuccess, $amount: 0.4);
+        }
+      }
+    }
+
+    .file-icon,
+    .folder-icon {
+      height: 16px;
+    }
+  }
+
+  .tree-node .tree-node .tree-node-content {
+    padding-left: 1 * 15px + 10px;
+  }
+
+  .tree-node .tree-node .tree-node .tree-node-content {
+    padding-left: 2 * 15px + 10px;
+  }
+
+  .tree-node .tree-node .tree-node .tree-node .tree-node-content {
+    padding-left: 3 * 15px + 10px;
+  }
+
+  .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node-content {
+    padding-left: 4 * 15px + 10px;
+  }
+
+  .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node-content {
+    padding-left: 5 * 15px + 10px;
+  }
+
+  .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node-content {
+    padding-left: 6 * 15px + 10px;
+  }
+
+  .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node-content {
+    padding-left: 7 * 15px + 10px;
+  }
+
+  .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node-content {
+    padding-left: 8 * 15px + 10px;
+  }
+
+  .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node-content {
+    padding-left: 9 * 15px + 10px;
+  }
+
+  .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node .tree-node-content {
+    padding-left: 10 * 15px + 10px;
+  }
+}

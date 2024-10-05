@@ -4,11 +4,11 @@ const TYPE = 'SELENIUM_IDE_CS_MSG'
 export const postMessage = (targetWin, myWin, payload, target = '*', timeout = 60000) => {
   return new Promise((resolve, reject) => {
     if (!targetWin || !targetWin.postMessage) {
-      throw new Error('csPostMessage: targetWin is not a window', targetWin)
+      throw new Error('E350: csPostMessage: targetWin is not a window')
     }
 
     if (!myWin || !myWin.addEventListener || !myWin.removeEventListener) {
-      throw new Error('csPostMessage: myWin is not a window', myWin)
+      throw new Error('E351: csPostMessage: myWin is not a window', myWin)
     }
 
     const secret  = Math.random()
@@ -23,7 +23,7 @@ export const postMessage = (targetWin, myWin, payload, target = '*', timeout = 6
         if (error)                  return reject(new Error(error))
         if (payload !== undefined)  return resolve(payload)
 
-        reject(new Error('csPostMessage: No payload nor error found'))
+        reject(new Error('E352: csPostMessage: No payload nor error found'))
       }
     }
 
@@ -34,6 +34,7 @@ export const postMessage = (targetWin, myWin, payload, target = '*', timeout = 6
     // * `secret` is for 1 to 1 relationship between a msg and a listener
     // * `payload` is the real data you want to send
     // * `isRequest` is to mark that it's not an answer to some previous request
+
     targetWin.postMessage({
       type,
       secret,
@@ -42,7 +43,7 @@ export const postMessage = (targetWin, myWin, payload, target = '*', timeout = 6
     }, target)
 
     setTimeout(() => {
-      reject(new Error(`csPostMessage: timeout ${timeout} ms`))
+      reject(new Error(`E353: csPostMessage: timeout ${timeout} ms`)) //Why 5000?
     }, timeout)
   })
 }

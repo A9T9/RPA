@@ -4,13 +4,29 @@ import csIpc from '../../common/ipc/ipc_cs'
 import { postMessage, onMessage } from '../../common/ipc/cs_postmessage'
 import inspector from '../../common/inspector'
 import * as C from '../../common/constant'
-import { setIn, updateIn, until, parseQuery, objMap } from '../../common/utils'
-import { bindContentEditableChange, isPositionFixed, setStyle } from '../../common/dom_utils'
-import { run, getElementByLocator } from '../../common/command_runner'
+import { pick, setIn, updateIn, until, parseQuery, objMap, bindOnce, bind, withTimeout, subjectiveBindOnce } from '../../common/utils'
+import { bindContentEditableChange, setStyle, domText, isFirefox, getElementByLocator } from '../../common/dom_utils'
+import { hackAlertInject } from './eval'
+import { run } from './command_runner'
 import { captureClientAPI } from '../../common/capture_screenshot'
 import { encryptIfNeeded } from '../../common/encrypt'
 import log from '../../common/log'
-import { selectArea } from './select_area'
+import { selectAreaPromise } from './select_area'
+import { getOrcMatchesHighlighter } from '../../services/ocr/highlighter'
+import { polyfillTimeoutFunctions } from '../../services/timeout/cs_timeout'
+import { DevicePixelRatioService } from '../../services/dpr'
+import { ViewportRectService } from '../../services/viewport_rect'
+import config from '../../config';
+import { getState, updateState } from '../common/global_state'
+import  interceptLog from '@/common/intercept_log'
+
+interceptLog()
+
+console.log('content_script.js loaded:>>')
+
+if (window.top === window && !isFirefox()) {
+  polyfillTimeoutFunctions(csIpc)
+}
 
 const MASK_CLICK_FADE_TIMEOUT = 2000
 const oops = process.env.NODE_ENV === 'production'
@@ -27,7 +43,9 @@ const state = {
   recordingFrameStack: [],
   // Note: snapshot of extension config (content script cares about click/clickAt when recording)
   // It is supposed to be updated when user activates that page
-  config: {}
+  config: {},
+  // Note: To achieve verifyText, we need contextmenu event on page plus menu item click event from background
+  elementOnContextMenu: null
 }
 
 // Note: Whether it's top or inner window, a content script has the need
@@ -100,8 +118,14 @@ const getMask = (function () {
   }
 
   return (remove) => {
-    if (remove && factory)  return factory.clear()
-    if (mask)               return mask
+    if (remove && factory) {
+      mask = null
+      return factory.clear()
+    }
+
+    if (mask) {
+      return mask
+    }
 
     factory = inspector.maskFactory()
 
@@ -111,23 +135,21 @@ const getMask = (function () {
     addLogoImg(maskClick)
     addLogoImg(maskHover)
 
-    console.log('maskClick', maskClick)
-
     mask = { maskClick, maskHover }
 
-    document.body.appendChild(maskClick)
-    document.body.appendChild(maskHover)
+    document.documentElement.appendChild(maskClick)
+    document.documentElement.appendChild(maskHover)
 
     return mask
   }
 })()
 
 const createLogoImg = () => {
-  // Note: Ext.extension.getURL is available in content script, but not injected js
-  // So there are cases when content_script.js is run as injected js, where `Ext.extension.getURL`
+  // Note: Ext.runtime.getURL is available in content script, but not injected js
+  // So there are cases when content_script.js is run as injected js, where `Ext.runtime.getURL`
   // is not available
-  // Weird enough, `Ext.extension.getURL` always works well in macOS
-  const url   = Ext.extension.getURL ? Ext.extension.getURL('logo.png') : ''
+  // Weird enough, `Ext.runtime.getURL` always works well in macOS
+  const url   = Ext.runtime.getURL ? Ext.runtime.getURL('logo.png') : ''
   const img   = new Image()
 
   img.src     = url
@@ -249,6 +271,54 @@ const isValidType = (el) => {
   return false
 }
 
+const downloadSaveItem = ($dom, cmd) => {
+  if(cmd =="saveItem"){
+          var cachedImage = $dom; 
+          var url = cachedImage.src; 
+          var filename = url.substring(url.lastIndexOf('/')+1);
+
+          // Check if the cached image exists
+          if (cachedImage.complete && cachedImage.naturalWidth !== 0) {
+            // If the cached image exists, create a temporary URL for the image
+            const tempUrl = URL.createObjectURL(cachedImage.src);
+            const link = document.createElement("a");
+            link.download = filename;
+            link.href = tempUrl;
+            link.click();
+            // Release the temporary URL
+            URL.revokeObjectURL(tempUrl);
+          } else {
+            // If the cached image doesn't exist, create a new image object
+            const image = new Image();
+            // Set the image source URL
+            image.src = url;
+            // Wait for the image to load
+            image.onload = () => {
+              // Store the image in cache for future use
+              const canvas = document.createElement("canvas");
+              canvas.width = image.naturalWidth;
+              canvas.height = image.naturalHeight;
+              canvas.getContext("2d").drawImage(image, 0, 0);
+              const extension = filename.split(".").pop();
+              const dataURL = canvas.toDataURL(`image/${extension}`);
+              localStorage.setItem("myImage", dataURL);
+              // Create a temporary URL for the image
+              const tempUrl = URL.createObjectURL(image.src);
+              // Create a link element with a download attribute
+              const link = document.createElement("a");
+              link.download = filename;
+              link.href = tempUrl;
+              // Click the link to trigger a download of the image
+              link.click();
+              // Release the temporary URL
+              URL.revokeObjectURL(tempUrl);
+  };
+}
+
+
+  }
+}
+
 const highlightDom = ($dom, timeout) => {
   const mask = getMask()
 
@@ -285,7 +355,7 @@ const createHighlightRect = function (opts = {}) {
 
   return (rect, timeout) => {
     clearTimeout(timer)
-    $text.innerText = parseFloat(rect.score).toFixed(2)
+    $text.innerText = rect.text ? rect.text : (parseFloat(rect.score).toFixed(2) + ` #${rect.index + 1}`)
 
     inspector.setStyle($mask, {
       display:  'block',
@@ -299,7 +369,7 @@ const createHighlightRect = function (opts = {}) {
     inspector.setStyle($text, opts.textStyle || {})
 
     if (!$mask.parentNode) {
-      document.body.appendChild($mask)
+      document.documentElement.appendChild($mask)
     }
 
     if (opts.scrollIntoView) {
@@ -312,10 +382,17 @@ const createHighlightRect = function (opts = {}) {
       }, timeout)
     }
 
-    return () => {
+    const fn = () => {
       inspector.setStyle($mask, { display: 'none' })
       $mask.remove()
     }
+
+    Object.assign(fn, {
+      hide: () => inspector.setStyle($mask, { display: 'none' }),
+      show: () => inspector.setStyle($mask, { display: 'block' })
+    })
+
+    return fn
   }
 }
 
@@ -324,23 +401,62 @@ const highlightRect = createHighlightRect()
 const highlightRects = (function () {
   const topMatchedOptions = {
     rectStyle: {
-      borderColor: '#ff00ff',
-      color: '#ff00ff'
+      borderColor: '#ff0000',
+      color: '#ff0000'
     }
   }
   let destroy
 
-  return (rects, timeout) => {
+  const fn = (rects, timeout) => {
     if (destroy)  destroy()
-    const destroyFns = rects.map((rect, i) => createHighlightRect(i === 0 ? topMatchedOptions : {})(rect, timeout))
+
+    const destroyFns = rects.map((rect, i) => {
+      rect.index = i
+      return createHighlightRect(rect.selected ? topMatchedOptions : {})(rect, timeout)
+    })
+
     destroy = () => destroyFns.forEach(destroy => destroy())
+
+    Object.assign(destroy, {
+      hide: () => destroyFns.forEach(fn => fn.hide && fn.hide()),
+      show: () => destroyFns.forEach(fn => fn.show && fn.show())
+    })
+
     return destroy
   }
+
+  Object.assign(fn, {
+    hide: () => destroy.hide(),
+    show: () => destroy.show()
+  })
+
+  return fn
 })()
+
+const initMultipleSelect = ($select) => {
+  if ($select && $select.nodeName && $select.nodeName.toLowerCase() === 'select' && $select.multiple) {
+    Array.from($select.options).forEach($option => {
+      $option.lastSelected = $option.selected
+    })
+  }
+}
+
+const onContextMenu = (e) => {
+  state.elementOnContextMenu = e.target
+}
 
 const onClick = (e) => {
   if (!isValidClick(e.target))  return
-
+  (async()=>{
+    const allState= await getState();
+    if(allState['curent_cmd'] == "XClickTextRelative" && allState.status!="NORMAL"){
+      const rect = e.target.getBoundingClientRect();
+      getOrcMatchesHighlighter().highlightRelative(rect);
+      updateState(setIn(['curent_cmd'], ''));
+      //e.target.style.border='2px solid #fe1492';
+    }  
+    
+})()
   const targetInfo = inspector.getLocator(e.target, true)
 
   log('onClick, switch  case', state.config.recordClickType)
@@ -359,7 +475,6 @@ const onClick = (e) => {
         })()
       })
       break
-
     case 'click':
     default:
       reportCommand({
@@ -367,19 +482,48 @@ const onClick = (e) => {
         cmd: 'click'
       })
       break
+    case 'saveItem':
+      console.log('saveItem==> ',targetInfo)
+    break
+  }
+
+  if (e.target.nodeName.toLowerCase() === 'option') {
+    initMultipleSelect(e.target.parentNode)
+  }
+}
+
+const onFocus = (e) => {
+  if (e.target.nodeName.toLowerCase() === 'select' && e.target.multiple) {
+    initMultipleSelect(e.target)
   }
 }
 
 const onChange = (e) => {
   if (isValidSelect(e.target)) {
-    const value = e.target.value
-    const $option = Array.from(e.target.children).find($op => $op.value === value)
+    const isMultipleSelect = !!e.target.multiple
 
-    reportCommand({
-      cmd: 'select',
-      value: 'label=' + inspector.domText($option).trim(),
-      ...inspector.getLocator(e.target, true)
-    })
+    if (!isMultipleSelect) {
+      const value = e.target.value
+      const $option = Array.from(e.target.children).find($op => $op.value === value)
+
+      reportCommand({
+        cmd: 'select',
+        value: 'label=' + inspector.domText($option).trim(),
+        ...inspector.getLocator(e.target, true)
+      })
+    } else {
+      Array.from(e.target.options).forEach($option => {
+        if ($option.lastSelected !== $option.selected) {
+          reportCommand({
+            cmd:    $option.selected ? 'addSelection' : 'removeSelection',
+            value:  'label=' + inspector.domText($option).trim(),
+            ...inspector.getLocator(e.target, true)
+          })
+        }
+
+        $option.lastSelected = $option.selected
+      })
+    }
   } else if (isValidType(e.target)) {
     const value = (e.target.value || '').replace(/\n/g, '\\n')
 
@@ -451,9 +595,11 @@ let unbindContentEditableEvents
 
 const bindEventsToRecord = () => {
   document.addEventListener('click', onClick, true)
+  document.addEventListener('focus', onFocus, true)
   document.addEventListener('change', onChange, true)
   document.addEventListener('dragstart', onDragDrop, true)
   document.addEventListener('drop', onDragDrop, true)
+  document.addEventListener('contextmenu', onContextMenu, true)
   window.addEventListener('beforeunload', onLeave, true)
 
   unbindContentEditableEvents = bindContentEditableChange({ onChange: onContentEditableChange })
@@ -461,9 +607,11 @@ const bindEventsToRecord = () => {
 
 const unbindEventsToRecord = () => {
   document.removeEventListener('click', onClick, true)
+  document.removeEventListener('focus', onFocus, true)
   document.removeEventListener('change', onChange, true)
   document.removeEventListener('dragstart', onDragDrop, true)
   document.removeEventListener('drop', onDragDrop, true)
+  document.removeEventListener('contextmenu', onContextMenu, true)
   window.removeEventListener('beforeunload', onLeave, true)
 
   if (unbindContentEditableEvents) {
@@ -531,16 +679,18 @@ const updateStatus = (args) => {
 const bindIPCListener = () => {
   // Note: need to check csIpc in case it's a none-src iframe into which we
   // inject content_script.js. It has no access to chrome api, thus no csIpc available
-  if (!csIpc) return
+  if (!csIpc) return 
 
   // Note: csIpc instead of superIpc, because only top window is able
   // to listen to ipc events from bg
   csIpc.onAsk((cmd, args) => {
     log(cmd, args)
-
+    
     switch (cmd) {
       case 'HEART_BEAT':
-        return true
+        return {
+          secret: csIpc.secret
+        }
 
       case 'SET_STATUS': {
         updateStatus(args)
@@ -549,6 +699,12 @@ const bindIPCListener = () => {
 
       case 'DOM_READY':
         return waitForDomReady(false)
+
+      case 'STOP_INSPECTING': {
+        getMask(true)
+        updateStatus({ status: C.CONTENT_SCRIPT_STATUS.NORMAL })
+        return true
+      }
 
       case 'RUN_COMMAND':
         return runCommand(args.command)
@@ -585,18 +741,24 @@ const bindIPCListener = () => {
         if ($el) {
           $el.scrollIntoView({ block: 'center' })
           highlightDom($el)
+          downloadSaveItem($el,args.cmd)
         }
 
         return true
       }
 
       case 'HIGHLIGHT_RECT': {
-        highlightRect(args.scoredRect)
+        highlightRect(args.rect, args)
         return true
       }
 
       case 'HIGHLIGHT_RECTS': {
-        highlightRects(args.scoredRects)
+        highlightRects(args.scoredRects.map((rect, i) => {
+          return {
+            ...rect,
+            selected: i === args.selectedIndex
+          }
+        }))
         return true
       }
 
@@ -606,9 +768,33 @@ const bindIPCListener = () => {
         return true
       }
 
-      case 'HACK_ALERT': {
-        hackAlertConfirmPrompt()
+      case 'HIDE_VISION_RECTS': {
+        highlightRects.hide()
         return true
+      }
+
+      case 'SHOW_VISION_RECTS': {
+        highlightRects.show()
+        return true
+      }
+
+      case 'HIGHLIGHT_OCR_MATCHES': {
+        getOrcMatchesHighlighter().updateStates(args.localStorage);
+        getOrcMatchesHighlighter().highlight(args.ocrMatches, args.showOcrOverlay)
+        return true
+      }
+
+      case 'CLEAR_OCR_MATCHES': {
+        getOrcMatchesHighlighter().clear()
+        return true
+      }
+
+      case 'HACK_ALERT': {
+        return hackAlertConfirmPrompt()
+        .then(
+          () => true,
+          () => true
+        )
       }
 
       case 'MARK_NO_COMMANDS_YET': {
@@ -638,8 +824,7 @@ const bindIPCListener = () => {
       }
 
       case 'SELECT_SCREEN_AREA': {
-        return selectArea({
-          promise:  true,
+        return selectAreaPromise({
           done:     (rect, boundingRect) => {
             log('SELECT_SCREEN_AREA  - selectArea', rect, boundingRect)
             return csIpc.ask('CS_SCREEN_AREA_SELECTED', {
@@ -667,6 +852,7 @@ const bindIPCListener = () => {
         if (on) {
           const $dom = document.createElement('div')
           $dom.id = id
+          $dom.innerText = 'Calibrating Computer Vision...'
 
           setStyle($dom, {
             position: 'fixed',
@@ -675,13 +861,58 @@ const bindIPCListener = () => {
             left: 0,
             right: 0,
             zIndex: 120001,
-            background: '#00ff00'
+            background: '#00ff00',
+            color: '#fff',
+            fontSize: '18px',
+            fontWeight: 'bold',
+            display: 'flex',
+            flexDirection: 'row',
+            justifyContent: 'center',
+            alignItems: 'center'
           })
 
-          document.body.appendChild($dom)
+          document.documentElement.appendChild($dom)
         }
 
         return true
+      }
+
+      case 'CONTEXT_MENU_IN_RECORDING': {
+        switch (args && args.command) {
+          case 'verifyText':
+          case 'assertText':
+            if (!state.elementOnContextMenu) {
+              break
+            }
+
+            reportCommand({
+              ...inspector.getLocator(state.elementOnContextMenu, true),
+              cmd:   args.command,
+              value: domText(state.elementOnContextMenu)
+            })
+            break
+
+          case 'verifyTitle':
+          case 'assertTitle':
+            reportCommand({
+              cmd:    args.command,
+              target: document.title
+            })
+            break
+        }
+
+        return true
+      }
+
+      case 'GET_VIEWPORT_RECT_IN_SCREEN': {
+        const dprService = new DevicePixelRatioService({
+          getZoom: () => Promise.resolve(args.zoom)
+        })
+        const viewportRectService = new ViewportRectService({
+          devicePixelRatioService: dprService
+        })
+
+        return viewportRectService.getViewportRectInScreen()
       }
 
       default:
@@ -696,6 +927,7 @@ const bindEventsToInspect = () => {
     switch (state.status) {
       case C.CONTENT_SCRIPT_STATUS.INSPECTING: {
         e.preventDefault()
+        e.stopPropagation()
 
         const mask = getMask()
 
@@ -719,7 +951,7 @@ const bindEventsToInspect = () => {
       default:
         break
     }
-  })
+  }, true)
 
   // bind mouse over event for applying for a inspector role
   document.addEventListener('mouseover', (e) => {
@@ -740,7 +972,8 @@ const bindEventsToInspect = () => {
 
 const bindOnMessage = () => {
   onMessage(window, ({ action, data }, { source }) => {
-    log('onMessage', action, data, source)
+    // Should not log source here, because it might cause accessing a cross origin frame error
+    log('onMessage', action, data)
 
     switch (action) {
       case 'SET_STATUS':
@@ -800,13 +1033,16 @@ const bindOnMessage = () => {
 
         // pass on RESET_PLAYING_FRAME to parent, all the way till top window
         if (data === 'TOP' && window.top !== window) {
-          postMessage(window.parent, window, {
-            action: 'RESET_PLAYING_FRAME',
-            data: 'TOP'
+          return withTimeout(config.iframePostMessageTimeout, () => {
+            return postMessage(window.parent, window, {
+              action: 'RESET_PLAYING_FRAME',
+              data: 'TOP'
+            })
           })
+          .then(() => true)
         }
 
-        return true
+        return Promise.resolve(true)
       }
 
       case 'SOURCE_PAGE_OFFSET': {
@@ -836,7 +1072,7 @@ const bindOnMessage = () => {
         })
       }
 
-      case 'SOURCE_BOUNDING_BOX_OFFSET': {
+      case 'SOURCE_VIEWPORT_OFFSET': {
         const $frames = [
           ...Array.from(document.getElementsByTagName('iframe')),
           ...Array.from(document.getElementsByTagName('frame'))
@@ -852,7 +1088,7 @@ const bindOnMessage = () => {
         }
 
         return postMessage(window.parent, window, {
-          action: 'SOURCE_BOUNDING_BOX_OFFSET',
+          action: 'SOURCE_VIEWPORT_OFFSET',
           data: {}
         })
         .then(parentOffset => {
@@ -862,48 +1098,178 @@ const bindOnMessage = () => {
           }
         })
       }
+
+      case 'DOM_READY':
+        return waitForDomReady(false)
     }
   })
+}
+
+const isUrlInWhiteList = (url) => {
+  const { websiteWhiteList = [] } = state.config
+
+  return websiteWhiteList.reduce((prev, cur) => {
+    if (prev) return prev
+    return url.indexOf(cur) === 0
+  }, false)
 }
 
 const bindInvokeEvent = () => {
-  // Macros
-  window.addEventListener('kantuRunMacro', (e) => {
-    log('invoke event', e)
-    window.dispatchEvent(new CustomEvent('kantuInvokeSuccess'))
-
-    const queries = parseQuery(window.location.search)
-    csIpc.ask('CS_INVOKE', { testCase: e.detail, options: queries })
-    .catch(e => alert('[kantu] ' + e.message))
-  })
-
-  window.addEventListener('kantuSaveAndRunMacro', (e) => {
-    log('save and run macro event', e)
-    window.dispatchEvent(new CustomEvent('kantuInvokeSuccess'))
-
-    const queries = parseQuery(window.location.search)
-    const direct  = window.location.protocol === 'file:' && !!queries['direct']
-    const agree   = direct || confirm('Kantu: Do you want to import and run this macro?\n\nNote: To run the macro without this confirmation box, add the \'?direct=1\' switch to the URL. Example: file:///xx/xx/macro.html?direct=1')
-
-    if (agree) {
-      csIpc.ask('CS_IMPORT_HTML_AND_INVOKE', {...e.detail, from: 'html', options: queries})
-      .catch(e => alert('[kantu] ' + e.message))
+  const doesQueriesContainMacroOrTestSuite = (queries = {}) => {
+    return queries['macro'] || queries['testsuite'] || queries['folder']
+  }
+  const decorateOptions = (options, detail) => {
+    return {
+      loadmacrotree: '0',
+      continueInLastUsedTab: '1',
+      ...options,
+      ...(detail ? pick(['closeKantu', 'closeRPA', 'loadmacrotree'], detail) : {})
     }
-  })
+  }
+  const runCsInvokeFromQueries = (queries = {}) => {
+    const userStorageMode    = queries.storageMode ? queries.storageMode.toLowerCase() : ''
+    const isValidStorageMode = ['browser', 'xfile'].indexOf(userStorageMode) !== -1
+    const storageMode        = isValidStorageMode ? userStorageMode : 'browser'
 
-  // Test Suites
-  window.addEventListener('kantuRunTestSuite', (e) => {
+    if (queries['macro']) {
+      return csIpc.ask('CS_INVOKE', {
+        testCase: {
+          storageMode,
+          name: queries['macro'],
+          from: 'html'
+        },
+        options: decorateOptions(queries)
+      })
+      .catch(e => alert('[UI.Vision RPA] ' + e.message))
+    }
+
+    if (queries['folder']) {
+      return csIpc.ask('CS_INVOKE', {
+        testSuite: {
+          storageMode,
+          macroFolder: queries['folder'],
+          from: 'html'
+        },
+        options: decorateOptions(queries)
+      })
+    }
+
+    if (queries['testsuite']) {
+      return csIpc.ask('CS_INVOKE', {
+        testSuite: {
+          storageMode,
+          name: queries['testsuite'],
+          from: 'html'
+        },
+        options: decorateOptions(queries)
+      })
+      .catch(e => alert('[UI.Vision RPA] ' + e.message))
+    }
+  }
+  const isFile  = window.location.protocol === 'file:'
+
+  // Macros
+  bind(window, 'kantuRunMacro', (e) => {
     log('invoke event', e)
     window.dispatchEvent(new CustomEvent('kantuInvokeSuccess'))
 
     const queries = parseQuery(window.location.search)
-    csIpc.ask('CS_INVOKE', { testSuite: e.detail, options: queries })
-    .catch(e => alert('[kantu] ' + e.message))
+
+    csIpc.ask('CS_INVOKE', {
+      testCase: e.detail,
+      options:  decorateOptions({
+        continueInLastUsedTab: '0',
+        ...queries
+      }, e.detail)
+    })
+    .catch(e => alert('[UI.Vision RPA] ' + e.message))
+  });
+
+  (isFile ? bindOnce : subjectiveBindOnce)(window, 'kantuSaveAndRunMacro', (e) => {
+    const run = () => {
+      log('save and run macro event:>> e:', e)
+      window.dispatchEvent(new CustomEvent('kantuInvokeSuccess'))
+
+      if (!e.detail || (!e.detail.html && !e.detail.json)) {
+        return alert('[UI.Vision RPA] invalid data format')
+      }
+
+      const queries     = parseQuery(window.location.search)
+      const direct      = !!queries['direct'] || (e.detail.json && e.detail.direct)
+      const storageMode = queries['storage'] || e.detail.storageMode || 'browser'
+
+      const msgDirectParam      = 'UI.Vision RPA: Do you want to import and run this macro?\n\nNote: To remove this dialog, add \'?direct=1\' switch to the URL. Example: file:///xx/xx/macro.html?direct=1  For embedded macros, add "direct: true" to the call.'
+      const msgWebsiteWhiteList = 'UI.Vision RPA: Do you want to import and run this macro?\n\nNote: To remove this dialog, add this site to whitelist in the UI.Vision RPA settings'
+
+      if (isFile && !direct) {
+        const agree = confirm(msgDirectParam)
+        if (!agree) return
+      }
+
+      if (!isFile) {
+        if (!state.config.allowRunFromHttpSchema) {
+          return alert('[Message from UI.Vision RPA] Error #110: To run an embedded macro from a website, you need to allow it in the RPA settings first')
+        }
+
+        if (!isUrlInWhiteList(window.location.href)) {
+          const agree = confirm(msgWebsiteWhiteList)
+          if (!agree) return
+        } else if (!direct) {
+          const agree = confirm(msgDirectParam)
+          if (!agree) return
+        }
+      }
+
+      if (doesQueriesContainMacroOrTestSuite(queries)) {
+        console.log('doesQueriesContainMacroOrTestSuite:>> queries: ', queries)
+        return runCsInvokeFromQueries({ ...queries, storageMode })
+      } else if (e.detail.noImport) {
+        const msg = 'Command line must include one of these params: macro, folder, testsuite'
+        alert(msg)
+        throw new Error(msg)
+      }
+
+      const extraOptions = !isFile ? { continueInLastUsedTab: '0' } : {}
+
+      return csIpc.ask('CS_IMPORT_AND_INVOKE', {
+        ...e.detail,
+        from:     'html',
+        options:  decorateOptions({ ...queries, ...extraOptions }, e.detail)
+      })
+      .catch(e => alert('[UI.Vision RPA] ' + e.message))
+    }
+
+    loadConfig()
+    .catch(e => {})
+    .then(run)
   })
+
+// we don't need this
+// Test Suites
+//   bind(window, 'kantuRunTestSuite', (e) => {
+//     log('invoke event', e)
+//     window.dispatchEvent(new CustomEvent('kantuInvokeSuccess'))
+
+//     const queries = parseQuery(window.location.search)
+//     const storageMode = queries['storage'] || e.detail.storageMode || 'browser'
+
+//     if (doesQueriesContainMacroOrTestSuite(queries)) {
+//       return runCsInvokeFromQueries({
+//         ...queries,
+//         storageMode
+//       })
+//     }
+
+//     return csIpc.ask('CS_INVOKE', {
+//       testSuite: e.detail,
+//       options: decorateOptions(queries, e.detail)
+//     })
+//     .catch(e => alert('[UI.Vision RPA] ' + e.message))
+//   })
 }
 
 const hackAlertConfirmPrompt = (doc = document) => {
-  const script = `
+  const script = `(function () {
     if (!window.oldAlert)     window.oldAlert   = window.alert
     if (!window.oldConfirm)   window.oldConfirm = window.confirm
     if (!window.oldPrompt)    window.oldPrompt  = window.prompt
@@ -923,29 +1289,19 @@ const hackAlertConfirmPrompt = (doc = document) => {
       document.body.setAttribute('data-prompt-answer', '')
       return answer
     }
-  `
-  const s     = doc.constructor.prototype.createElement.call(doc, 'script')
+  })();`
 
-  s.setAttribute('type', 'text/javascript')
-  s.text = script
-
-  doc.documentElement.appendChild(s)
-  s.parentNode.removeChild(s)
+  return hackAlertInject(script)
 }
 
 const restoreAlertConfirmPrompt = () => {
-  const script = `
+  const script = `(function () {
     if (window.oldAlert)    window.alert = window.oldAlert
     if (window.oldConfirm)  window.confirm = window.oldConfirm
     if (window.oldPrompt)   window.prompt = window.oldPrompt
-  `
-  const s     = document.constructor.prototype.createElement.call(document, 'script')
+  });`
 
-  s.setAttribute('type', 'text/javascript')
-  s.text = script
-
-  document.documentElement.appendChild(s)
-  s.parentNode.removeChild(s)
+  return hackAlertInject(script)
 }
 
 const init = () => {
@@ -954,7 +1310,11 @@ const init = () => {
 
   bindEventsToInspect()
   bindOnMessage()
+
+  toggleBodyMark(true)
+
   loadConfig()
+  .then(config => removeBodyMarkIfNecessary(config))
 
   // Note: only bind ipc events if it's the top window
   if (window.top === window) {
@@ -965,67 +1325,133 @@ const init = () => {
   }
 }
 
+const toggleBodyMark = (shouldMark) => {
+  const $root = document.documentElement
+
+  if (!$root) {
+    return
+  }
+
+  if (shouldMark) {
+    $root.setAttribute('data-kantu', 1)
+  } else {
+    $root.removeAttribute('data-kantu')
+  }
+}
+
+const removeBodyMarkIfNecessary = (config) => {
+  switch (window.location.protocol) {
+    case 'file:':
+      if (!config.allowRunFromFileSchema) {
+        toggleBodyMark(false)
+      }
+      break
+
+    case 'http:':
+    case 'https:':
+      if (!config.allowRunFromHttpSchema) {
+        toggleBodyMark(false)
+      }
+      break
+
+    default:
+      toggleBodyMark(false)
+  }
+}
+
 const runCommand = (command) => {
   if (!command.cmd) {
     throw new Error('runCommand: must provide cmd')
   }
 
-  // if it's an 'open' command, it must be executed in the top window
-  if (state.playingFrame === window || command.cmd === 'open') {
-    // Note: both top and inner frames could run commands here
-    // So must use superCsIpc instead of csIpc
-    const ret = run(command, superCsIpc, {
-      highlightDom,
-      hackAlertConfirmPrompt,
-      xpath: inspector.xpath
-    })
+  const pResult = (() => {
+    // if it's an 'open' command, it must be executed in the top window
+    if (state.playingFrame === window || command.cmd === 'open') {
+      // Note: both top and inner frames could run commands here
+      // So must use superCsIpc instead of csIpc
+      const ret = run(command, superCsIpc, {
+        highlightDom,
+        hackAlertConfirmPrompt,
+        xpath: inspector.xpath
+      })
 
-    // Note: `run` returns the contentWindow of the selected frame
-    if (command.cmd === 'selectFrame') {
-      return ret.then(({ frame }) => {
-        // let outside window know that playingFrame has been changed, if it's parent or top
-        if (frame !== window && (frame === window.top || frame === window.parent)) {
-          postMessage(window.parent, window, {
-            action: 'RESET_PLAYING_FRAME',
-            data: frame === window.top ? 'TOP' : 'PARENT'
-          })
+      // Note: `run` returns the contentWindow of the selected frame
+      if (command.cmd === 'selectFrame') {
+        return ret.then(({ frame }) => {
+          const p = (() => {
+            // let outside window know that playingFrame has been changed, if it's parent or top
+            if (frame !== window && (frame === window.top || frame === window.parent)) {
+              // set playingFrame to own window, get ready for later commands if any
+              state.playingFrame = window
 
-          // set playingFrame to own window, get ready for later commands if any
-          state.playingFrame = window
-        } else {
-          state.playingFrame = frame
-        }
+              return withTimeout(config.iframePostMessageTimeout, () => {
+                return postMessage(window.parent, window, {
+                  action: 'RESET_PLAYING_FRAME',
+                  data: frame === window.top ? 'TOP' : 'PARENT'
+                })
+              })
+            } else {
+              state.playingFrame = frame
 
-        return Promise.resolve({
-          pageUrl: window.location.href,
-          extra: command.extra
+              return Promise.resolve()
+            }
+          })()
+
+          return p.then(() => ({
+            pageUrl: window.location.href,
+            extra: command.extra
+          }))
         })
+      }
+
+      // Extra info passed on to background, it contains timeout info
+      const wrapResult = (ret) => {
+        return {
+          ...(typeof ret === 'object' ? ret : {}),
+          pageUrl: window.location.href,
+          extra: command.extra,
+          // Note: undefined value in an Object will be eliminated during message passing,
+          // Have to transform it into an object first, and convert it back in front end
+          vars: !ret.vars ? undefined : objMap(val => {
+            return val !== undefined ? val : { __undefined__: true }
+          }, ret.vars)
+        }
+      }
+
+      return Promise.resolve(ret).then(wrapResult)
+    } else {
+      const isFrameRemoved = (frame) => !frame.parent
+
+      if (isFrameRemoved(state.playingFrame)) {
+        throw new Error('The selected frame has been removed. You may want to use another selectFrame before its removal')
+      }
+
+      // log('passing command to frame...', state.playingFrame, '...', window.location.href)
+      // Note: pass on the command if our window is not the current playing one
+      return postMessage(state.playingFrame, window, {
+        action: 'RUN_COMMAND',
+        data: command
       })
     }
+  })()
 
-    // Extra info passed on to background, it contains timeout info
-    const wrapResult = (ret) => {
-      return {
-        ...(typeof ret === 'object' ? ret : {}),
-        pageUrl: window.location.href,
-        extra: command.extra,
-        // Note: undefined value in an Object will be eliminated during message passing,
-        // Have to transform it into an object first, and convert it back in front end
-        vars: !ret.vars ? undefined : objMap(val => {
-          return val !== undefined ? val : { __undefined__: true }
-        }, ret.vars)
+  // Note: set ipc secret on response, so that background could know whether a page has refreshed or redirected
+  // only mark it on top-most window
+  return pResult.then(result => {
+    const secret = result.secret || (() => {
+      if (window.top === window) {
+        return csIpc.secret
       }
-    }
 
-    return Promise.resolve(ret).then(wrapResult)
-  } else {
-    // log('passing command to frame...', state.playingFrame, '...', window.location.href)
-    // Note: pass on the command if our window is not the current playing one
-    return postMessage(state.playingFrame, window, {
-      action: 'RUN_COMMAND',
-      data: command
-    })
-  }
+      window.kantuSecret = window.kantuSecret || ('' + Math.floor(Math.random() * 10000))
+      return window.kantuSecret
+    })()
+
+    return {
+      ...result,
+      secret
+    }
+  })
 }
 
 // Note: for cases like https://www.w3schools.com/jsref/tryit.asp?filename=tryjsref_onblur
@@ -1055,12 +1481,14 @@ const onUrlChange = (function () {
 })()
 
 const loadConfig = () => {
-  storage.get('config')
+  return storage.get('config')
   .then(config => {
     state.config = config
 
     // IMPORTANT: broadcast status change to all frames inside
     broadcastToAllFrames('UPDATE_CONFIG', config)
+
+    return config
   })
 }
 

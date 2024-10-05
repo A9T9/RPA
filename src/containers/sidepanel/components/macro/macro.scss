@@ -1,0 +1,504 @@
+@import '../../../../styles/common.scss';
+
+.macro-table-container {
+  @include flexcol();
+  flex: 1;
+  position: relative;
+
+  .flex-row {
+    display: flex;
+    flex-direction: row;
+  }
+
+  .form-group {
+    margin-bottom: 15px;
+  }
+
+  .title {
+    margin: 0px 0px 12px;
+    text-align: center;
+    width: 100%;
+    font-weight: bold;
+    font-size: 15px;
+  }
+
+  .ant-table-pagination {
+    display: none;
+  }
+
+  .ant-table-header {
+    overflow: hidden !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+
+    .ant-table-thead > tr > th {
+      padding: 13px 8px;
+    }
+  }
+
+  .ant-table-body {
+    .ant-table-thead > tr > th {
+      padding: 10px 8px;
+    }
+  }
+
+  .ant-table-tbody > tr > td {
+    padding: 8px 8px;
+  }
+
+  tr.selected-command > td {
+    background-color: #fdffd1 !important;
+  }
+
+  tr.error-command > td {
+    background-color: #f7c1c1 !important;
+  }
+
+  tr.running-command > td {
+    background-color: #d5d6f9 !important;
+  }
+
+  tr.done-command > td {
+    background-color: #d1ffd8 !important;
+  }
+
+  .ant-btn-group > .ant-btn-group {
+    float: none;
+  }
+
+  .ant-form-item {
+    margin-bottom: 8px;
+  }
+
+  .editor-wrapper {
+    @include flexcol();
+    flex: 2;
+
+    .tabs-wrapper {
+      position: relative;
+      @include flexcol();
+      flex: 1;
+
+      .vision-type {
+        position: absolute;
+        right: 0;
+        top: 0px;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        cursor: pointer;
+
+        svg {
+          display: block;
+          margin-right: 10px;
+          width: 20px;
+          height: 20px;
+        }
+
+        span {
+          text-decoration: underline;
+          color: #108ee9;
+          font-size: 16px;
+        }
+      }
+    }
+  }
+
+  $fields-height: 155px;
+  $textarea-fields-height: 169px;
+
+  .ant-tabs-tabpane {
+    flex: 1;
+    flex-shrink: unset !important;
+    position: relative;
+  }
+
+  .table-wrapper {
+    top: 0;
+    bottom: 10px + $fields-height;
+    left: 0;
+    right: 0;
+  }
+
+  .fields-wrapper {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: $fields-height;
+
+    .ant-form-item-label {
+      text-align: left;
+    }
+
+    .target-row {
+      .flex-row {
+        align-items: center;
+      }
+
+      .select-input {
+        flex: 1;
+
+        input {
+          width: 100%;
+        }
+      }
+
+      .textarea-wrapper {
+        position: relative;
+        flex: 1;
+        max-width: 60%;
+        margin-right: 10px;
+
+        .open-full-editor {
+          position: absolute;
+          bottom: 5px;
+          right: 15px;
+          cursor: pointer;
+
+          &:hover {
+            color: #108ee9;
+          }
+        }
+      }
+
+      button {
+        margin-left: 10px;
+      }
+    }
+  }
+
+  .react-codemirror2 {
+    position: relative;
+
+    &.has-error {
+      height: calc(100% - 70px);
+    }
+
+    &.no-error {
+      height: calc(100% - 0px);
+    }
+
+    .CodeMirror {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: auto;
+      font-size: 13px;
+    }
+  }
+
+  .ant-table-wrapper,
+  .ant-spin-nested-loading,
+  .ant-spin-container,
+  .ant-table,
+  .ant-table-content,
+  .ant-table-scroll {
+    @include flexcol();
+    flex: 1;
+  }
+
+  .ant-table-scroll {
+    overflow-y: auto;
+  }
+
+  #context_menu {
+    z-index: 10;
+    border: 1px solid #eee; 
+    border-radius: 4px;
+
+    .ant-menu {
+      border: '1px solid #ccc';
+      border-radius: 4px;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+
+      .ant-menu-item {
+        height: 36px;
+        line-height: 36px;
+
+        &:hover {
+          background: #ecf6fd;
+        }
+
+        .shortcut {
+          float: right;
+          color: #999;
+        }
+      }
+    }
+  }
+}
+
+.command-row {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  padding-left: 5px;
+  border-bottom: 1px solid #e9e9e9;
+  line-height: 35px;
+  font-size: 13px;
+
+  &:hover {
+    background: #ecf6fd
+  }
+
+  &.dragging {
+    opacity: 0;
+  }
+
+  &.header-row,
+  &.footer-row {
+    background-color: #f7f7f7;
+    font-weight: bold;
+    margin-top: 5px;
+  }
+
+  &.footer-row {
+    display: block;
+    text-align: center;
+    cursor: pointer;
+  }
+
+  &.breakpoint-command {
+    &::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 0;
+      transform: translateY(-50%);
+      width: 0;
+      height: 0;
+      border: 8px solid transparent;
+      border-left-color: green;
+    }
+  }
+
+  &.error-command {
+    @include bgColorWithBlur($bgError);
+    color: red;
+  }
+
+  &.warning-command {
+    @include bgColorWithBlur(fade-out($color: $bgErrorInSub, $amount: 0.3));
+    color: orange;
+  }
+
+  &.running-command {
+    @include bgColorWithBlur($bgRunning);
+  }
+
+  &.done-command {
+    @include bgColorWithBlur($bgSuccess);
+  }
+
+  &.selected-command {
+    @include bgColorWithBlur($bgSelected);
+  }
+
+  &.comment-command {
+    background-color: transparent;
+    color: #ccc;
+    font-style: italic;
+
+    &.selected-command {
+      @include bgColorWithBlur($bgSelected);
+    }
+  }
+
+  .row-col {
+    padding: 0 8px;
+
+    &.index-col {
+      padding: 0;
+      width: 25px;
+      text-align: center;
+    }
+
+    &.command-col {
+      flex: 1;
+      overflow: hidden;
+      // min-width: 130px;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    &.target-col {
+      flex: 1;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    &.value-col {
+      flex: 1;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    &.op-col {
+      width: 80px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+  }
+
+  .table-footer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    line-height: 32px;
+    text-align: center;
+    font-weight: bold;
+    background: #f7f7f7;
+    cursor: pointer;
+
+    &:hover {
+      background: #e0e0e0;
+    }
+  }
+
+  .logs-screenshots {
+    @include flexcol();
+    position: relative;
+    margin-top: 15px;
+
+    &.fold {
+      height: 32px !important;
+      overflow: hidden;
+
+      .ant-tabs-content {
+        display: none;
+      }
+    }
+
+    .resize-handler {
+      position: absolute;
+      top: -10px;
+      left: 0;
+      width: 100%;
+      height: 6px;
+      background: transparent;
+      cursor: row-resize;
+
+      &:hover, &.focused {
+        height: 6px;
+        background: #ccc;
+      }
+    }
+
+    .ant-tabs.ant-tabs-card > .ant-tabs-bar .ant-tabs-tab {
+      padding: 5px 12px 4px;
+    }
+
+    .ant-tabs {
+      @include flexcol();
+      flex: 1;
+    }
+
+    .ant-tabs-bar {
+      margin-bottom: 0;
+    }
+
+    .ant-tabs-content {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 70px;
+      border: 1px solid #d9d9d9;
+      border-width: 0 1px 1px;
+    }
+
+    .ls-toolbox {
+      position: absolute;
+      right: 0px;
+      top: 0px;
+      display: flex;
+      flex-direction: row;
+
+      & > * {
+        margin-right: 5px;
+      }
+
+      & > :last-child {
+        margin-right: 0;
+      }
+    }
+  }
+
+  .online-help {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    margin-top: 15px;
+    padding: 0 10px;
+    height: 25px;
+    line-height: 25px;
+    font-size: 14px;
+    text-align: right;
+  }
+
+
+
+  .target-full-editor {
+    $zindex: 100;
+    $margin: 40px;
+
+    .mask {
+      position: fixed;
+      z-index: $zindex;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #000;
+      opacity: 0.4;
+    }
+
+    .react-codemirror2 {
+      position: fixed;
+      z-index: $zindex;
+      top: $margin;
+      bottom: $margin;
+      left: $margin;
+      right: $margin;
+
+      .CodeMirror {
+        height: 100%;
+      }
+    }
+
+    .close-button {
+      position: fixed;
+      z-index: $zindex + 1;
+      top: $margin - 15px;
+      right: $margin - 15px;
+    }
+  }
+}
+
+.source-error {
+  color: red;
+  white-space: pre-wrap;
+  font-size: 12px;
+  margin: 0px;
+}
+
+// For setting menu, default max-height of ant-dropdown-menu is 300px
+.ant-dropdown .ant-dropdown-menu {
+  max-height: none;
+}
+
+@media (max-width: 768px) {
+  .rename-modal,
+  .duplicate-modal,
+  .save-modal,
+  .play-loop-modal {
+    width: 90% !important;
+    margin: 0 auto;
+  }
+}

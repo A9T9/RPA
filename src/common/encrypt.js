@@ -4,9 +4,10 @@ import Ext from './web_extension'
 import storage from './storage'
 
 const RAW_PREFIX = '@_KANTU_@'
-const CIPHER_PREFIX = '__KANTU_ENCRYPTED__'
+const DEPRECATED_CIPHER_PREFIX = '__KANTU_ENCRYPTED__'
+const CIPHER_PREFIX = '__RPA_ENCRYPTED__'
 const RAW_PREFIX_REG = new RegExp('^' + RAW_PREFIX)
-const CIPHER_PREFIX_REG = new RegExp('^' + CIPHER_PREFIX)
+const CIPHER_PREFIX_REG = new RegExp(`^(${CIPHER_PREFIX}|${DEPRECATED_CIPHER_PREFIX})`)
 
 const getEncryptConfig = () => {
   return storage.get('config')
@@ -68,7 +69,11 @@ export const encryptIfNeeded = (text, dom) => {
 }
 
 export const decryptIfNeeded = (text, dom) => {
-  if (CIPHER_PREFIX_REG.test(text) && dom && dom.tagName.toUpperCase() === 'INPUT' && dom.type === 'password') {
+  if (!CIPHER_PREFIX_REG.test(text)) {
+    return Promise.resolve(text)
+  }
+
+  if (!dom || ['INPUT', 'TEXTAREA'].indexOf(dom.tagName.toUpperCase()) !== -1) {
     return decrypt(text)
   }
 

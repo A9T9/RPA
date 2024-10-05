@@ -1,0 +1,72 @@
+/* SmallButtons.module.css */
+.ant-btn {
+  /* Adjust properties to reduce button size */
+  font-size: 12px; /* Example: Reduce font size */
+}
+
+.ant-btn-lg {
+  /* Override size-specific classes to maintain consistency */
+  font-size: 12px;
+}
+
+.ant-btn-sm {
+  /* Override size-specific classes to maintain consistency */
+  font-size: 12px;
+  // padding: 4px 8px;
+
+  &.ant-btn-circle {
+    line-height: 1;
+    margin: 1px;
+  }
+}
+
+.ant-tabs-content {
+  overflow: hidden;
+}
+
+.ant-form-item .ant-form-item-label > label {
+  font-size: 12px;
+}
+
+.ant-checkbox-wrapper {
+  font-size: 12px;
+}
+
+.ant-col {
+  font-size: 12px;
+}
+
+.ant-radio-wrapper {
+  font-size: 12px;
+}
+
+.ant-select-single .ant-select-selector {
+  font-size: 12px;
+}
+
+.ant-select-dropdown .ant-select-item {
+  font-size: 12px;
+}
+
+.ant-modal .ant-modal-title {
+  font-size: 14px;
+}
+
+.ant-tabs {
+  font-size: 12px;
+}
+
+.ant-modal-body {
+  font-size: 12px;
+}
+
+.ant-checkbox-wrapper + span, .ant-checkbox + span {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+pre.log-detail {
+  overflow: visible;
+}
+
+

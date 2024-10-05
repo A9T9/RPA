@@ -1,3 +1,5 @@
+import debounce from 'lodash.debounce'
+import Ext from '@/common/web_extension'
 
 // delay the call of a function and return a promise
 export const delay = (fn, timeout) => {
@@ -107,14 +109,14 @@ export const on = partial((key, fn, dict) => {
 
 // immutably update any part in an object
 export const updateIn = partial((keys, fn, obj) => {
-  const updater = compose.apply(null, keys.map(key => on(key)))
+  const updater = compose.apply(null, keys.map(key => key === '[]' ? map : on(key)))
   return updater(fn)(obj)
 })
 
 // immutably set any part in an object
 // a restricted version of updateIn
 export const setIn = partial((keys, value, obj) => {
-  const updater = compose.apply(null, keys.map(key => on(key)))
+  const updater = compose.apply(null, keys.map(key => key === '[]' ? map : on(key)))
   return updater(() => value)(obj)
 })
 
@@ -277,10 +279,12 @@ export const withTimeout = (timeout, fn) => {
   return new Promise((resolve, reject) => {
     const cancel  = () => clearTimeout(timer)
     const timer   = setTimeout(() => {
-      reject(new Error('withTimeout: timeout'))
+      reject(new Error('timeout'))
     }, timeout)
 
-    fn(cancel)
+    Promise.resolve(
+      fn(cancel)
+    )
     .then(
       data => {
         cancel()
@@ -370,9 +374,13 @@ export const retry = (fn, options) => (...args) => {
   }
 
   const run = () => {
-    return fn(...args, {
-      retryCount,
-      retryInterval: intervalMan.getLastInterval()
+    return new Promise((resolve) => {
+      resolve(
+        fn(...args, {
+          retryCount,
+          retryInterval: intervalMan.getLastInterval()
+        })
+      )
     })
     .catch(onError)
   }
@@ -415,12 +423,14 @@ export function dataURItoBlob (dataURI) {
   return blob;
 }
 
-export function blobToDataURL (blob) {
+export function blobToDataURL (blob, withBase64Prefix = false) {
   return new Promise((resolve, reject) => {
       let reader = new FileReader()
       reader.onerror = reject
       reader.onload = (e) => {
         const str = reader.result
+        if (withBase64Prefix) return resolve(str)
+
         const b64 = 'base64,'
         const i   = str.indexOf(b64)
         const ret = str.substr(i + b64.length)
@@ -431,8 +441,22 @@ export function blobToDataURL (blob) {
   })
 }
 
+export function blobToText (blob) {
+  return new Promise((resolve, reject) => {
+      let reader = new FileReader()
+      reader.onerror = reject
+      reader.onload = (e) => {
+        const str = reader.result
+        resolve(str)
+      }
+      reader.readAsText(blob)
+  })
+}
+
 export function arrayBufferToString (buf) {
-  return String.fromCharCode.apply(null, new Uint16Array(buf))
+  const decoder = new TextDecoder('utf-8')
+  return decoder.decode(new Uint8Array(buf))
+  // return String.fromCharCode.apply(null, new Uint16Array(buf))
 }
 
 export function stringToArrayBuffer (str) {
@@ -463,7 +487,7 @@ export const randomName = (length = 6) => {
     return String.fromCharCode(code)
   }
 
-  return range(0, length).map(randomChar).join('')
+  return range(0, length).map(randomChar).join('').toLowerCase()
 }
 
 export const withFileExtension = (origName, fn) => {
@@ -495,7 +519,7 @@ export const uniqueName = (name, options) => {
       return old.replace(reg, (_, n) => `_(${parseInt(n, 10) + step})`)
     },
     check: () => Promise.resolve(true),
-    ...options
+    ...(options || {})
   }
   const { generate, check } = opts
 
@@ -551,10 +575,10 @@ export const validateStandardName = (name, isFileName) => {
 }
 
 export const sanitizeFileName = (fileName) => {
-  return withFileExtension(fileName, (baseName) => baseName.replace(/[^a-zA-Z0-9_]/g, '_'))
+  return withFileExtension(fileName, (baseName) => baseName.trim().replace(/[\\/:*?"<>|]/g, '_'))
 }
 
-export const getScreenDpi = () => {
+export const getPageDpi = () => {
   const DEFAULT_DPI = 96
   const matchDpi = (dpi) => {
     return window.matchMedia(`(max-resolution: ${dpi}dpi)`).matches === true
@@ -616,24 +640,102 @@ export const mockAPIWith = (factory, mock, promiseFunctionKeys = []) => {
   return exported
 }
 
-export const withCountDown = (options) => {
-  const { interval, timeout, onTick } = options
-  let past = 0
+export const bindOnce = (target, eventName, fn, ...rest) => {
+  const wrapped = (...args) => {
+    try {
+      target.removeEventListener(eventName, wrapped, ...rest)
+    } catch (e) {}
+
+    return fn(...args)
+  }
+
+  target.addEventListener(eventName, wrapped, ...rest)
+}
+
+export const subjectiveBindOnce = (target, eventName, fn, ...rest) => {
+  const wrapped = (...args) => {
+    try {
+      if (args[0]?.detail?.json) {
+        // don't remove the event listener, because,
+        // it's probably coming from embedded UI.Vision RPA macros. https://ui.vision/demo/runweb
+      } else {
+        target.removeEventListener(eventName, wrapped, ...rest)
+      }
+    } catch (e) {}
+
+    return fn(...args)
+  }
+
+  target.addEventListener(eventName, wrapped, ...rest)
+}
+
+export const bind = (target, eventName, fn, ...rest) => {
+  target.addEventListener(eventName, fn, ...rest)
+}
+
+export const isSidePanelWindowAsync = (win) => {
+  if (!win) return Promise.resolve(false)
+  return new Promise((resolve) => {
+    const isSidePanel_ = win.location.href.startsWith(`chrome-extension://${Ext.runtime.id}/sidepanel.html`)  ||
+    win.location.href.match(/moz-extension:\/\/[a-z0-9-]+\/sidepanel.html/)
+    console.log('isSidePanelWindowAsync:>>', isSidePanel_);
+    resolve(isSidePanel_)
+  })
+}
+
+// export const isSidePanelWindow = () => window && window?.location?.href?.includes('sidepanel.html')
+export const isSidePanelWindow = () => {
+  if (typeof window !== 'undefined') {
+    return window.location.href.includes('sidepanel.html')
+  } else {
+    // running inside service worker
+    return false
+  }
+}
+
+export const waitForRenderComplete = (parentSelector = null, debounceInterval = 200) => {
+  const debounceResolve = debounce((resolve) => {
+    resolve()
+  }, debounceInterval)
 
   return new Promise((resolve, reject) => {
-    const timer = setInterval(() => {
-      past += interval
-
-      try {
-        onTick({ past, total: timeout })
-      } catch (e) { console.error(e) }
-
-      if (past >= timeout)  clearInterval(timer)
-    }, interval)
-
-    const p = delay(() => {}, timeout)
-    .then(() => clearInterval(timer))
-
-    resolve(p)
+    let parentElement = (parentSelector && document.querySelector(parentSelector)) || document.body;
+    if (!parentElement) {
+      console.error('waitForRenderComplete: parentElement not found with selector:', parentSelector);
+      reject(new Error('Rendering element not found.'))
+    }
+    let observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.addedNodes.length > 0) {
+          // console.log('waitForRenderComplete...');
+          debounceResolve(resolve)
+        }
+      });
+    });
+    observer.observe(parentElement, { childList: true });
+    debounceResolve(resolve);
   })
+}
+
+export const delayMs = (ms) => {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve()
+    }, ms)
+  })
+}
+
+export const cloneSerializableLocalStorage = (localStorage) => {
+  const clonedData = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    try {
+      // Attempt to stringify and store in cloned object
+      clonedData[key] = localStorage.getItem(key);
+    } catch (error) {
+      // Skip non-serializable values
+      console.warn(`Skipping non-serializable item from localStorage: ${key}`);
+    }
+  }
+  return clonedData;
 }

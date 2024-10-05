@@ -1,0 +1,111 @@
+
+$top-bar-height: 54px;
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+#root {
+  flex: 1;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.desktop-screenshot-editor {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+
+  .top-bar {
+    position: fixed;
+    z-index: 2;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: $top-bar-height;
+    background: #007bff;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    cursor: default;
+
+    button {
+      margin-left: 20px;
+      padding: 0 20px;
+      height: 40px;
+      line-height: 40px;
+      border: 1px solid #fff;
+      border-radius: 4px;
+      font-size: 14px;
+      color: #fff;
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.3s ease;
+
+      &:hover {
+        background: #fefefe;
+        color: #007bff;
+      }
+
+      &[disabled] {
+        background: rgba(255, 255, 255, 0.5);
+        color: #fff;
+        cursor: not-allowed;
+      }
+    }
+  }
+
+  .editing-area {
+    flex: 1;
+    position: relative;
+    z-index: 1;
+    margin-top: $top-bar-height;
+    width: 100%;
+    min-height: calc(100% - #{$top-bar-height});
+    background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQAgMAAABinRfyAAAADFBMVEUAAABaWlrMzMz////nPAkwAAAAAWJLR0QAiAUdSAAAAAlwSFlzAAAOxAAADsQBlSsOGwAAAAd0SU1FB+IDGRUHMxeV5KYAAAAXSURBVAjXY1i16v9/BiKI//9XrSKCAABNyDUhZP4pqwAAAABJRU5ErkJggg==);
+    background-repeat: repeat;
+
+    img {
+      display: block;
+    }
+
+    .highlight-rect {
+      position: absolute;
+      z-index: 110001;
+      pointer-events: none;
+      font-size: 14px;
+
+      .score {
+        position: absolute;
+        width: 200px;
+
+        &.top-left {
+          top: 0px;
+          left: 0px;
+          transform: translate(-100%, -100%);
+          text-align: right;
+        }
+
+        &.top-right {
+          top: 0px;
+          right: 0px;
+          transform: translate(100%, -100%);
+        }
+
+        &.bottom-right {
+          bottom: 0px;
+          right: 0px;
+          transform: translate(100%, 100%);
+        }
+
+        &.bottom-left {
+          bottom: 0px;
+          left: 0px;
+          transform: translate(-100%, 100%);
+          text-align: right;
+        }
+      }
+    }
+  }
+}

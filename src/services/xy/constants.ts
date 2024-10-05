@@ -1,7 +1,8 @@
 
 export const MethodTypeFriendlyNames: Array<string> = [
-  "GetVersion",    
+  "GetVersion",
   "SendMouseEvent",
+  "SendMouseWheelEvent",
   "SendText",
   "GetActiveBrowserOuterRect",
   "FindRectangle",
@@ -9,8 +10,9 @@ export const MethodTypeFriendlyNames: Array<string> = [
 ];
 
 export const MethodTypeInvocationNames: Array<string> = [
-  "get_version",    
+  "get_version",
   "send_mouse_event",
+  "send_mouse_wheel_event",
   "send_text",
   "get_active_browser_outer_rect",
   "find_rectangle",

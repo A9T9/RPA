@@ -4,3 +4,16 @@ dist
 dist_*
 *_ext.zip
 public/bundle.js
+.req
+*.diff
+*.temp.*
+
+### unzipped extension folders
+chrome_ext*
+
+### for development purpose
+TODO.md
+
+### exclude other tesseract language files except eng
+extension/lib/tesseract/lang/*
+!extension/lib/tesseract/lang/eng.traineddata.gz

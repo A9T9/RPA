@@ -1,0 +1,273 @@
+@import '../../styles/common.scss';
+
+.sidepanel {
+  position: relative;
+  // display: none;
+  flex: 1;
+  min-width: 260px;
+  height: 100%;
+  border-right: 2px solid #ccc;
+
+  .vision-type {
+    position: absolute;
+    width: 15px;
+    height: 15px;
+    right: 20px;
+    top: 10px;
+    z-index: 10;
+
+    svg {
+      width: inherit;
+      height: inherit;
+    }
+  }
+
+  .sidebar-inner {
+    position: absolute;
+    top: 40px;
+    bottom: 100px;
+    margin-top: -8px;
+    right: 0;
+    left: 0;
+
+    &.no-tab {
+      padding-top: 8px;
+      overflow-x: hidden;
+    }
+  }
+
+  .no-data {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 14px;
+    color: #aaa;
+  }
+
+  .sidebar-macros {
+    .untitled {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      padding: 5px 10px;
+      font-size: 14px;
+
+      &.selected {
+        background:  $bgSelected;
+      }
+
+      .icon-wrapper {
+        display: flex;
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+        margin-right: 5px;
+        width: 20px;
+
+        .file-icon {
+          display: block;
+          height: 16px;
+        }
+      }
+    }
+  }
+
+
+  .test-case-actions,
+  .test-suite-actions {
+    padding: 0 10px 10px;
+
+    button {
+      margin-right: 10px;
+    }
+  }
+
+  .test-case-actions {
+    display: flex;
+    padding-bottom: 0;
+    margin-top: 10px;
+  }
+
+  .sidebar-test-suites {
+    .test-suite-item {
+      padding: 0 0 10px 0;
+      margin-bottom: 5px;
+
+      &.playing {
+        background: $bgSelected;
+      }
+
+      &.fold {
+        margin-bottom: 0;
+        padding-bottom: 0;
+
+        .test-suite-more-actions,
+        .test-suite-cases {
+          display: none;
+        }
+      }
+
+      .test-suite-row {
+        padding: 5px 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+
+        .test-suite-title {
+          flex: 1;
+          margin-left: 10px;
+        }
+
+        .more-button {
+          display: none;
+        }
+
+        &:hover .more-button {
+          display: block;
+        }
+      }
+
+      .test-suite-cases {
+        padding: 3px 5px;
+
+        li {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 3px 5px 3px 20px;
+          margin-bottom: 5px;
+
+          &.done-tc {
+            @include bgColorWithBlur($bgSuccess);
+          }
+
+          &.error-tc {
+            @include bgColorWithBlur($bgError);
+          }
+
+          &.current-tc {
+            @include bgColorWithBlur($bgRunning);
+          }
+        }
+      }
+
+      .test-suite-more-actions {
+        padding-left: 27px;
+      }
+    }
+  }
+
+  .ant-tabs {
+    min-height: 100%;
+    height: 100%;
+  }
+
+  .ant-tabs-content {
+    height: calc(100% - 20px);
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .ant-tabs-bar {
+    margin-bottom: 0;
+  }
+
+  .ant-tabs-nav-container-scrolling {
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .ant-tabs-tab-prev.ant-tabs-tab-arrow-show,
+  .ant-tabs-tab-next.ant-tabs-tab-arrow-show {
+    display: none;
+  }
+
+  .ant-tabs-nav {
+    height: 35px;
+  }
+
+  .ant-tabs-nav .ant-tabs-tab {
+    margin-right: 0;
+    line-height: 27px;
+  }
+
+  .ant-tabs-nav-scroll {
+    text-align: left;
+  }
+
+  .resize-handler {
+    position: absolute;
+    right: -2px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: #ccc;
+    cursor: col-resize;
+
+    &:hover, &.focused {
+      right: -4px;
+      width: 6px;
+      background: #aaa;
+    }
+  }
+
+  &.with-xmodules-note {
+    .sidebar-inner {
+      bottom: 160px;
+    }
+
+    .sidebar-storage-mode {
+      height: 160px;
+    }
+
+    .note-for-macros {
+      margin-bottom: 20px;
+      padding: 10px 10px 0;
+      border-top: 1px solid #333;
+      font-size: 12px;
+    }
+  }
+}
+
+.with-sidebar .sidepanel {
+  display: block;
+}
+
+.context-menu {
+  z-index: 10;
+
+  .ant-menu {
+    border: '1px solid #ccc';
+    border-radius: 4px;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.2);
+
+    .ant-menu-item {
+      height: 36px;
+      line-height: 36px;
+
+      &:hover {
+        background: #ecf6fd;
+      }
+    }
+  }
+}
+
+.xfile-not-installed-modal {
+
+  &.left-bottom {
+    position: absolute;
+    top: auto !important;
+    bottom: 100px;
+    left: 100px;
+  }
+
+  p {
+    margin-bottom: 20px;
+    font-size: 16px;
+    font-weight: bold;
+  }
+}
+
+.macros-dropdown {
+  width: auto !important;
+}

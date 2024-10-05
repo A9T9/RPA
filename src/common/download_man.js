@@ -1,6 +1,7 @@
 import Ext from './web_extension'
 import log from './log'
 import { until } from './utils'
+import { delay } from './ts_utils'
 
 export class DownloadMan {
   activeDownloads = []
@@ -76,6 +77,15 @@ export class DownloadMan {
         case 'complete':
           fn = () => item.resolve(true)
           done = true
+
+          if (this.completeHandler) {
+            Ext.downloads.search({ id: item.id })
+            .then(([ downloadItem ]) => {
+              if (downloadItem) {
+                this.completeHandler(downloadItem);
+              }
+            });
+          }
           break
 
         case 'interrupted':
@@ -207,12 +217,18 @@ export class DownloadMan {
 
     // Note: check if id exists, because it means this download item is created
     const downloadToComplete = this.activeDownloads.find(item => item.wait && item.id)
-    if (!downloadToComplete)  return Promise.resolve(true)
+
+    // A short delay after download is complete, so that background has time to send DOWNLOAD_COMPLETE event before it unblocks next command
+    if (!downloadToComplete)  return delay(() => true, 500)
     return downloadToComplete.promise.then(() => this.waitForDownloadIfAny())
   }
 
   onCountDown (fn) {
     this.countDownHandler = fn
+  }
+
+  onDownloadComplete (fn) {
+    this.completeHandler = fn
   }
 
   hasPendingDownload () {

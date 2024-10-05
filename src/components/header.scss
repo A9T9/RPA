@@ -30,7 +30,7 @@
     .test-case-name {
       margin-right: 15px;
       line-height: 35px;
-      max-width: 120px;
+      max-width: 100px;
       overflow: hidden;
       display: inline-block;
       white-space: nowrap;
@@ -38,7 +38,7 @@
 
       &.unsaved {
         color: orange;
-  
+
         &::after {
           content: '*';
           margin-left: 3px;
@@ -70,13 +70,98 @@
 }
 
 .settings-modal {
+  .ant-tabs-nav .ant-tabs-tab {
+    // margin-right: 12px;
+    padding: 8px 6px;
+  }
+
   .ant-checkbox-wrapper + .ant-checkbox-wrapper {
     margin-left: 0;
+  }
+
+  .ant-checkbox-wrapper {
+    margin-bottom: 5px;
   }
 
   .tip {
     margin-left: 15px;
     color: #aaa;
+  }
+
+  label[title="Replay Helper"] {
+    align-items: start;
+  }
+
+  label[title="Ui.Vision Side Panel"] {
+    align-items: start;
+  }
+
+  .xmodule-item {
+    margin-bottom: 25px;
+    padding: 15px;
+    border: 2px solid #333;
+    font-size: 14px;
+    box-shadow: rgba(0, 0, 0, 0.5) 0px 2px 5px 0px;
+
+    label {
+      margin-right: 15px;
+      width: 100px;
+      font-size: 14px;
+    }
+
+    .xmodule-title {
+      margin-bottom: 10px;
+      font-size: 14px;
+
+      & > * {
+        margin-right: 20px;
+
+        &:last-child {
+          margin-right: 0;
+        }
+      }
+    }
+
+    .xmodule-status {
+      display: flex;
+      margin-bottom: 20px;
+
+      .status-box {
+        & > * {
+          margin-right: 15px;
+
+          &:last-child {
+            margin-right: 0;
+          }
+        }
+      }
+    }
+
+    .xmodule-settings {
+      h3 {
+        margin-bottom: 10px;
+        font-size: 14px;
+        font-weight: bold;
+      }
+
+      .xmodule-settings-item {
+        .settings-detail {
+          display: flex;
+          flex-direction: row;
+          margin-bottom: 10px;
+
+          .settings-detail-content {
+            flex: 1;
+          }
+        }
+      }
+
+      .check-result {
+        margin-top: 5px;
+        color: red;
+        font-size: 13px;
+      }
+    }
   }
 
   .backup-pane {
@@ -89,7 +174,7 @@
 
     .row {
       margin-bottom: 10px;
-      
+
     }
 
     p {
@@ -97,15 +182,44 @@
     }
 
     ul {
+      list-style: none;
+      padding-left: 0px;
+
       li {
         margin-bottom: 5px;
       }
     }
   }
 
+  .api-pane {
+    padding: 0 20px 20px;
+
+    p {
+      margin: 20px 0;
+    }
+  }
+
+  .selenium-pane {
+    padding: 0 10px 20px;
+
+    h4 {
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+
+    .import-row {
+      margin-top: 20px;
+      margin-bottom: 20px;
+
+      button {
+        margin-right: 20px;
+      }
+    }
+  }
+
   .security-pane {
     padding: 0 20px 20px;
-    
+
     h4 {
       font-size: 16px;
       margin-bottom: 10px;
@@ -119,82 +233,168 @@
       margin-right: 10px;
     }
 
+    .ant-radio-group {
+      display: flex;
+      flex-direction: column;
+    }
+
     .ant-radio-wrapper {
-      display: block;
+      // display: block;
       height: 30px;
       line-height: 30px;
+    }
+
+    .input-line {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+
+      .input-label {
+        width: 120px;
+      }
+
+      .ant-checkbox-wrapper {
+        margin-left: 15px;
+      }
+
+      a {
+        margin-left: 20px;
+      }
+    }
+  }
+
+  .ocr-pane {
+    padding: 0 10px 20px;
+
+    p {
+      margin-bottom: 10px;
+    }
+
+    .row {
+      margin-bottom: 20px;
+    }
+
+    .radio-block {
+      .ant-radio-wrapper {
+        display: flex;
+        flex-direction: row;
+        line-height: 30px;
+
+        &.need-pro {
+          color: gray;
+        }
+
+        .ant-radio {
+          margin-top: 4px;
+        }
+
+        .offline-label {
+          display: inline-block;
+          width: 80px;
+        }
+      }
+    }
+
+    .label-text {
+      margin-right: 15px;
+    }
+
+    .ant-checkbox {
+      align-self: start;
+      margin-top: 2px
+    }
+  }
+
+  .vision-pane {
+    padding: 0 10px 20px;
+
+    p {
+      margin-bottom: 10px;
+    }
+
+    .row {
+      margin-bottom: 10px;
+    }
+
+    .ant-radio-wrapper {
+      display: flex;
+      flex-direction: row;
+      line-height: 30px;
+
+      .ant-radio {
+        margin-top: 8px;
+        align-self: start;
+      }
+    }
+
+    .ant-form-item {
+      label {
+        width: 280px;
+        color: rgba(0, 0, 0, 0.65);
+      }
     }
   }
 
   .xmodules-pane {
     padding: 0 0 20px;
 
-    .xmodule-item {
-      margin-bottom: 25px;
-      padding: 15px;
-      border: 2px solid #333;
-      font-size: 14px;
-      box-shadow: rgba(0, 0, 0, 0.5) 0px 2px 5px 0px;
+  }
 
-      label {
-        margin-right: 15px;
-        width: 100px;
-        font-size: 14px;
+  .register-pane {
+    .register-note {
+      width: 80%;
+
+      .actions {
+        margin-top: 15px;
       }
 
-      .xmodule-title {
-        margin-bottom: 10px;
-        font-size: 14px;
-
-        & > * {
-          margin-right: 20px;
-
-          &:last-child {
-            margin-right: 0;
-          }
-        }
-      }
-
-      .xmodule-status {
-        display: flex;
-        margin-bottom: 20px;
-
-        .status-box {
-          & > * {
-            margin-right: 15px;
-
-            &:last-child {
-              margin-right: 0;
-            }
-          }
-        }
-      }
-
-      .xmodule-settings {
-        h3 {
-          margin-bottom: 10px;
-          font-size: 14px;
-          font-weight: bold;
-        }
-
-        .xmodule-settings-item {
-          .settings-detail {
-            display: flex;
-            flex-direction: row;
-            margin-bottom: 10px;
-
-            .settings-detail-content {
-              flex: 1;
-            }
-          }
-        }
-
-        .check-result {
-          margin-top: 5px;
-          color: red;
-          font-size: 13px;
+      &.inactive {
+        &, & a {
+          color: #aaa;
         }
       }
     }
+
+    .register-form {
+      margin-top: 25px;
+
+      label {
+        display: block;
+        margin-bottom: 10px;
+        font-weight: bold;
+      }
+
+      .register-row {
+        display: flex;
+        flex-direction: row;
+
+        input {
+          margin-right: 15px;
+          width: 40%;
+        }
+      }
+    }
+
+    .register-status {
+      margin-top: 25px;
+
+      a {
+        margin-left: 15px;
+      }
+    }
   }
+  .offline-modal-label{
+      display: inline-block;
+      width: 80px;
+      margin-top: 3%;
+  }
+  .offline-modal-row{
+    margin-left: 15%;
+    margin-top: 3%;
+}
+}
+
+.api-key-notification {    
+  font-size: 12px;
+  margin-left: 8px;
 }
