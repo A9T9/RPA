@@ -7,11 +7,11 @@ All  original code:
 	
 Ui.Vision RPA is dual-licensed:  Open-Source AGPLv3 or Commercial Licensing.
 
-The source code available in this repository is licensed under:
+All source code in this repository is licensed under:
 
 1. GNU Affero General Public License v3.0. A copy of the AGPLv3 license is included in the repository, and can be obtained by visiting http://www.gnu.org/licenses/agpl.html
 
-2. Commercial License available
+2. Or, if you prefer: Commercial License available
 
 
 *** Dual Licensing explained ***
