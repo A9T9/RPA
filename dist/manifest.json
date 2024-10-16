@@ -4,7 +4,7 @@
   "description": "__MSG_description__",
   "short_name": "__MSG_short_name__",
   "default_locale": "en",
-  "version": "7.0.14",
+  "version": "9.3.3",
   "icons": {
     "128": "logo128.png"
   },
@@ -42,6 +42,9 @@
       "run_at": "document_start"
     }
   ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
   "options_page": "options.html",
   "offline_enabled": true,
   "permissions": [
@@ -51,15 +54,22 @@
     "cookies",
     "debugger",
     "downloads",
-    "downloads.shelf",
+    "downloads.ui",
     "notifications",
     "storage",
     "tabs",
     "proxy",
     "nativeMessaging",
-    "contextMenus"
+    "contextMenus",
+    "webRequest",
+    "webRequestAuthProvider",
+    "sidePanel",
+    "scripting"
   ],
   "host_permissions": [
     "<all_urls>"
-  ]
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval';"
+  }
 }

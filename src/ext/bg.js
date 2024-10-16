@@ -302,7 +302,7 @@ const getLogServiceForBg = singletonGetter(() => {
 })
 
 function logKantuClosing () {
-  return getLogServiceForBg().logWithTime('UI.Vision RPA closing')
+  return getLogServiceForBg().logWithTime('Ui.Vision closing')
 }
 
 const closeSidePanel = () => {
@@ -336,7 +336,7 @@ const bindEvents = () => {
             return showPanelWindow().then(isWindowCreated => {
               if (isWindowCreated) {
                 getLogServiceForBg().updateLogFileName()
-                getLogServiceForBg().logWithTime('UI.Vision RPA started')
+                getLogServiceForBg().logWithTime('Ui.Vision started')
               }
             })
           } else {
@@ -381,7 +381,7 @@ const bindEvents = () => {
             return showPanelWindow().then(isWindowCreated => {
               if (isWindowCreated) {
                 getLogServiceForBg().updateLogFileName()
-                getLogServiceForBg().logWithTime('UI.Vision RPA started')
+                getLogServiceForBg().logWithTime('Ui.Vision started')
               }
             })
           } else {
@@ -1397,12 +1397,14 @@ const onRequest = async (cmd, args) => {
     }
 
     case 'PANEL_DISABLE_DOWNLOAD_BAR': {
-      Ext.downloads.setShelfEnabled(false)
+      // Ext.downloads.setShelfEnabled(false)
+      Ext.downloads.setUiOptions({enabled: false})
       return delay(() => true, 1000)
     }
 
     case 'PANEL_ENABLE_DOWNLOAD_BAR': {
-      Ext.downloads.setShelfEnabled(true)
+      // Ext.downloads.setShelfEnabled(true)
+      Ext.downloads.setUiOptions({enabled: true})
       return delay(() => true, 1000)
     }
 
@@ -1985,7 +1987,7 @@ const onRequest = async (cmd, args) => {
         switch (from) {
           case 'bookmark': {
             if (!config.allowRunFromBookmark) {
-              throw new Error('[Message from RPA] Error #102: To run a macro or a test suite from bookmarks, you need to allow it in the UI.Vision RPA settings first')
+              throw new Error('[Message from RPA] Error #102: To run a macro or a test suite from bookmarks, you need to allow it in the Ui.Vision settings first')
             }
             break
           }
@@ -1995,11 +1997,11 @@ const onRequest = async (cmd, args) => {
             const isHttpSchema = /^https?:\/\//.test(args.sender.url)
 
             if (isFileSchema && !config.allowRunFromFileSchema) {
-              throw new Error('Error #103: To run test suite from local file, enable it in UI.Vision RPA settings first')
+              throw new Error('Error #103: To run test suite from local file, enable it in Ui.Vision settings first')
             }
 
             if (isHttpSchema && !config.allowRunFromHttpSchema) {
-              throw new Error('Error #104: To run test suite from public website, enable it in UI.Vision RPA settings first')
+              throw new Error('Error #104: To run test suite from public website, enable it in Ui.Vision settings first')
             }
 
             break

@@ -657,7 +657,7 @@ export const subjectiveBindOnce = (target, eventName, fn, ...rest) => {
     try {
       if (args[0]?.detail?.json) {
         // don't remove the event listener, because,
-        // it's probably coming from embedded UI.Vision RPA macros. https://ui.vision/demo/runweb
+        // it's probably coming from embedded Ui.Vision macros. https://ui.vision/demo/runweb
       } else {
         target.removeEventListener(eventName, wrapped, ...rest)
       }

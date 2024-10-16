@@ -1228,7 +1228,7 @@ class Header extends React.Component {
                 <>
                   <p>
                     The RPA command line API allows you to run macros and test suites
-                    from the command line and to control UI.Vision RPA from any
+                    from the command line and to control Ui.Vision from any
                     scripting or programming language (
                     <a
                       href="https://goto.ui.vision/x/idehelp?help=cmdline"
@@ -1536,7 +1536,7 @@ class Header extends React.Component {
                   <p>
                     The automatic backup reminder helps to you to regularly export
                     macros and other data as ZIP archive. As browser extension
-                    UI.Vision RPA must store its data{" "}
+                    Ui.Vision must store its data{" "}
                     <em>inside the browser extension</em>. This means that when you
                     uninstall the extension, the data is removed, too. Therefore it is
                     good to have backups! Note that if the hard drive storage mode of
@@ -2180,7 +2180,7 @@ class Header extends React.Component {
               children: (
                 <>
                   <p>
-                    UI.Vision RPA's eyes can look inside the web browser or search the
+                    Ui.Vision's eyes can look inside the web browser or search the
                     complete desktop.
                   </p>
                   <div className="row">
@@ -2592,7 +2592,7 @@ class Header extends React.Component {
                           </div>
                         </div>
                         <div className="settings-desc">
-                          In this folder, UI.Vision RPA creates /macros, /images,
+                          In this folder, Ui.Vision creates /macros, /images,
                           /testsuites, /datasources
                         </div>
                       </div>

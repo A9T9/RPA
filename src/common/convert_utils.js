@@ -86,7 +86,7 @@ ${tableHtml}
     var tuple     = increaseCountInUrl(MAX_TRY)
 
     if (tuple[0]) {
-      return alert('Error #204: It seems UI.Vision RPA is not installed yet - or you need to turn on *Allow access to file URLs* for UI.Vision RPA in your browser extension settings.')
+      return alert('Error #204: It seems Ui.Vision is not installed yet - or you need to turn on *Allow access to file URLs* for Ui.Vision in your browser extension settings.')
     } else {
       reloadTimer = setTimeout(function () {
         window.location.href = tuple[1]
@@ -316,7 +316,7 @@ export function toBookmarkData (obj) {
           });
           window.dispatchEvent(evt);
         } catch (e) {
-          alert('UI.Vision RPA Bookmarklet error: ' + e.toString());
+          alert('Ui.Vision Bookmarklet error: ' + e.toString());
         }
       })();
     `

@@ -1343,7 +1343,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
             if (command.mode_type != undefined && command.mode_type == 'local' && command.extra && command.extra.throwError != true) {
               // when press Find button not want retry
               if (searchResult.all.length == 0) {
-                throw new Error(`OCR for '${str}' not found`)
+                throw new Error(`E311: OCR text match for '${str}' not found`)
               }
             }
 
@@ -1614,7 +1614,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
           })
           .then(([result, scalingFactor]) => {
             const { best } = result
-            if (!best)  throw new Error(`no matched vision found for '${target}'`)
+            if (!best)  throw new Error(`E311: No OCR text match found for '${target}'`)
 
               return withVisualHighlightHidden(() => {
                 return getOcrResponse({
@@ -1769,7 +1769,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
           // }
 
           const { best } = result
-          if (!best)  throw new Error(`no matched vision found for '${target}'`)
+          if (!best)  throw new Error(`E311: No OCR text match found for '${target}'`)
 
           let xC = result.best.words[0].word.Left;
           let yC = result.best.words[0].word.Top;
@@ -2342,7 +2342,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
         const regexForTarget = /^.*#R.*,.*$/;
 
         if (!regexForTarget.test(trimmedTarget)) {
-          throw new Error('Wrong input ' + trimmedTarget)
+          throw new Error(`Error E310: Relative coordinates missing. Format should be: word#R(X),(Y)`)  
         }
 
         if (trimmedTarget.indexOf('W') === -1 && trimmedTarget.indexOf('H') === -1) {
@@ -2394,7 +2394,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
           store.dispatch(Actions.setOcrInDesktopMode(false))
 
           const { best } = result
-          if (!best)  throw new Error(`no matched vision found for '${target}'`)
+          if (!best)  throw new Error(`E311: No OCR text match found for '${target}'`)
 
           let xC = result.best.words[0].word.Left;
           let yC = result.best.words[0].word.Top;
@@ -2822,8 +2822,15 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
       case 'XClickTextRelative':
       case 'XClickText':
       case 'XClick': {
-        const parseTarget = (target = '') => {
+        const parseTarget = (target = '', cmd) => {
           let trimmedTarget = target.trim()
+
+          const relativeCommands = [ "XMoveTextRelative", "XClickTextRelative"]
+          const regexForTarget = /^.*#R.*,.*$/;
+          if (relativeCommands.includes(cmd) && !regexForTarget.test(trimmedTarget)) {
+            throw new Error(`Error E310: Relative coordinates missing. Format should be: word#R(X),(Y)`)            
+          }
+
           const isDesktopMode = isCVTypeForDesktop(vars.get('!CVSCOPE'))
           updateState(setIn(['curent_cmd'], cmd))
           localStorage.setItem('curent_cmd', cmd);
@@ -2916,6 +2923,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
             }
           }
 
+          // fixit: it may not be XClick only??
           throw new Error(`E316: XClick: invalid target, '${target}'`)
         }
         const checkIfNumberFound = (str = '') => {
@@ -2988,7 +2996,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
           }
         })
         .then(() => {
-          const realTarget = parseTarget(target)
+          const realTarget = parseTarget(target, cmd)
           const realValue  = parseValue(value)
 
           const pNativeXYParams = (() => {
@@ -3224,7 +3232,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
                       }
 
                       const { best } = result
-                      if (!best)  throw new Error(`no matched vision found for '${target}'`)
+                      if (!best)  throw new Error(`E311: No OCR text match found for '${target}'`)
 
                       let rect = {
                       x : result.best.words[0].word.Left,
@@ -3351,7 +3359,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
                     const { best } = result;
                     if (!best)
                       throw new Error(
-                        `no matched vision found for '${target}'`
+                        `E311: No OCR text match found for '${target}'`
                       );
 
                     let rect = {

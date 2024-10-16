@@ -92,7 +92,7 @@
       action: ['getBadgeText', 'setIcon'],
       bookmarks: ['create', 'getTree'],
       debugger: ['attach', 'detach', 'sendCommand', 'getTargets'],
-      downloads: ['search', 'setShelfEnabled'],
+      downloads: ['search', 'setUiOptions'],
       extension: ['isAllowedFileSchemeAccess'],
       contextMenus: ['create', 'update', 'remove', 'removeAll'],
       'storage.local': ['get', 'set'],

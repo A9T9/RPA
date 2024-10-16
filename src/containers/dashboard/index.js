@@ -181,7 +181,7 @@ class Dashboard extends React.Component {
             <a href="https://goto.ui.vision/x/idehelp?help=visual" target="_blank"></a>
           </div>
           <div>
-            UI.Vision RPA:
+            Ui.Vision:
             <a href="https://goto.ui.vision/x/idehelp?help=forum" target="_blank"> User Forum</a> -
             <a href="https://goto.ui.vision/x/idehelp?help=docs" target="_blank"> Online Help</a>
           </div>

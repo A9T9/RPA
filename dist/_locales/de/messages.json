@@ -1,6 +1,6 @@
 {
   "name": {
-    "message": "UI.Vision RPA",
+    "message": "Ui.Vision",
     "description": "extension name"
   },
   "description": {
@@ -8,7 +8,7 @@
     "description": "extension description"
   },
   "short_name": {
-    "message": "UIVision RPA",
+    "message": "Ui.Vision",
     "description": "extension short_name"
   }
 }

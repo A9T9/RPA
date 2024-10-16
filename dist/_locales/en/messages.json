@@ -1,14 +1,14 @@
 {
   "name": {
-    "message": "UI.Vision RPA",
+    "message": "Ui.Vision",
     "description": "extension name"
   },
   "description": {
-    "message": "Universal AI-powered task and UI test automation. RPA combines Visual Web Automation, Visual Desktop Automation and Selenium IDE++.",
+    "message": "Task and UI test automation with Computer Vision/OCR. Ui.Vision combines browser automation and desktop automation.",
     "description": "extension description"
   },
   "short_name": {
-    "message": "UIVision RPA",
+    "message": "Ui.Vision",
     "description": "extension short_name"
   }
 }

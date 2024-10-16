@@ -1188,7 +1188,7 @@ export default {
       },
       {
         "Command": "echo",
-        "Target": "The next element (target) is not available yet... UI.Vision RPA waits for it up to ${!TIMEOUT_WAIT} seconds to appear.",
+        "Target": "The next element (target) is not available yet... Ui.Vision waits for it up to ${!TIMEOUT_WAIT} seconds to appear.",
         "Value": "blue"
       },
       {
@@ -1214,7 +1214,7 @@ export default {
       },
       {
         "Command": "comment",
-        "Target": "The file ReadCSVTestData.csv is pre-installed with UI.Vision RPA.",
+        "Target": "The file ReadCSVTestData.csv is pre-installed with Ui.Vision.",
         "Value": ""
       },
       {
@@ -2428,7 +2428,7 @@ export default {
       {
         "Command": "type",
         "Target": "id=imageUrl",
-        "Value": "UI.Vision RPA Tab Test done",
+        "Value": "Ui.Vision Tab Test done",
         "Description": ""
       },
       {

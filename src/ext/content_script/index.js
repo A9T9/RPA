@@ -1140,7 +1140,7 @@ const bindInvokeEvent = () => {
         },
         options: decorateOptions(queries)
       })
-      .catch(e => alert('[UI.Vision RPA] ' + e.message))
+      .catch(e => alert('[Ui.Vision] ' + e.message))
     }
 
     if (queries['folder']) {
@@ -1163,7 +1163,7 @@ const bindInvokeEvent = () => {
         },
         options: decorateOptions(queries)
       })
-      .catch(e => alert('[UI.Vision RPA] ' + e.message))
+      .catch(e => alert('[Ui.Vision] ' + e.message))
     }
   }
   const isFile  = window.location.protocol === 'file:'
@@ -1182,7 +1182,7 @@ const bindInvokeEvent = () => {
         ...queries
       }, e.detail)
     })
-    .catch(e => alert('[UI.Vision RPA] ' + e.message))
+    .catch(e => alert('[Ui.Vision] ' + e.message))
   });
 
   (isFile ? bindOnce : subjectiveBindOnce)(window, 'kantuSaveAndRunMacro', (e) => {
@@ -1191,15 +1191,15 @@ const bindInvokeEvent = () => {
       window.dispatchEvent(new CustomEvent('kantuInvokeSuccess'))
 
       if (!e.detail || (!e.detail.html && !e.detail.json)) {
-        return alert('[UI.Vision RPA] invalid data format')
+        return alert('[Ui.Vision] invalid data format')
       }
 
       const queries     = parseQuery(window.location.search)
       const direct      = !!queries['direct'] || (e.detail.json && e.detail.direct)
       const storageMode = queries['storage'] || e.detail.storageMode || 'browser'
 
-      const msgDirectParam      = 'UI.Vision RPA: Do you want to import and run this macro?\n\nNote: To remove this dialog, add \'?direct=1\' switch to the URL. Example: file:///xx/xx/macro.html?direct=1  For embedded macros, add "direct: true" to the call.'
-      const msgWebsiteWhiteList = 'UI.Vision RPA: Do you want to import and run this macro?\n\nNote: To remove this dialog, add this site to whitelist in the UI.Vision RPA settings'
+      const msgDirectParam      = 'Ui.Vision: Do you want to import and run this macro?\n\nNote: To remove this dialog, add \'?direct=1\' switch to the URL. Example: file:///xx/xx/macro.html?direct=1  For embedded macros, add "direct: true" to the call.'
+      const msgWebsiteWhiteList = 'Ui.Vision: Do you want to import and run this macro?\n\nNote: To remove this dialog, add this site to whitelist in the Ui.Vision settings'
 
       if (isFile && !direct) {
         const agree = confirm(msgDirectParam)
@@ -1208,7 +1208,7 @@ const bindInvokeEvent = () => {
 
       if (!isFile) {
         if (!state.config.allowRunFromHttpSchema) {
-          return alert('[Message from UI.Vision RPA] Error #110: To run an embedded macro from a website, you need to allow it in the RPA settings first')
+          return alert('[Message from Ui.Vision] Error #110: To run an embedded macro from a website, you need to allow it in the RPA settings first')
         }
 
         if (!isUrlInWhiteList(window.location.href)) {
@@ -1236,7 +1236,7 @@ const bindInvokeEvent = () => {
         from:     'html',
         options:  decorateOptions({ ...queries, ...extraOptions }, e.detail)
       })
-      .catch(e => alert('[UI.Vision RPA] ' + e.message))
+      .catch(e => alert('[Ui.Vision] ' + e.message))
     }
 
     loadConfig()
@@ -1264,7 +1264,7 @@ const bindInvokeEvent = () => {
 //       testSuite: e.detail,
 //       options: decorateOptions(queries, e.detail)
 //     })
-//     .catch(e => alert('[UI.Vision RPA] ' + e.message))
+//     .catch(e => alert('[Ui.Vision] ' + e.message))
 //   })
 }
 

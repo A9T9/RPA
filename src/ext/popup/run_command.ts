@@ -1,3 +1,4 @@
+import { isFirefox } from '@/common/dom_utils';
 import { getState, updateState, ExtensionState } from "../common/global_state";
 import { Command } from "@/services/player/macro"
 import Ext from '@/common/web_extension'
@@ -613,7 +614,7 @@ async function openNewUrlInPlayTab (command: Command, startPageLoadCountDown: ()
   })()
 
   if (!isOpenCommand) {
-    throw new Error('Error #101: UI.Vision RPA is not connected to a browser tab')
+    throw new Error('Error #101: Ui.Vision is not connected to a browser tab')
   }
 
   startPageLoadCountDown()
@@ -685,7 +686,7 @@ function ensurePlayTabIPC (
   )
   .catch(e => {
     if (/withTimeout/.test(e.message)) {
-      throw new Error(`UI.Vision RPA fails to open this url`)
+      throw new Error(`Ui.Vision fails to open this url`)
     }
     
     if (e.message === 'timeout') {
@@ -706,14 +707,14 @@ function createCountDown (timeout: number): [() => void , () => void] {
   return [startPageLoadCountDown, stopPageLoadCountDown]
 }
 
-function isChromeSpecialPage (url: string): boolean { 
+function isChromeSpecialPage (url: string): boolean {
   return url.startsWith('chrome://') || url.startsWith('chrome-error://')
 }
 
 function waitForPageLoadComplete (tab: chrome.tabs.Tab): Promise<boolean> {
   return new Promise((resolve, reject) => {
     const timeout = 60 * 1000
-    const interval = 500
+    const interval = 300
     let elapsed = 0
     const timer = setInterval(() => {
       elapsed += interval
@@ -735,7 +736,9 @@ function waitForPageLoadComplete (tab: chrome.tabs.Tab): Promise<boolean> {
           }
         }).catch((e:any) => {
           console.log('executeScript err:>> ', e)
-          reject(new Error('E231: Page load error'))
+          if (timeout < elapsed) {
+            reject(new Error('E231: Page load error'))            
+          }
         })
     }, interval)
   })
@@ -771,9 +774,9 @@ function preparePlayTab (command: Command): Promise<boolean> {
     const nonresponsiveFirefoxURLs = ['about:home', 'about:blank', 'about:config', 'about:debugging']
 
     // if tab.url starts with any of the nonresponsiveFirefoxURLs
-    if (nonresponsiveFirefoxURLs.some(url => tab.url!.startsWith(url))) {
+    if (Ext.isFirefox() && nonresponsiveFirefoxURLs.some(url => tab.url!.startsWith(url))) {
       return openNewUrlInPlayTab(command, startPageLoadCountDown)
-        .then(() => waitForPageLoadComplete(tab))
+      .then(() => waitForPageLoadComplete(tab))
     }
 
     // For chrome special URLs like "chrome://extensions/", "chrome://settings/" etc,
@@ -782,7 +785,7 @@ function preparePlayTab (command: Command): Promise<boolean> {
     // in some uncertain cases url property in tab object is turned out not to be available
     if (!tab.url || isChromeSpecialPage(tab.url!)) {
       return openNewUrlInPlayTab(command, startPageLoadCountDown)
-        .then(() => waitForPageLoadComplete(tab))
+          .then(() => waitForPageLoadComplete(tab))
     }
 
     return ensurePlayTabIPC(command, tab, startPageLoadCountDown, stopPageLoadCountDown)
