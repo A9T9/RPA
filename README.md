@@ -7,18 +7,18 @@ Questions? Suggestions? - Meet us in the UI.Vision [RPA user forum](https://foru
 Every user benefits from the questions and answers provided in the forum, that is why we would ask you to post the question [in the RPA forum](https://forum.ui.vision) first if a public forum is appropriate for your question. The forum is monitored by active users, tech support and the developers, so we would like to concentrate the discussion "over there" in one place.
 
 
-# How to install  Ui.Vision RPA:
+# How to install  Ui.Vision:
 
  Ui.Vision RPA for Chrome, Edge and Firefox is modern cross-platform RPA software for macOS, Linux and Windows. It includes a Selenium IDE and Web Macro Recorder. You find the latest version always in the Chrome and Firefox stores. You can use it _completely free for private and commercial purposes_: 
 
-- [UI.Vision RPA in the Google Chrome Webstore](https://chrome.google.com/webstore/detail/uivision-rpa/gcbalfbdmfieckjlnblleoemohcganoc)
+- [UI.Vision in the Google Chrome Webstore](https://chrome.google.com/webstore/detail/uivision-rpa/gcbalfbdmfieckjlnblleoemohcganoc)
 
-- [UI.Vision RPA in the Firefox Webstore](https://addons.mozilla.org/en-US/firefox/addon/rpa/)
+- [UI.Vision in the Firefox Webstore](https://addons.mozilla.org/en-US/firefox/addon/rpa/)
 
-- [UI.Vision RPA in the Microsoft Edge Webstore](https://microsoftedge.microsoft.com/addons/detail/uivision-rpa/goapmjinbaeomoemgdcnnhoedopjnddd)
+- [UI.Vision in the Microsoft Edge Webstore](https://microsoftedge.microsoft.com/addons/detail/uivision-rpa/goapmjinbaeomoemgdcnnhoedopjnddd)
 
 
-- [Ui.Vision RPA Homepage](https://ui.vision/rpa)
+- [Ui.Vision Homepage](https://ui.vision/rpa)
 
 - List of supported [Selenium IDE commands](https://ui.vision/rpa/docs/selenium-ide/)
 
@@ -27,7 +27,7 @@ Every user benefits from the questions and answers provided in the forum, that i
 
 Building the extension is _not_ required if you "only" want to use it.
 
-You can [install UI.Vision RPA directly from the Chrome, Edge or Firefox stores](https://ui.vision/rpa), which is the easiest and the recommended way of using the Ui.Vision RPA software. Older versions can be found in the [RPA software](https://ui.vision/rpa/archive) archive. 
+You can [install UI.Vision directly from the Chrome, Edge or Firefox stores](https://ui.vision/rpa), which is the easiest and the recommended way of using the Ui.Vision RPA software. Older versions can be found in the [RPA software](https://ui.vision/rpa/archive) archive. 
 
 The information below is only required and intended for developers:
 
