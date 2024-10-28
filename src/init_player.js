@@ -1338,6 +1338,8 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
             const { hit, all } = searchResult
 
             console.log('searchResult :>> ', searchResult);
+            console.log('command :>> ', command);
+
 
             // if (command.extra && command.extra.throwError != undefined && command.extra.throwError != true)
             if (command.mode_type != undefined && command.mode_type == 'local' && command.extra && command.extra.throwError != true) {
@@ -3004,6 +3006,8 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
               throw new Error(`E319: ${cmd} only accepts a vision image as target`)
             }
 
+            log('realTarget:>> ', realTarget)
+
             switch (realTarget.type) {
               case 'locator': {
                 return runCommand({
@@ -3203,42 +3207,45 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
               }
 
               case 'ocrTextXmoveRelative': {
-                let isRelative = (/relative/i.test(cmd) && !(/XMoveText/i.test(cmd)));
-                      return csIpc.ask('PANEL_CLEAR_OCR_MATCHES_ON_PLAYING_PAGE')
-                      .catch(() => {})
-                      .then(() => delay(() => {}, 1000))
-                      .then(() => {
-                      return Promise.all([
+                let isRelative =
+                  /relative/i.test(cmd) && !/XMoveText/i.test(cmd);
+                return csIpc
+                  .ask('PANEL_CLEAR_OCR_MATCHES_ON_PLAYING_PAGE')
+                  .catch(() => {})
+                  .then(() => delay(() => {}, 1000))
+                  .then(() => {
+                    return Promise.all([
                       runCsFreeCommands({
-                      ...command,
-                      cmd:    'OCRSearch',
-                      target: target.split('#')[0],
-                      value:  '__ocrResult__'
+                        ...command,
+                        cmd: 'OCRSearch',
+                        target: target.split('#')[0],
+                        mode_type: 'local',
+                        value: '__ocrResult__',
                       }),
                       isCVTypeForDesktop(vars.get('!CVSCOPE'))
-                      ? getNativeXYAPI().getScalingFactor()
-                      : Promise.resolve(1)
-                      ])
-                      })
-                      .then(([result, scalingFactor]) => {
-                      const isDesk = isCVTypeForDesktop(vars.get('!CVSCOPE'));
-                      if (extra && extra.debugVisual && isDesk) {
+                        ? getNativeXYAPI().getScalingFactor()
+                        : Promise.resolve(1),
+                    ]);
+                  })
+                  .then(([result, scalingFactor]) => {
+                    const isDesk = isCVTypeForDesktop(vars.get('!CVSCOPE'));
+                    if (extra && extra.debugVisual && isDesk) {
                       return {
-                      byPass: true,
-                      vars: {
-                      [value]: ''
-                      }
-                      }
-                      }
+                        byPass: true,
+                        vars: {
+                          [value]: '',
+                        },
+                      };
+                    }
 
                       const { best } = result
                       if (!best)  throw new Error(`E311: No OCR text match found for '${target}'`)
 
                       let rect = {
-                      x : result.best.words[0].word.Left,
-                      y :result.best.words[0].word.Top,
-                      height :result.best.words[0].word.Height,
-                      width :result.best.words[0].word.Width
+                        x : result.best.words[0].word.Left,
+                        y :result.best.words[0].word.Top,
+                        height :result.best.words[0].word.Height,
+                        width :result.best.words[0].word.Width
                       }
 
                       let getTickCounter = str => {
@@ -3322,7 +3329,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
                           })
                         }
                     })
-                    })
+                  })
               }
 
               case 'ocrTextXmove': {
@@ -3337,6 +3344,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
                         ...command,
                         cmd: 'OCRSearch',
                         target: target,
+                        mode_type: 'local',
                         value: '__ocrResult__',
                       }),
                       isCVTypeForDesktop(vars.get('!CVSCOPE'))
@@ -3399,6 +3407,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
                       })
                   })
               }
+
               case 'ocrText': {
                 return runCsFreeCommands({
                   ...command,

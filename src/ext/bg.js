@@ -893,7 +893,14 @@ const onRequest = async (cmd, args) => {
     // }
 
     case 'PANEL_CAPTURE_VISIBLE_TAB': {
-      return Ext.tabs.captureVisibleTab(args.windowId, args.options)
+      return Ext.tabs.captureVisibleTab(args.windowId, args.options).catch(e => {
+        console.log('captureVisibleTab e:>>', e)
+        if(e == "Error: Missing activeTab permission"){
+          throw new Error('Error E144: Screenshot permission issue. To fix, please reload extension.' + 
+            'To do so, go to extension settings and turn the blue switch OFF and then ON again.')
+        } 
+        throw e;
+      })
     }
 
     case 'PANEL_SET_PROXY': {
@@ -2129,7 +2136,8 @@ const initOnInstalled = () => {
   if (typeof process !== 'undefined' && process.env.NODE_ENV === 'production') {
     Ext.runtime.setUninstallURL(config.urlAfterUninstall)
 
-    Ext.runtime.onInstalled.addListener(({ reason, previousVersion }) => {
+    chrome.runtime.onInstalled.addListener(({ reason, previousVersion }) => {
+      // * Why doesn't it fire in firefox?
       switch (reason) {
         case 'install': {
           storage.get('config')
@@ -2139,18 +2147,19 @@ const initOnInstalled = () => {
               showTestCaseTab: false
             })
           })
-
+          
           return Ext.tabs.create({
-            url: config.urlAfterInstall
-          })
+              url: config.urlAfterInstall
+            })
         }
 
-        case 'update':
+        case 'update': {
           Ext.action.setBadgeText({ text: 'NEW' })
-          Ext.action.setBadgeBackgroundColor({ color: '#4444FF' })
+          Ext.action.setBadgeBackgroundColor({ color: '#4444FF' })       
           return Ext.storage.local.set({
             upgrade_not_viewed: 'not_viewed'
           })
+        }        
       }
     })
   }

@@ -1003,7 +1003,9 @@ var CaptureScreenshotService = exports.CaptureScreenshotService = /*#__PURE__*/f
   function CaptureScreenshotService(params) {
     _classCallCheck(this, CaptureScreenshotService);
     this.params = params;
-    this.captureVisibleTab = typeof chrome !== 'undefined' && typeof chrome.tabs !== 'undefined' && typeof chrome.tabs.MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND === 'number' ? (0, _ts_utils.throttlePromiseFunc)(this.params.captureVisibleTab, chrome.tabs.MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND * 1000 + 100) : this.params.captureVisibleTab;
+    // default value to be 2
+    var MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND = typeof chrome !== 'undefined' && typeof chrome.tabs !== 'undefined' && typeof chrome.tabs.MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND === 'number' ? chrome.tabs.MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND : 2;
+    this.captureVisibleTab = (0, _ts_utils.throttlePromiseFunc)(this.params.captureVisibleTab, MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND * 1000 + 100);
   }
   _createClass(CaptureScreenshotService, [{
     key: "saveScreen",
@@ -4967,12 +4969,14 @@ var OcrMatchesHighlighter = exports.OcrMatchesHighlighter = /*#__PURE__*/functio
                   function getNumberSet(num, type) {
                     if (parseInt(num) > 0 && type == 'X') {
                       return ['>', parseInt(num)];
-                    } else if (parseInt(num) < 0 && type == 'X') {
+                    } else if (parseInt(num) <= 0 && type == 'X') {
                       return ['<', parseInt(num.replace('-', ''))];
                     } else if (parseInt(num) > 0 && type == 'Y') {
                       return ['^', parseInt(num)];
-                    } else {
+                    } else if (parseInt(num) <= 0 && type == 'Y') {
                       return ['v', parseInt(num.replace('-', ''))];
+                    } else {
+                      throw new Error('Invalid input');
                     }
                   }
                   function getAllNumbersWithSign(str) {
@@ -5016,7 +5020,7 @@ var OcrMatchesHighlighter = exports.OcrMatchesHighlighter = /*#__PURE__*/functio
                   ocrCalibration = 7;
                 }
                 for (x in countCalObj) {
-                  if (x == 'v' || x == 'v') {
+                  if (x == 'v') {
                     yD += rect['y'] + ocrCalibration * countCalObj[x]; //down (add in y offset)
                   }
                   if (x == '>') {

@@ -4,7 +4,7 @@
   "description": "__MSG_description__",
   "short_name": "__MSG_short_name__",
   "default_locale": "en",
-  "version": "9.3.3",
+  "version": "9.3.5",
   "icons": {
     "128": "logo128.png"
   },
@@ -58,6 +58,7 @@
     "notifications",
     "storage",
     "tabs",
+    "activeTab",
     "proxy",
     "nativeMessaging",
     "contextMenus",

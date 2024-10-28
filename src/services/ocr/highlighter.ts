@@ -513,12 +513,14 @@ export class OcrMatchesHighlighter implements IOcrMatchesHighlighter {
         function getNumberSet(num: any,type: any){
             if(parseInt(num) > 0 && type == 'X') {
               return ['>',parseInt(num)];
-            } else if(parseInt(num) < 0 && type == 'X') {
+            } else if(parseInt(num) <= 0 && type == 'X') {
               return ['<', parseInt(num.replace('-', ''))];
             } else if(parseInt(num) > 0 && type == 'Y') {
               return ['^',parseInt(num)];
-            }else{
+            } else if(parseInt(num) <= 0 && type == 'Y'){
               return ['v',parseInt(num.replace('-', ''))];
+            } else {
+              throw new Error('Invalid input');
             }
           }
 
@@ -557,7 +559,7 @@ export class OcrMatchesHighlighter implements IOcrMatchesHighlighter {
         ocrCalibration = 7;
       }
       for (var x in countCalObj) {
-        if (x=='v' || x=='v') {
+        if (x=='v') {
           yD += rect['y'] + ocrCalibration * countCalObj[x]; //down (add in y offset)
         }
         if (x=='>') {

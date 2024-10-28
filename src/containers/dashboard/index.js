@@ -181,9 +181,10 @@ class Dashboard extends React.Component {
             <a href="https://goto.ui.vision/x/idehelp?help=visual" target="_blank"></a>
           </div>
           <div>
-            Ui.Vision:
-            <a href="https://goto.ui.vision/x/idehelp?help=forum" target="_blank"> User Forum</a> -
-            <a href="https://goto.ui.vision/x/idehelp?help=docs" target="_blank"> Online Help</a>
+            Ui.Vision Community:&nbsp;
+            <a href="https://goto.ui.vision/x/idehelp?help=forum" target="_blank">Forums</a>&nbsp;|&nbsp; 
+            <a href="https://goto.ui.vision/x/idehelp?help=docs" target="_blank">Docs</a>&nbsp;|&nbsp;
+            <a href="https://goto.ui.vision/x/idehelp?help=github" target="_blank">Open-Source</a>
           </div>
         </div>
       </div>

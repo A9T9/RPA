@@ -1549,7 +1549,9 @@ var CaptureScreenshotService = exports.CaptureScreenshotService = /*#__PURE__*/f
   function CaptureScreenshotService(params) {
     _classCallCheck(this, CaptureScreenshotService);
     this.params = params;
-    this.captureVisibleTab = typeof chrome !== 'undefined' && typeof chrome.tabs !== 'undefined' && typeof chrome.tabs.MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND === 'number' ? (0, _ts_utils.throttlePromiseFunc)(this.params.captureVisibleTab, chrome.tabs.MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND * 1000 + 100) : this.params.captureVisibleTab;
+    // default value to be 2
+    var MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND = typeof chrome !== 'undefined' && typeof chrome.tabs !== 'undefined' && typeof chrome.tabs.MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND === 'number' ? chrome.tabs.MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND : 2;
+    this.captureVisibleTab = (0, _ts_utils.throttlePromiseFunc)(this.params.captureVisibleTab, MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND * 1000 + 100);
   }
   _createClass(CaptureScreenshotService, [{
     key: "saveScreen",
@@ -19427,18 +19429,19 @@ var interpretCsFreeCommands = function interpretCsFreeCommands(_ref14) {
                       });
                       hit = searchResult.hit, all = searchResult.all;
                       console.log('searchResult :>> ', searchResult);
+                      console.log('command :>> ', command);
 
                       // if (command.extra && command.extra.throwError != undefined && command.extra.throwError != true)
                       if (!(command.mode_type != undefined && command.mode_type == 'local' && command.extra && command.extra.throwError != true)) {
-                        _context2.next = 10;
+                        _context2.next = 11;
                         break;
                       }
                       if (!(searchResult.all.length == 0)) {
-                        _context2.next = 10;
+                        _context2.next = 11;
                         break;
                       }
                       throw new Error("E311: OCR text match for '".concat(str, "' not found"));
-                    case 10:
+                    case 11:
                       newVars = function () {
                         if (!hit) {
                           return _defineProperty(_defineProperty(_defineProperty(_defineProperty(_defineProperty(_defineProperty(_defineProperty({}, value, 0), '!ocrx', 0), '!ocry', 0), '!ocrwidth', 0), '!ocrheight', 0), '!ocr_left_x', 0), '!ocr_right_x', 0);
@@ -19505,7 +19508,7 @@ var interpretCsFreeCommands = function interpretCsFreeCommands(_ref14) {
                           best: hit
                         });
                       }));
-                    case 16:
+                    case 17:
                     case "end":
                       return _context2.stop();
                   }
@@ -20926,6 +20929,7 @@ var interpretCsFreeCommands = function interpretCsFreeCommands(_ref14) {
               if (_isRelative4 && realTarget.type !== 'visual_search') {
                 throw new Error("E319: ".concat(cmd, " only accepts a vision image as target"));
               }
+              (0, _log["default"])('realTarget:>> ', realTarget);
               switch (realTarget.type) {
                 case 'locator':
                   {
@@ -21105,6 +21109,7 @@ var interpretCsFreeCommands = function interpretCsFreeCommands(_ref14) {
                       return Promise.all([runCsFreeCommands(_objectSpread(_objectSpread({}, command), {}, {
                         cmd: 'OCRSearch',
                         target: target.split('#')[0],
+                        mode_type: 'local',
                         value: '__ocrResult__'
                       })), (0, _cv_utils.isCVTypeForDesktop)(vars.get('!CVSCOPE')) ? (0, _xy.getNativeXYAPI)().getScalingFactor() : Promise.resolve(1)]);
                     }).then(function (_ref50) {
@@ -21220,6 +21225,7 @@ var interpretCsFreeCommands = function interpretCsFreeCommands(_ref14) {
                       return Promise.all([runCsFreeCommands(_objectSpread(_objectSpread({}, command), {}, {
                         cmd: 'OCRSearch',
                         target: target,
+                        mode_type: 'local',
                         value: '__ocrResult__'
                       })), (0, _cv_utils.isCVTypeForDesktop)(vars.get('!CVSCOPE')) ? (0, _xy.getNativeXYAPI)().getScalingFactor() : Promise.resolve(1)]);
                     }).then(function (_ref52) {

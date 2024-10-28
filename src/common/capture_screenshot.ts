@@ -60,13 +60,14 @@ export class CaptureScreenshotService {
   private captureVisibleTab: CaptureVisibleTabFunc
 
   constructor (private params: CaptureScreenshotServiceParams) {
-    this.captureVisibleTab =
-      typeof chrome !== 'undefined' &&
-      typeof chrome.tabs !== 'undefined' &&
-      typeof (chrome.tabs as any).MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND === 'number'
-        ? throttlePromiseFunc(this.params.captureVisibleTab, (chrome.tabs as any).MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND * 1000 + 100)
-        : this.params.captureVisibleTab
+    // default value to be 2
+    const MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND = 
+    typeof chrome !== 'undefined' &&
+    typeof chrome.tabs !== 'undefined' &&
+    typeof (chrome.tabs as any).MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND === 'number'
+      ?  (chrome.tabs as any).MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND : 2
 
+    this.captureVisibleTab = throttlePromiseFunc(this.params.captureVisibleTab, MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND * 1000 + 100)
   }
 
   saveScreen (screenshotStorage: IStandardStorage & IWithLinkStorage, tabId: number, fileName: string, devicePixelRatio: number): Promise<{ url: string; fileName: string }> {

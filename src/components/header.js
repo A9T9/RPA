@@ -314,9 +314,26 @@ class Header extends React.Component {
   // firefox requires explicit permission to access all urls
   // ask user to grant permission, return promise
   askPermission = () => {
+
+    // test code:
+    // const permissions = chrome.runtime.getManifest().permissions || [];
+    // console.log('permission:>> ', permissions)   
+    // let allUrlPermissions = {
+    //   origins: ["<all_urls>"],
+    //   permissions: ['activeTab', 'tabs']
+    // };    
+    // return new Promise((resolve, reject) => {  
+    //   Ext.permissions.request(allUrlPermissions).then((result) => {
+    //     console.log('permission result:>>', result)
+    //     resolve(true)
+    //   }).catch(e => {
+    //     console.log('e:>>', e)
+    //   })
+    // })
+
     return new Promise((resolve, reject) => {
       if (Ext.isFirefox()) {
-        Ext.permissions.contains({ origins: ["<all_urls>"] }).then(
+        Ext.permissions.contains({ origins: ["<all_urls>"]}).then(
           (permissionGranted) => {
             if (!permissionGranted) { 
               Modal.confirm({
@@ -352,7 +369,7 @@ class Header extends React.Component {
             } else {
               resolve(true);
             }
-          }
+          }  
         )
       } else {
         resolve(true);

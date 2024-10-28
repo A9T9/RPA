@@ -1,8 +1,8 @@
 # Ui.Vision [RPA](https://ui.vision/rpa)
 
-- Modern Robotic Process Automation plus Selenium IDE++
+- Modern Robotic Process Automation, Selenium IDE compatible
 
-Questions? Suggestions? - Meet us in the UI.Vision [RPA user forum](https://forum.ui.vision).
+Questions? Suggestions? - Meet us in the Ui.Vision [RPA user forum](https://forum.ui.vision).
 
 Every user benefits from the questions and answers provided in the forum, that is why we would ask you to post the question [in the RPA forum](https://forum.ui.vision) first if a public forum is appropriate for your question. The forum is monitored by active users, tech support and the developers, so we would like to concentrate the discussion "over there" in one place.
 
