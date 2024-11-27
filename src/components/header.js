@@ -576,7 +576,7 @@ class Header extends React.Component {
 
     // preset #210
     // uncomment the following line to activate it
-    // applyPresetLicense('KXP8980M8HK9837')
+    // applyPresetLicense('ENTERPRISE LICENSE HERE')
 
     window.addEventListener("beforeunload", this.beforeUnloadHandler);
   }
