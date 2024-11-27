@@ -1,6 +1,6 @@
 # Ui.Vision [RPA](https://ui.vision/rpa)
 
-- Modern Robotic Process Automation, Selenium IDE compatible
+- AI Robotic Process Automation, includes Selenium IDE import/export
 
 Questions? Suggestions? - Meet us in the Ui.Vision [RPA user forum](https://forum.ui.vision).
 
@@ -9,9 +9,7 @@ Every user benefits from the questions and answers provided in the forum, that i
 
 # How to install  Ui.Vision:
 
- Ui.Vision RPA for Chrome, Edge and Firefox is cross-platform RPA software and Web Browser  Macro Recorder for macOS, Linux and Windows. It includes Selenium IDE scripts import/export. 
- 
- You find the latest version always in the Chrome, Edge and Firefox stores. You can use it _completely free for private and commercial purposes_: 
+ Ui.Vision RPA for Chrome, Edge and Firefox is modern cross-platform RPA software for macOS, Linux and Windows. It includes a Selenium IDE and Web Macro Recorder. You find the latest version always in the Chrome and Firefox stores. You can use it _completely free for private and commercial purposes_: 
 
 - [UI.Vision in the Google Chrome Webstore](https://chrome.google.com/webstore/detail/uivision-rpa/gcbalfbdmfieckjlnblleoemohcganoc)
 
@@ -27,7 +25,7 @@ Every user benefits from the questions and answers provided in the forum, that i
 
 # Building the Chrome, Edge and Firefox Extension
 
-This information is for developers. Building the extension is _not_ required if you "only" want to use it.
+Building the extension is _not_ required if you "only" want to use it.
 
 You can [install UI.Vision directly from the Chrome, Edge or Firefox stores](https://ui.vision/rpa), which is the easiest and the recommended way of using the Ui.Vision RPA software. Older versions can be found in the [RPA software](https://ui.vision/rpa/archive) archive. 
 
@@ -37,7 +35,7 @@ The project uses Node V20.11.1 and NPM V10.2.4
 
 If you have any questions, please contact us at TEAM AT UI.VISION - Thanks!
 
-## To build the extension bundle
+# To build the extension bundle
 
 ```bash
 npm i -f
@@ -48,7 +46,7 @@ npm run build-ff
 
 And the build files are in `dist` and `dist_ff` folders.
 
-## To develop
+# To develop
 ```bash
 npm i -f
 
