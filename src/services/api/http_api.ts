@@ -64,7 +64,7 @@ export function checkLicense (params: CheckLicenseParams): Promise<LicenseInfo> 
   })
   .catch((e: AxiosError) => {
     if (e.response) {
-      throw new Error(e.response.data)
+      throw new Error((e.response.data as string))
     }
 
     return Promise.reject(e)

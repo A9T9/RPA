@@ -108,6 +108,9 @@ export const commandScopes = {
     'OCRExtractbyTextRelative': CommandScope.All,
     'OCRExtractScreenshot': CommandScope.All,
 
+    'aiPrompt': CommandScope.All,
+    'aiScreenXY': CommandScope.All,
+
     'setProxy': CommandScope.All,
     'run': CommandScope.All,
 
@@ -289,6 +292,8 @@ export function doesCommandSupportTargetOptions (str: string) {
     case 'assertNotChecked':
     case 'verifyChecked':
     case 'verifyNotChecked':
+    case 'aiPrompt':
+    case 'aiScreenXY':
       return true
 
     default:
@@ -354,6 +359,7 @@ export function canCommandFind (str: string): boolean {
     case 'times':
     case 'forEach':
     case 'OCRExtractScreenshot':
+    case 'aiPrompt':
       return false
 
     default:

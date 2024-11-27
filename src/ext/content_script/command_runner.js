@@ -253,6 +253,8 @@ export const run = (command, csIpc, helpers) => {
     )
   }
 
+  console.log('run cmd:>>', cmd)
+
   switch (cmd) {
     case 'openBrowser':
     case 'open':

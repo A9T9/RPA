@@ -182,7 +182,9 @@ class DashboardEditor extends React.Component {
         case 'OCRExtract':
         case 'OCRExtractRelative':
         case 'OCRExtractbyTextRelative':
-        case 'OCRSearch': {
+        case 'OCRSearch': 
+        case 'aiPrompt':
+        case 'aiScreenXY': {
           const selectedIndex = this.props.editing.meta.selectedIndex
           const run = () => {
             // Note: run visionFind/visualSearch as single line command, but without timeout waiting
@@ -277,6 +279,12 @@ class DashboardEditor extends React.Component {
 
         case 'OCRSearch':
           throw new Error('No select possible in OCR mode, just enter the text')
+
+        case 'aiPrompt':
+          throw new Error('No select possible in aiPrompt mode')
+
+        case 'aiScreenXY':
+          throw new Error('No select possible in aiScreenXY mode')
 
         case 'XClickText':
         case 'XClickTextRelative':
@@ -1512,7 +1520,7 @@ class DashboardEditor extends React.Component {
     const isFindEnabled = selectedCmd && selectedCmd.cmd && canCommandFind(selectedCmd.cmd)
 
     const shouldUseSelectInputForTarget = selectedCmd && selectedCmd.targetOptions && selectedCmd.targetOptions.length  && doesCommandSupportTargetOptions(selectedCmd.cmd)
-    const shouldUseTextareaForTarget    = selectedCmd && ['executeScript', 'executeScript_Sandbox'].indexOf(selectedCmd.cmd) !== -1
+    const shouldUseTextareaForTarget    = selectedCmd && ['executeScript', 'executeScript_Sandbox', 'aiPrompt', 'aiScreenXY'].indexOf(selectedCmd.cmd) !== -1
     const shouldUseNormalInputForTarget = !shouldUseSelectInputForTarget && !shouldUseTextareaForTarget
 
     return (

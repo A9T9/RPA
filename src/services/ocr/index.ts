@@ -635,37 +635,6 @@ export function searchTextInOCRResponse (data: SearchTextInOCRResponseOptions): 
 
   let found: OcrPositionedWord[][] = [] 
 
-  // iterateThroughParseResults(parsedResults, (wordWithPos: OcrPositionedWord) => {
-  //   const matchType = (() => {
-  //     if (isExactMatch) return WordMatchType.Full
-  //     if (words.length === 1) return WordMatchType.AnyPart
-  //     if (wordIndex === 0)    return WordMatchType.Postfix
-  //     if (wordIndex === words.length - 1) return WordMatchType.Prefix
-  //     return WordMatchType.Full
-  //   })()
-
-  //   if (!hasWordMatch(words[wordIndex], wordWithPos.word.WordText, matchType)) {
-  //     found[matchIndex] = []
-  //     wordIndex = 0
-  //     return true
-  //   }
-
-  //   found[matchIndex] = found[matchIndex] || []
-  //   found[matchIndex].push(wordWithPos)
-  //   wordIndex += 1
-
-  //   // Whether it's the last word
-  //   if (wordIndex >= words.length) {
-  //     matchIndex += 1
-  //     wordIndex   = 0
-
-  //     const shouldContinue = exhaust || matchIndex <= index
-  //     return shouldContinue
-  //   }
-
-  //   return true
-  // })
-
   found = getOcrPositionedWordsFromParseResults(parsedResults, text);
 
   console.log('found:>> ',found);

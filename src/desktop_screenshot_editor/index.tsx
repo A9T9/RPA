@@ -83,10 +83,25 @@ class App extends React.Component<Props, State> {
   }
 
   componentDidMount () {
+    console.log('state:>> ', this.state)
     csIpc.onAsk((type: string, data: any) => {
+      console.log('onAsk type:>>', type)
+      console.log('onAsk data:>>', data)
       switch (type) {
         case 'DOM_READY':
           return true
+
+        case DesktopScreenshot.RequestType.DisplayVisualX: {
+          const d = data as DesktopScreenshot.DisplayVisualRequestData
+
+          this.setState({
+            mode:   DesktopScreenshot.RequestType.DisplayVisualX,
+            rects:  d.rects
+          })
+
+          return this.consumeImageInfo(d.image)
+          .then(() => true)
+        }
 
         case DesktopScreenshot.RequestType.DisplayVisualResult: {
           const d = data as DesktopScreenshot.DisplayVisualRequestData
@@ -712,7 +727,7 @@ class App extends React.Component<Props, State> {
           ) : null}
 
           <div className="highlight-rect-list">
-            {this.state.rects.map((rect, i) => (
+            { this.state.mode !== DesktopScreenshot.RequestType.DisplayVisualX  ? (this.state.rects?.map((rect, i) => (
               <div
                 key={i}
                 style={{
@@ -732,7 +747,23 @@ class App extends React.Component<Props, State> {
                   }
                 </div>
               </div>
-            ))}
+            ))) :            
+            (this.state.rects?.map((rect, i) => (
+              <div
+                key={i}
+                style={{
+                  top:    ((rect.y * this.state.scale ) - 8) + 'px', // half of 16px 
+                  left:   ((rect.x * this.state.scale ) - 8) + 'px', // half of 16px
+                  color:  this.colorForRectType(rect.type),                  
+                }}
+                className="highlight-rect"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="16px" height="16px">
+                  <line x1="8" y1="8" x2="56" y2="56" stroke="red" stroke-width="12"></line>
+                  <line x1="56" y1="8" x2="8" y2="56" stroke="red" stroke-width="12"></line>
+                </svg>
+              </div>
+            )))}
           </div>
 
           <div className="ocr-match-list">

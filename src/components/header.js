@@ -62,6 +62,8 @@ import { SettingOutlined } from "@ant-design/icons";
 import { isOcrSpaceFreeKey, testOcrSpaceAPIKey } from "../services/ocr";
 import CONFIG from '@/config'
 import { store } from '../redux'
+import TextArea from "antd/es/input/TextArea";
+import AITab from "./settings_modal/tabs/ai";
 
 const OSType = (() => {
   const ua = window.navigator.userAgent;
@@ -79,6 +81,25 @@ function withRouter(Component) {
   }
 
   return ComponentWithRouterProp;
+}
+
+const applyPresetLicense = (registerKey) => {
+  if(getLicenseService().isProLicense() || getLicenseService().isPersonalLicense() ){
+    console.log("license already active.")
+    return
+  }
+  getLicenseService().checkLicense(registerKey).then((license) => {
+    if (license.status === "key_not_found") {
+      console.error("License key not found");
+    }
+    console.log(`license status: ${license.status}`);
+  })
+  .catch((e) => {
+    const text = isNetworkError(e)
+      ? "Internet connection required for activation. If you want use the software on a machine without Internet connection, please contact tech support"
+      : e.message;
+     console.error(text);
+  })
 }
 
 class Header extends React.Component {
@@ -102,7 +123,7 @@ class Header extends React.Component {
     ocrLanguageOptions: this.props.config.ocrLanguageOption,
     tesseractLanguageOptions: tesseractLanguageOptions,
 
-    userEnteredAPIKey: "",
+    userEnteredOCRAPIKey: "",
     connectedAPIEndpointType: null // null | "free" | "pro"
   };
 
@@ -553,6 +574,10 @@ class Header extends React.Component {
       })
     });
 
+    // preset #210
+    // uncomment the following line to activate it
+    // applyPresetLicense('KXP8980M8HK9837')
+
     window.addEventListener("beforeunload", this.beforeUnloadHandler);
   }
 
@@ -991,7 +1016,7 @@ class Header extends React.Component {
       <Modal
         title="Settings"
         className="settings-modal"
-        width={650}
+        width={700}
         footer={null}
         open={this.props.ui.showSettings}
         onCancel={() => {
@@ -1000,7 +1025,7 @@ class Header extends React.Component {
           this.props.updateConfig({
             showSettingsOnStart: false
           })
-          this.setState({ userEnteredAPIKey: '' });  
+          this.setState({ userEnteredOCRAPIKey: '' });  
         }}
       >
         <Tabs
@@ -1333,446 +1358,6 @@ class Header extends React.Component {
               )
             },
             {
-              key: "selenium",
-              label: "Selenium",
-              className: "selenium-pane",
-              children: (
-                <>
-                  <h4>Import Selenium IDE Projects</h4>
-                  <p>
-                    Import web tests created in the classic Selenium IDE. Unknown
-                    commands (if any) are imported as comments. If you want us to add
-                    a certain not yet supported command, or find any other import
-                    issues, please let us know in the{" "}
-                    <a href="https://goto.ui.vision/x/idehelp?help=forum" target="_blank">
-                      user forum
-                    </a>
-                    .
-                  </p>
-                  <div className="import-row">
-                    <input
-                      type="file"
-                      accept=".side"
-                      id="select_side_file"
-                      ref={(ref) => {
-                        this.sideFileInput = ref;
-                      }}
-                      style={{ display: "none" }}
-                      onChange={(e) => {
-                        setTimeout(() => {
-                          this.sideFileInput.value = null;
-                        }, 500);
-
-                        const file = e.target.files[0];
-
-                        readFileAsText(file).then((sideText) => {
-                          const sideProject = JSON.parse(sideText);
-
-                          importSideProject(sideProject)
-                            .then((result) => {
-                              const lines = [
-                                `Project "${result.projectName}" import into folder: "${result.folderName}"`,
-                                `- ${result.macros.successCount} ${
-                                  result.macros.successCount === 1
-                                    ? "macro"
-                                    : "macros"
-                                } (imported)`,
-                                `- ${result.suites.ignoreCount} ${
-                                  result.suites.ignoreCount === 1
-                                    ? "test suite"
-                                    : "test suites"
-                                } (test suites are not imported yet)`,
-                              ];
-
-                              this.props.addLog("info", lines.join("\n"));
-                              message.success(
-                                `Project "${result.projectName}" import into folder: "${result.folderName}"`
-                              );
-                            })
-                            .catch((e) => {
-                              message.error(e.message);
-                            });
-                        });
-                      }}
-                    />
-
-                    <Button
-                      type="primary"
-                      onClick={() => {
-                        const $el = document.querySelector("#select_side_file");
-
-                        if ($el) {
-                          $el.click();
-                        }
-                      }}
-                    >
-                      Import .SIDE projects
-                    </Button>
-
-                    <span>
-                      Imports projects from Selenium IDE V3.x (
-                      <a
-                        href="https://goto.ui.vision/x/idehelp?help=import_side"
-                        target="_blank"
-                      >
-                        more info
-                      </a>
-                      )
-                    </span>
-                  </div>
-                  <div className="import-row">
-                    <input
-                      multiple
-                      type="file"
-                      accept=".html"
-                      id="select_html_files_for_macros"
-                      ref={(ref) => {
-                        this.jsonFileInput = ref;
-                      }}
-                      style={{ display: "none" }}
-                      onChange={(e) => {
-                        setTimeout(() => {
-                          this.jsonFileInput.value = null;
-                        }, 500);
-
-                        return this.props.readFilesAndImportTestCases({
-                          files: e.target.files,
-                          type: "text",
-                          process: (content, fileName) => ({
-                            macros: [fromHtml(content, fileName)],
-                            csvs: [],
-                            images: [],
-                          }),
-                        });
-                      }}
-                    />
-
-                    <Button
-                      type="primary"
-                      onClick={() => {
-                        const $el = document.querySelector(
-                          "#select_html_files_for_macros"
-                        );
-
-                        if ($el) {
-                          $el.click();
-                        }
-                      }}
-                    >
-                      Import .HTML projects
-                    </Button>
-
-                    <span>
-                      Import projects from Selenium IDE V2.x (
-                      <a
-                        href="https://goto.ui.vision/x/idehelp?help=import_html"
-                        target="_blank"
-                      >
-                        more info
-                      </a>
-                      )
-                    </span>
-                  </div>
-
-                  <h4>Web Recording Options</h4>
-
-                  <Form>
-                    <Form.Item label="Notification" {...displayConfig}>
-                      <Checkbox
-                        onClick={(e) =>
-                          onConfigChange("recordNotification", !e.target.checked)
-                        }
-                        checked={this.props.config.recordNotification}
-                      >
-                        Show notifications when recording
-                      </Checkbox>
-                    </Form.Item>
-                  </Form>
-
-                  <h4>Proxy Options</h4>
-
-                  <Form>
-                    <Form.Item label="Default Proxy (IP:Port)" {...displayConfig}>
-                      <Input
-                        type="text"
-                        style={{ width: "300px" }}
-                        value={this.props.config.defaultProxy}
-                        onChange={(e) =>
-                          onConfigChange("defaultProxy", e.target.value)
-                        }
-                        placeholder="eg. http://0.0.0.0:1234"
-                      />
-                    </Form.Item>
-                    <Form.Item label="User name, Password" {...displayConfig}>
-                      <Input
-                        type="text"
-                        style={{ width: "300px" }}
-                        value={this.props.config.defaultProxyAuth}
-                        onChange={(e) =>
-                          onConfigChange("defaultProxyAuth", e.target.value)
-                        }
-                        placeholder="eg. admin, mypassword"
-                      />
-                    </Form.Item>
-                    <Form.Item label="Status" {...displayConfig}>
-                      <Radio.Group
-                        value={this.props.proxy ? "on" : "off"}
-                      >
-                        <Radio value="on" onClick={()=> onChangeProxyStatus('on')}>Proxy ON</Radio>
-                        <Radio value="off" onClick={()=> onChangeProxyStatus('off')}>Proxy OFF</Radio>
-                      </Radio.Group>
-
-                      <Checkbox
-                        onClick={(e) =>
-                          onConfigChange("turnOffProxyAfterReplay", !e.target.checked)
-                        }
-                        checked={this.props.config.turnOffProxyAfterReplay}
-                        style={{ marginTop: "10px" }}
-                      >
-                        Turn off at end of replay (Proxy controlled by{" "}
-                        <a
-                          href="https://goto.ui.vision/x/idehelp?cmd=setproxy"
-                          target="_blank"
-                        >
-                          setProxy command
-                        </a>
-                        )
-                      </Checkbox>               
-                    </Form.Item>
-                  </Form>                
-                </>                
-              )
-            },
-            {
-              key: "backup",
-              label: "Backup",
-              className: "backup-pane",
-              children: (
-                <>
-                  <h4>Automatic Backup</h4>
-                  <p>
-                    The automatic backup reminder helps to you to regularly export
-                    macros and other data as ZIP archive. As browser extension
-                    Ui.Vision must store its data{" "}
-                    <em>inside the browser extension</em>. This means that when you
-                    uninstall the extension, the data is removed, too. Therefore it is
-                    good to have backups! Note that if the hard drive storage mode of
-                    the File Access XModule is active, then the backup archive
-                    contains these files.
-                  </p>
-                  <div className="row">
-                    <Checkbox
-                      onClick={(e) =>
-                        onConfigChange("enableAutoBackup", !e.target.checked)
-                      }
-                      checked={this.props.config.enableAutoBackup}
-                    />
-                    <span>Show backup reminder every</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      disabled={!this.props.config.enableAutoBackup}
-                      value={this.props.config.autoBackupInterval}
-                      onChange={(e) =>
-                        onConfigChange("autoBackupInterval", e.target.value)
-                      }
-                      style={{ width: "60px" }}
-                    />
-                    <span> days</span>
-                  </div>
-                  <div className="row">
-                    <p>Backup includes <span style={{fontWeight: "bold"}}>macros, images, and CSV files</span>.</p>                  
-                  </div>
-                  <div className="row">
-                    <Button type="primary" onClick={() => this.props.runBackup()}>
-                      Run Backup Now
-                    </Button>
-                    <span> Create a backup ZIP file now.</span>
-                  </div>
-                  <div style={{ paddingTop: "30px" }} className="row">
-                    <Button
-                      type="primary"
-                      onClick={() => {
-                        const $input = document.getElementById("select_zip_file");
-
-                        if ($input) {
-                          $input.click();
-                        }
-                      }}
-                    >
-                      Restore Data from Backup
-                    </Button>
-                    <span>
-                      {" "}
-                      Select a backup ZIP file to import it (
-                      <a
-                        href="https://goto.ui.vision/x/idehelp?help=bkup_import"
-                        target="_blank"
-                      >
-                        more info
-                      </a>
-                      ).{" "}
-                    </span>
-
-                    <input
-                      type="file"
-                      accept=".zip"
-                      id="select_zip_file"
-                      ref={(ref) => {
-                        this.zipFileInput = ref;
-                      }}
-                      style={{ display: "none" }}
-                      onChange={(e) => {
-                        setTimeout(() => {
-                          this.zipFileInput.value = null;
-                        }, 500);
-
-                        const file = e.target.files[0];
-
-                        restoreBackup({
-                          file,
-                          storage: getStorageManager().getCurrentStrategyType(),
-                        }).then(
-                          (result) => {
-                            getStorageManager().emit(StorageManagerEvent.ForceReload);
-                            message.success("Backup restored");
-
-                            this.props.addLog(
-                              "info",
-                              [
-                                "Backup restored:",
-                                `${result.count.macro} macros`,
-                                `${result.count.testSuite} test suites`,
-                                `${result.count.csv} csvs`,
-                                `${result.count.screenshot} screenshots`,
-                                `${result.count.vision} vision images`,
-                              ].join("\n")
-                            );
-                          },
-                          (e) => {
-                            message.error("Failed to restore: " + e.message);
-                            console.error(e);
-                          }
-                        );
-                      }}
-                    />
-                  </div>
-                </>                
-              )
-            },
-            {
-              key: 'security',
-              label: 'Security',
-              className: 'security-pane',
-              children:(
-                <>
-                  <h4>Master password for Password Encryption</h4>
-                  <p>
-                    A master password is used to encrypt and decrypt all stored
-                    website passwords. The websites passwords are encrypted using
-                    strong encryption.&nbsp;&nbsp;
-                    <a
-                      target="_blank"
-                      href="https://goto.ui.vision/x/idehelp?help=encryption"
-                    >
-                      More info &gt;&gt;
-                    </a>
-                  </p>
-                  <div>
-                    <Radio.Group
-                      value={this.props.config.shouldEncryptPassword}
-                    >
-                      <Radio value="no" onClick={() => onConfigChange("shouldEncryptPassword", "no")}>Do not encrypt passwords</Radio>
-                      <Radio value="master_password" onClick={() => onConfigChange("shouldEncryptPassword", "master_password")}>
-                        Enter master password here to store it
-                      </Radio>
-                    </Radio.Group>
-
-                    {this.props.config.shouldEncryptPassword === "master_password" ? (
-                      <div>
-                        <div>
-                          <label>Master password:</label>
-                          <Input
-                            type="password"
-                            style={{ width: "200px" }}
-                            value={this.props.config.masterPassword}
-                            onChange={(e) =>
-                              onConfigChange("masterPassword", e.target.value)
-                            }
-                          />
-                        </div>
-                        <div>
-                          <hr style={{ margin: "20px 0" }} />
-                          <h4>Create encrypted text string</h4>
-                          <p>
-                            The feature uses the master password to encrypt text. The
-                            encrypted string can be used with TYPE, SENDKEY and XTYPE.
-                          </p>
-                          <div className="input-line">
-                            <span className="input-label">Text to encrypt:</span>
-                            <Input
-                              type={this.state.showText ? "text" : "password"}
-                              style={{ width: "200px" }}
-                              value={this.state.textToEncrypt}
-                              onChange={(e) => {
-                                this.setState({
-                                  textToEncrypt: e.target.value,
-                                  encryptedText: "",
-                                });
-                              }}
-                            />
-                            <Checkbox
-                              onClick={(e) => {
-                                this.setState({ showText: !e.target.checked });
-                              }}
-                              checked={this.state.showText}
-                            >
-                              Show text
-                            </Checkbox>
-                          </div>
-                          <div className="input-line">
-                            <span className="input-label">Encrypted string:</span>
-                            <Input
-                              readOnly={true}
-                              type="text"
-                              style={{ width: "200px" }}
-                              value={this.state.encryptedText}
-                            />
-                          </div>
-                          <div className="input-line">
-                            <span className="input-label"></span>
-                            <Button
-                              type="primary"
-                              onClick={() => {
-                                encrypt(this.state.textToEncrypt).then((text) => {
-                                  this.setState({ encryptedText: text });
-
-                                  copyToClipboard(text, {
-                                    format: "text/plain",
-                                  });
-
-                                  message.success("Copied to clipboard");
-                                });
-                              }}
-                            >
-                              Encrypt &amp; Copy
-                            </Button>
-
-                            <a
-                              href="https://goto.ui.vision/x/idehelp?help=encrypt"
-                              target="_blank"
-                            >
-                              (More info)
-                            </a>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </>
-              )
-            },
-            {
               key: 'ocr',
               label: 'OCR',
               className: ocrClassName,
@@ -1843,11 +1428,11 @@ class Header extends React.Component {
                       <Input
                         type="text"
                         style={{ width: "120px" }}
-                        value={this.state.userEnteredAPIKey}
+                        value={this.state.userEnteredOCRAPIKey}
                         disabled={[1,2].includes( this.props.config.ocrEngine) ? false : true }
                         onChange={(e) =>
                           {
-                            this.setState({ userEnteredAPIKey: e.target.value });    
+                            this.setState({ userEnteredOCRAPIKey: e.target.value });    
                           }
                         }
                       />
@@ -1857,7 +1442,7 @@ class Header extends React.Component {
                         disabled={ [1,2].includes( this.props.config.ocrEngine) ? false : true }
                         onClick={() => {
                            // connect to endpoint
-                          let key = this.state.userEnteredAPIKey?.trim();
+                          let key = this.state.userEnteredOCRAPIKey?.trim();
                           if (!key) {
                             message.error("Please enter a valid API key");
                             return;
@@ -2431,6 +2016,14 @@ class Header extends React.Component {
               )
             },
             {
+              key: 'ai',
+              label: 'AI(New)',
+              className: 'ai-pane',
+              children: (           
+                <AITab />
+              )
+            },
+            {
               key: 'xmodules',
               label: 'XModules',
               className: 'xmodules-pane',
@@ -2761,6 +2354,445 @@ class Header extends React.Component {
                 </>
               )
             },
+         {
+              key: "backup",
+              label: "Backup",
+              className: "backup-pane",
+              children: (
+                <>
+                  <h4>Automatic Backup</h4>
+                  <p>
+                    The automatic backup reminder helps to you to regularly export
+                    macros and other data as ZIP archive. As browser extension
+                    Ui.Vision must store its data{" "}
+                    <em>inside the browser extension</em>. This means that when you
+                    uninstall the extension, the data is removed, too. Therefore it is
+                    good to have backups! Note that if the hard drive storage mode of
+                    the File Access XModule is active, then the backup archive
+                    contains these files.
+                  </p>
+                  <div className="row">
+                    <Checkbox
+                      onClick={(e) =>
+                        onConfigChange("enableAutoBackup", !e.target.checked)
+                      }
+                      checked={this.props.config.enableAutoBackup}
+                    />
+                    <span>Show backup reminder every</span>
+                    <Input
+                      type="number"
+                      min={1}
+                      disabled={!this.props.config.enableAutoBackup}
+                      value={this.props.config.autoBackupInterval}
+                      onChange={(e) =>
+                        onConfigChange("autoBackupInterval", e.target.value)
+                      }
+                      style={{ width: "60px" }}
+                    />
+                    <span> days</span>
+                  </div>
+                  <div className="row">
+                    <p>Backup includes <span style={{fontWeight: "bold"}}>macros, images, and CSV files</span>.</p>                  
+                  </div>
+                  <div className="row">
+                    <Button type="primary" onClick={() => this.props.runBackup()}>
+                      Run Backup Now
+                    </Button>
+                    <span> Create a backup ZIP file now.</span>
+                  </div>
+                  <div style={{ paddingTop: "30px" }} className="row">
+                    <Button
+                      type="primary"
+                      onClick={() => {
+                        const $input = document.getElementById("select_zip_file");
+
+                        if ($input) {
+                          $input.click();
+                        }
+                      }}
+                    >
+                      Restore Data from Backup
+                    </Button>
+                    <span>
+                      {" "}
+                      Select a backup ZIP file to import it (
+                      <a
+                        href="https://goto.ui.vision/x/idehelp?help=bkup_import"
+                        target="_blank"
+                      >
+                        more info
+                      </a>
+                      ).{" "}
+                    </span>
+
+                    <input
+                      type="file"
+                      accept=".zip"
+                      id="select_zip_file"
+                      ref={(ref) => {
+                        this.zipFileInput = ref;
+                      }}
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        setTimeout(() => {
+                          this.zipFileInput.value = null;
+                        }, 500);
+
+                        const file = e.target.files[0];
+
+                        restoreBackup({
+                          file,
+                          storage: getStorageManager().getCurrentStrategyType(),
+                        }).then(
+                          (result) => {
+                            getStorageManager().emit(StorageManagerEvent.ForceReload);
+                            message.success("Backup restored");
+
+                            this.props.addLog(
+                              "info",
+                              [
+                                "Backup restored:",
+                                `${result.count.macro} macros`,
+                                `${result.count.testSuite} test suites`,
+                                `${result.count.csv} csvs`,
+                                `${result.count.screenshot} screenshots`,
+                                `${result.count.vision} vision images`,
+                              ].join("\n")
+                            );
+                          },
+                          (e) => {
+                            message.error("Failed to restore: " + e.message);
+                            console.error(e);
+                          }
+                        );
+                      }}
+                    />
+                  </div>
+                </>                
+              )
+            },
+            {
+              key: 'security',
+              label: 'Security',
+              className: 'security-pane',
+              children:(
+                <>
+                  <h4>Master password for Password Encryption</h4>
+                  <p>
+                    A master password is used to encrypt and decrypt all stored
+                    website passwords. The websites passwords are encrypted using
+                    strong encryption.&nbsp;&nbsp;
+                    <a
+                      target="_blank"
+                      href="https://goto.ui.vision/x/idehelp?help=encryption"
+                    >
+                      More info &gt;&gt;
+                    </a>
+                  </p>
+                  <div>
+                    <Radio.Group
+                      value={this.props.config.shouldEncryptPassword}
+                    >
+                      <Radio value="no" onClick={() => onConfigChange("shouldEncryptPassword", "no")}>Do not encrypt passwords</Radio>
+                      <Radio value="master_password" onClick={() => onConfigChange("shouldEncryptPassword", "master_password")}>
+                        Enter master password here to store it
+                      </Radio>
+                    </Radio.Group>
+
+                    {this.props.config.shouldEncryptPassword === "master_password" ? (
+                      <div>
+                        <div>
+                          <label>Master password:</label>
+                          <Input
+                            type="password"
+                            style={{ width: "200px" }}
+                            value={this.props.config.masterPassword}
+                            onChange={(e) =>
+                              onConfigChange("masterPassword", e.target.value)
+                            }
+                          />
+                        </div>
+                        <div>
+                          <hr style={{ margin: "20px 0" }} />
+                          <h4>Create encrypted text string</h4>
+                          <p>
+                            The feature uses the master password to encrypt text. The
+                            encrypted string can be used with TYPE, SENDKEY and XTYPE.
+                          </p>
+                          <div className="input-line">
+                            <span className="input-label">Text to encrypt:</span>
+                            <Input
+                              type={this.state.showText ? "text" : "password"}
+                              style={{ width: "200px" }}
+                              value={this.state.textToEncrypt}
+                              onChange={(e) => {
+                                this.setState({
+                                  textToEncrypt: e.target.value,
+                                  encryptedText: "",
+                                });
+                              }}
+                            />
+                            <Checkbox
+                              onClick={(e) => {
+                                this.setState({ showText: !e.target.checked });
+                              }}
+                              checked={this.state.showText}
+                            >
+                              Show text
+                            </Checkbox>
+                          </div>
+                          <div className="input-line">
+                            <span className="input-label">Encrypted string:</span>
+                            <Input
+                              readOnly={true}
+                              type="text"
+                              style={{ width: "200px" }}
+                              value={this.state.encryptedText}
+                            />
+                          </div>
+                          <div className="input-line">
+                            <span className="input-label"></span>
+                            <Button
+                              type="primary"
+                              onClick={() => {
+                                encrypt(this.state.textToEncrypt).then((text) => {
+                                  this.setState({ encryptedText: text });
+
+                                  copyToClipboard(text, {
+                                    format: "text/plain",
+                                  });
+
+                                  message.success("Copied to clipboard");
+                                });
+                              }}
+                            >
+                              Encrypt &amp; Copy
+                            </Button>
+
+                            <a
+                              href="https://goto.ui.vision/x/idehelp?help=encrypt"
+                              target="_blank"
+                            >
+                              (More info)
+                            </a>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </>
+              )
+            },{
+              key: "selenium",
+              label: "Selenium",
+              className: "selenium-pane",
+              children: (
+                <>
+                  <h4>Import Selenium IDE Projects</h4>
+                  <p>
+                    Import web tests created in the classic Selenium IDE. Unknown
+                    commands (if any) are imported as comments. If you want us to add
+                    a certain not yet supported command, or find any other import
+                    issues, please let us know in the{" "}
+                    <a href="https://goto.ui.vision/x/idehelp?help=forum" target="_blank">
+                      user forum
+                    </a>
+                    .
+                  </p>
+                  <div className="import-row">
+                    <input
+                      type="file"
+                      accept=".side"
+                      id="select_side_file"
+                      ref={(ref) => {
+                        this.sideFileInput = ref;
+                      }}
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        setTimeout(() => {
+                          this.sideFileInput.value = null;
+                        }, 500);
+
+                        const file = e.target.files[0];
+
+                        readFileAsText(file).then((sideText) => {
+                          const sideProject = JSON.parse(sideText);
+
+                          importSideProject(sideProject)
+                            .then((result) => {
+                              const lines = [
+                                `Project "${result.projectName}" import into folder: "${result.folderName}"`,
+                                `- ${result.macros.successCount} ${
+                                  result.macros.successCount === 1
+                                    ? "macro"
+                                    : "macros"
+                                } (imported)`,
+                                `- ${result.suites.ignoreCount} ${
+                                  result.suites.ignoreCount === 1
+                                    ? "test suite"
+                                    : "test suites"
+                                } (test suites are not imported yet)`,
+                              ];
+
+                              this.props.addLog("info", lines.join("\n"));
+                              message.success(
+                                `Project "${result.projectName}" import into folder: "${result.folderName}"`
+                              );
+                            })
+                            .catch((e) => {
+                              message.error(e.message);
+                            });
+                        });
+                      }}
+                    />
+
+                    <Button
+                      type="primary"
+                      onClick={() => {
+                        const $el = document.querySelector("#select_side_file");
+
+                        if ($el) {
+                          $el.click();
+                        }
+                      }}
+                    >
+                      Import .SIDE projects
+                    </Button>
+
+                    <span>
+                      Imports projects from Selenium IDE V3.x (
+                      <a
+                        href="https://goto.ui.vision/x/idehelp?help=import_side"
+                        target="_blank"
+                      >
+                        more info
+                      </a>
+                      )
+                    </span>
+                  </div>
+                  <div className="import-row">
+                    <input
+                      multiple
+                      type="file"
+                      accept=".html"
+                      id="select_html_files_for_macros"
+                      ref={(ref) => {
+                        this.jsonFileInput = ref;
+                      }}
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        setTimeout(() => {
+                          this.jsonFileInput.value = null;
+                        }, 500);
+
+                        return this.props.readFilesAndImportTestCases({
+                          files: e.target.files,
+                          type: "text",
+                          process: (content, fileName) => ({
+                            macros: [fromHtml(content, fileName)],
+                            csvs: [],
+                            images: [],
+                          }),
+                        });
+                      }}
+                    />
+
+                    <Button
+                      type="primary"
+                      onClick={() => {
+                        const $el = document.querySelector(
+                          "#select_html_files_for_macros"
+                        );
+
+                        if ($el) {
+                          $el.click();
+                        }
+                      }}
+                    >
+                      Import .HTML projects
+                    </Button>
+
+                    <span>
+                      Import projects from Selenium IDE V2.x (
+                      <a
+                        href="https://goto.ui.vision/x/idehelp?help=import_html"
+                        target="_blank"
+                      >
+                        more info
+                      </a>
+                      )
+                    </span>
+                  </div>
+
+                  <h4>Web Recording Options</h4>
+
+                  <Form>
+                    <Form.Item label="Notification" {...displayConfig}>
+                      <Checkbox
+                        onClick={(e) =>
+                          onConfigChange("recordNotification", !e.target.checked)
+                        }
+                        checked={this.props.config.recordNotification}
+                      >
+                        Show notifications when recording
+                      </Checkbox>
+                    </Form.Item>
+                  </Form>
+
+                  <h4>Proxy Options</h4>
+
+                  <Form>
+                    <Form.Item label="Default Proxy (IP:Port)" {...displayConfig}>
+                      <Input
+                        type="text"
+                        style={{ width: "300px" }}
+                        value={this.props.config.defaultProxy}
+                        onChange={(e) =>
+                          onConfigChange("defaultProxy", e.target.value)
+                        }
+                        placeholder="eg. http://0.0.0.0:1234"
+                      />
+                    </Form.Item>
+                    <Form.Item label="User name, Password" {...displayConfig}>
+                      <Input
+                        type="text"
+                        style={{ width: "300px" }}
+                        value={this.props.config.defaultProxyAuth}
+                        onChange={(e) =>
+                          onConfigChange("defaultProxyAuth", e.target.value)
+                        }
+                        placeholder="eg. admin, mypassword"
+                      />
+                    </Form.Item>
+                    <Form.Item label="Status" {...displayConfig}>
+                      <Radio.Group
+                        value={this.props.proxy ? "on" : "off"}
+                      >
+                        <Radio value="on" onClick={()=> onChangeProxyStatus('on')}>Proxy ON</Radio>
+                        <Radio value="off" onClick={()=> onChangeProxyStatus('off')}>Proxy OFF</Radio>
+                      </Radio.Group>
+
+                      <Checkbox
+                        onClick={(e) =>
+                          onConfigChange("turnOffProxyAfterReplay", !e.target.checked)
+                        }
+                        checked={this.props.config.turnOffProxyAfterReplay}
+                        style={{ marginTop: "10px" }}
+                      >
+                        Turn off at end of replay (Proxy controlled by{" "}
+                        <a
+                          href="https://goto.ui.vision/x/idehelp?cmd=setproxy"
+                          target="_blank"
+                        >
+                          setProxy command
+                        </a>
+                        )
+                      </Checkbox>               
+                    </Form.Item>
+                  </Form>                
+                </>                
+              )
+            },
             {
               key: 'register',
               label: 'Pro|Enterprise',
@@ -2772,8 +2804,7 @@ class Header extends React.Component {
                       inactive: !getLicenseService().hasNoLicense(),
                     })}
                   >
-                    <p>
-                      Thank you for using the Ui.Vision Free Edition. PRO and Enterprise Editions are available 
+                    <p>Open-Source Ui.Vision PRO and Enterprise Editions are available 
 					  for users requiring Enterprise capabilities,
 					  including direct file storage, update management, and priority support services. 
 					  Should you have already acquired a license key for either the PRO or Enterprise Edition,

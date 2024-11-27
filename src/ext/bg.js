@@ -1185,7 +1185,13 @@ const onRequest = async (cmd, args) => {
       .then(ipc => ipc.ask('HIGHLIGHT_RECT', args, C.CS_IPC_TIMEOUT))
     }
 
+    case 'PANEL_HIGHLIGHT_X': {
+      return getPlayTabIpc()
+      .then(ipc => ipc.ask('HIGHLIGHT_X', args, C.CS_IPC_TIMEOUT))
+    }
+
     case 'PANEL_HIGHLIGHT_RECTS': {
+      console.log('PANEL_HIGHLIGHT_RECTS:>>', args)
       return getPlayTabIpc()
       .then(ipc => ipc.ask('HIGHLIGHT_RECTS', args, C.CS_IPC_TIMEOUT))
     }
@@ -1195,6 +1201,16 @@ const onRequest = async (cmd, args) => {
         type: DesktopScreenshot.RequestType.DisplayVisualResult,
         data: {
           rects: args.scoredRects,
+          image: args.imageInfo
+        }
+      })
+    }
+
+    case 'PANEL_HIGHLIGHT_DESKTOP_X': {
+      return runInDesktopScreenshotEditor(args.screenAvailableSize, {
+        type: DesktopScreenshot.RequestType.DisplayVisualX,
+        data: {
+          rects: [{...args.coordinates}],
           image: args.imageInfo
         }
       })
@@ -1994,7 +2010,7 @@ const onRequest = async (cmd, args) => {
         switch (from) {
           case 'bookmark': {
             if (!config.allowRunFromBookmark) {
-              throw new Error('[Message from RPA] Error #102: To run a macro or a test suite from bookmarks, you need to allow it in the Ui.Vision settings first')
+              throw new Error('[Message from RPA] Error E103: To run a macro or a test suite from bookmarks, you need to allow it in the Ui.Vision settings first')
             }
             break
           }

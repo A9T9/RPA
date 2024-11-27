@@ -3,6 +3,7 @@ import { OcrTextSearchMatchForHighlight } from "../services/ocr/types";
 export namespace DesktopScreenshot {
   export enum RequestType {
     DisplayVisualResult = 'display_visual_result',
+    DisplayVisualX = 'display_visual_x',
     DisplayOcrResult = 'display_ocr_result',
     Capture = 'capture'
   }

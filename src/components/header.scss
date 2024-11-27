@@ -398,3 +398,39 @@
   font-size: 12px;
   margin-left: 8px;
 }
+
+.ai-tab {
+  .ai-settings-item {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: 20px;
+
+    .label-text {
+      min-width: 60px;
+    }
+
+    input {
+      width: 300px;
+    }
+
+    button {
+      margin-left: 10px;
+    }
+  }
+
+  .ai-response{
+    margin-bottom: 10px;
+    width: 100%;
+
+    pre{
+      text-wrap: auto;
+      border: 1px solid lightgray;
+      padding: 5px;
+      border-radius: 5px;
+      min-height: 150px;
+      max-height: 200px;
+    }
+  }
+}
+

@@ -329,6 +329,66 @@ const highlightDom = ($dom, timeout) => {
   }, timeout || MASK_CLICK_FADE_TIMEOUT)
 }
 
+
+const createHighlightX = function (opts = {}) {
+  const $mask = document.createElement('div')
+
+
+  $mask.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="16px" height="16px">
+      <line x1="8" y1="8" x2="56" y2="56" stroke="red" stroke-width="12"></line>
+      <line x1="56" y1="8" x2="8" y2="56" stroke="red" stroke-width="12"></line>
+    </svg>
+                `
+  let timer
+
+  inspector.setStyle($mask, {
+    position: 'absolute',
+    zIndex: 110001,
+    display: 'none',
+    pointerEvents: 'none'
+  })
+
+  
+  return (rect, timeout) => {
+    clearTimeout(timer)
+
+    inspector.setStyle($mask, {
+      display:  'block',
+      top:      `${rect.top - 8}px`,
+      left:     `${rect.left - 8}px`,
+    })
+
+    if (!$mask.parentNode) {
+      document.documentElement.appendChild($mask)
+    }
+
+    if (opts.scrollIntoView) {
+      $mask.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }
+
+    if (timeout && timeout > 0) {
+      timer = setTimeout(() => {
+        inspector.setStyle($mask, { display: 'none' })
+      }, timeout)
+    }
+
+    const fn = () => {
+      inspector.setStyle($mask, { display: 'none' })
+      $mask.remove()
+    }
+
+    Object.assign(fn, {
+      hide: () => inspector.setStyle($mask, { display: 'none' }),
+      show: () => inspector.setStyle($mask, { display: 'block' })
+    })
+
+    return fn
+  }
+}
+
+const highlightX = createHighlightX()
+
 const createHighlightRect = function (opts = {}) {
   const $mask = document.createElement('div')
   const $text = document.createElement('div')
@@ -749,6 +809,17 @@ const bindIPCListener = () => {
 
       case 'HIGHLIGHT_RECT': {
         highlightRect(args.rect, args)
+        return true
+      }
+
+      case 'HIGHLIGHT_X': {
+        const rect  = {
+          top:    args.offset.y ,
+          left:   args.offset.x ,          
+          // width: 40, 
+          // height: 60
+        }
+        highlightX(rect, args)
         return true
       }
 

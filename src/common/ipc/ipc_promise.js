@@ -155,12 +155,18 @@ function ipcPromise (options) {
       }
     }
 
+    const ignoreCommands = ['SET_STATUS']
     // Note: make it possible to disable timeout
-    if (finalTimeout > 0) {
+    if (finalTimeout > 0 && !ignoreCommands.includes(cmd)) {
       timer = setTimeout(function () {
         let reject;
 
         if (askCache && askCache[uid]) {
+          // console.log('== cmd:>> ', cmd)
+          // console.log('== args:>> ', args)
+          // console.log('== timeout:>> ', timeout)
+          // console.log('== timeoutToOverride:>> ', timeoutToOverride)
+          // console.log('== finalTimeout:>> ', finalTimeout) 
           reject = askCache[uid][1];
           askCache[uid] = TO_BE_REMOVED;
           console.error('ipcPromise: onAsk timeout ' + finalTimeout + ' for cmd "' + cmd + '", args '  + stringify(args));
@@ -257,8 +263,8 @@ function ipcPromise (options) {
     return (...args) => {
       const makeSureReady = retry(checkReady, {
         shouldRetry: () => true,
-        retryInterval: 100,
-        timeout: 5000
+        retryInterval: 200,
+        timeout: 6000
       })
 
       return makeSureReady().then(() => fn(...args))

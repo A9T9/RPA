@@ -59,6 +59,6 @@ export const UNTITLED_ID = '__untitled__'
 // You can't take screenshot of tabs with 'chrome-extension://' schema, even if it's your own extension
 export const SCREENSHOT_DELAY = /Linux/i.test(self.navigator.userAgent) ? 200 : 0
 
-export const CS_IPC_TIMEOUT = 3000
+export const CS_IPC_TIMEOUT = 4000
 
 export const STATE_STORAGE_KEY = 'background_state'

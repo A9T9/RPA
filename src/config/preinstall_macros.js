@@ -1,4 +1,234 @@
 export default {
+  "AI(Beta)/Prompt_CompareImages": {
+    "CreationDate": "2024-11-11",
+    "Commands":  [
+    {
+      "Command": "aiPrompt",
+      "Target": "canvas_wyoming_dpi_96.png#canvas_wyoming_dpi_96.png#Are both images the same?\nAnswer only with true or false. Answer in lowercase only.",
+      "Value": "result",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Test1: Are the images the same? ${result}",
+      "Value": "green",
+      "Description": ""
+    },
+    {
+      "Command": "verify",
+      "Target": "result",
+      "Value": "true",
+      "Description": "Should be false, as the images are NOT the same"
+    },
+    {
+      "Command": "aiPrompt",
+      "Target": "canvas_wyoming_dpi_96.png#canvas_wyoming_verify_dpi_96.png#\nAre both images the same? Answer only with true or false. NO OTHER TEXT.",
+      "Value": "result",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Test2: Are the images the same? ${result}",
+      "Value": "green",
+      "Description": ""
+    },
+    {
+      "Command": "verify",
+      "Target": "result",
+      "Value": "false",
+      "Description": "Should be true, as both images are the same"
+    }
+  ]
+  },
+   "AI(Beta)/Prompt_ParseHTML": {
+    "CreationDate": "2024-11-22",
+    "Commands":   [
+    {
+      "Command": "open",
+      "Target": "https://forum.ui.vision/",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "executeScript",
+      "Target": "var str = document.body.innerHTML; // Get page source\n\n//Next: Clean up HTML source before further processing  \n\n//First remove scripts and style tags with their content\nstr = str.replace(/<script\\b[^<]*(?:(?!<\\/script>)<[^<]*)*<\\/script>/gi, '');\nstr = str.replace(/<style\\b[^<]*(?:(?!<\\/style>)<[^<]*)*<\\/style>/gi, '');\n   \n//Then remove all remaining tags but keep their content\nstr = str.replace(/<[^>]+>/g, '');\n   \n//Clean up whitespace\nstr = str.replace(/\\s+/g, ' ').trim();\n   \nreturn str;",
+      "Value": "html",
+      "Description": "Extract entire HTML code of website"
+    },
+    {
+      "Command": "echo",
+      "Target": "Entire HTML extracted (long): ${html}",
+      "Value": "brown",
+      "Description": ""
+    },
+    {
+      "Command": "aiPrompt",
+      "Target": "What are the titles of the first 5 forum posts? Return just the titles, no explanation. ${html}",
+      "Value": "s",
+      "Description": "Send cleaned HTML code to Claude. Let the LLM do the parsing."
+    },
+    {
+      "Command": "echo",
+      "Target": "First 5 Forum Titles=${s}",
+      "Value": "green",
+      "Description": ""
+    },
+    {
+      "Command": "executeScript_Sandbox",
+      "Target": "var text = ${s};\n\n// Split into lines and create 2D array.\nvar lines = text.split('\\n');\nvar twoDimensionalArray = lines.map(function(line) {\n    var now = new Date();\n    var timestamp = now.getFullYear() + '-' + \n                   (now.getMonth() + 1) + '-' + \n                   now.getDate() + ' ' + \n                   now.getHours() + ':' + \n                   now.getMinutes() + ':' + \n                   now.getSeconds();\n    \n    return [timestamp, line.trim()];\n});\n\nreturn twoDimensionalArray;\n",
+      "Value": "array1",
+      "Description": "Lets move the result into an array, then we can save it to CSV"
+    },
+    {
+      "Command": "csvSaveArray",
+      "Target": "array1",
+      "Value": "first5forumposts.csv",
+      "Description": ""
+    }
+  ]
+  },
+  "AI(Beta)/ScreenXY_Browser": {
+    "CreationDate": "2024-11-22",
+    "Commands":  [
+    {
+      "Command": "open",
+      "Target": "https://forum.ui.vision/",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "XDesktopAutomation",
+      "Target": "false",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "aiScreenXY",
+      "Target": "Find the search icon (magnifying glass).",
+      "Value": "s",
+      "Description": ""
+    },
+	{
+      "Command": "echo",
+      "Target": "Original Result=${s}",
+      "Value": "brown",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Screen-DPI adjusted X,Y coordinates: ${!ai1},${!ai2}",
+      "Value": "blue",
+      "Description": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "${!ai1},${!ai2}",
+      "Value": "",
+      "Description": "Click search icon"
+    },
+    {
+      "Command": "XType",
+      "Target": "aiprompt${KEY_ENTER}",
+      "Value": "",
+      "Description": "Enter text to search for"
+    },
+    {
+      "Command": "aiScreenXY",
+      "Target": "Find the first search result (blue text)",
+      "Value": "s",
+      "Description": ""
+    },
+	 {
+      "Command": "echo",
+      "Target": "Original Result=${s}",
+      "Value": "brown",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Screen-DPI adjusted X,Y coordinates: ${!ai1},${!ai2}",
+      "Value": "blue",
+      "Description": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "${!ai1},${!ai2}",
+      "Value": "",
+      "Description": "Click first search result link"
+    }
+  ]
+  },
+  "AI(Beta)/ScreenXY_Desktop": {
+    "CreationDate": "2024-11-22",
+    "Commands":  [
+    {
+      "Command": "XDesktopAutomation",
+      "Target": "true",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "aiScreenXY",
+      "Target": "Look for the Ui.Vision IDE. In it, find the Logs tab.",
+      "Value": "s",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Original Result=${s}",
+      "Value": "brown",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Screen-scaling adjusted X,Y coordinates: ${!ai1},${!ai2}",
+      "Value": "blue",
+      "Description": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "${!ai1},${!ai2}",
+      "Value": "",
+      "Description": "Click on Logs tab. Goal is to select it if it is not selected. Then the Clear button appears. We need this button for the next step."
+    },
+    {
+      "Command": "echo",
+      "Target": "Logs tab selected",
+      "Value": "green",
+      "Description": ""
+    },
+    {
+      "Command": "aiScreenXY",
+      "Target": "Look for the Ui.Vision IDE. In it, find the Clear button",
+      "Value": "s",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Original Result=${s}",
+      "Value": "brown",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Screen-scaling adjusted X,Y coordinates: ${!ai1},${!ai2}",
+      "Value": "blue",
+      "Description": ""
+    },
+    {
+      "Command": "XClick",
+      "Target": "${!ai1},${!ai2}",
+      "Value": "",
+      "Description": "Click the Clear button."
+    },
+    {
+      "Command": "echo",
+      "Target": "Clear button pressed at X,Y: ${!ai1},${!ai2}",
+      "Value": "green",
+      "Description": ""
+    }
+  ]
+  },  
   "Core/DemoAutofill": {
     "CreationDate": "2020-05-28",
     "Commands":  [

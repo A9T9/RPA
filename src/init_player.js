@@ -20,7 +20,7 @@ import { getNativeCVAPI } from './services/desktop'
 import { getXUserIO } from './services/xmodules/x_user_io'
 import { getXLocal } from './services/xmodules/xlocal'
 import { runOCR, runDownloadLog, runOCRLocal, runOCRTesseractC, searchTextInOCRResponse, ocrMatchCenter, allWordsWithPosition, scaleOcrResponseCoordinates, scaleOcrTextSearchMatch, isOcrSpaceFreeKey } from './services/ocr'
-import { compose, flatten, safeUpdateIn, parseBoolLike, clone, milliSecondsToStringInSecond, id, strictParseBoolLike, withCountDown, countDown } from './common/ts_utils'
+import { compose, flatten, safeUpdateIn, parseBoolLike, clone, milliSecondsToStringInSecond, id, strictParseBoolLike, withCountDown, countDown, isMac } from './common/ts_utils'
 import { readableSize } from './services/storage/flat/storage'
 import { OcrHighlightType } from './services/ocr/types'
 import { Counter } from './common/counter/counter'
@@ -55,6 +55,8 @@ import { runCommandInPlayTab } from './ext/popup/run_command'
 import clipboard from './common/clipboard'
 import { clearTimerForTimeoutStatus, startSendingTimeoutStatus } from './ext/popup/timeout_counter'
 import { convertOcrLanguageToTesseractLanguage } from './services/ocr/languages'
+import AnthropicService from '@/services/anthropic/anthropic.service'
+import { parseAiVisionTarget, aiScreenXYImageBuffers, aiPromptGetPromptAndImageArrayBuffers, getFileBufferFromScreenshotStorage } from './common/ai_vision'
 
 const REPLAY_SPEED_DELAY = {
   NODISPLAYV1: 1,
@@ -166,6 +168,7 @@ return [
 }
 
 function captureImage (args) {
+  console.log('captureImage args >>>', args)
   const { searchArea, storedImageRect, scaleDpi, isDesktop, devicePixelRatio } = args
 
   if (isDesktop) {
@@ -841,7 +844,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
       store.dispatch(Actions.setOcrInDesktopMode(true))
     }
 
-    console.log('cmd:>> ', cmd)
+    console.log('cmd:>> `' + cmd + '`')
 
     switch (cmd) {
       case 'repeatIf':
@@ -1513,6 +1516,258 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
         }
       }
 
+      case 'aiPrompt': {
+        console.log('aiPrompt...')
+
+        if (!target || !target.length) {
+          throw new Error('target is required')
+        }
+       
+        return aiPromptGetPromptAndImageArrayBuffers(target).then(({prompt, mainImageBuffer, searchImageBuffer}) => {
+
+
+          let anthropicAPIKey = store.getState().config.anthropicAPIKey;
+          console.log('anthropicAPIKey :>> ', anthropicAPIKey);
+
+          const anthropicService = new AnthropicService(anthropicAPIKey)             
+          const promptText = prompt
+
+          store.dispatch(act.addLog('info', 'Calling Anthropic API'))
+          const start = Date.now()
+
+          // return anthropicService?.readTextInImage(imageBuffer).then((response) => {
+          return anthropicService?.aiPromptProcessImage(mainImageBuffer, searchImageBuffer, promptText).then(({coords,
+            isSinglePoint, aiResponse}) => {
+              
+            const end = Date.now()
+            const time = (end - start) / 1000
+            const timeStr = time.toFixed(2)
+            store.dispatch(act.addLog('info', `Result received (${timeStr}s): Answer is: ${aiResponse}`))
+
+
+            // found the target
+            const hit = true
+            const newVars = (() => {                     
+              vars.set(
+                {
+                  [value]: aiResponse,
+                },
+                true
+              )
+              return {
+                [value]: aiResponse,
+              }                      
+            })()
+
+            console.log('newVars:>> ', newVars)
+            console.log(`newVars['!ai1'] === undefined: ${newVars['!ai1'] === undefined}`)
+
+            return compose(
+            )({
+              vars: newVars,
+              byPass: true,
+              // best: hit
+            })
+          }).catch((error) => {
+            throw new Error(error.message)
+
+          })
+
+      }).catch((error) => {
+        throw new Error(error.message)
+
+      })
+              
+      }
+
+      case 'aiScreenXY': {
+        console.log('aiScreenXY...')
+
+        if (!target || !target.length) {
+          throw new Error('target is required')
+        }
+
+        const isDesktop = isCVTypeForDesktop(vars.get('!CVSCOPE'))
+        const storedImageRect = vars.get('!storedImageRect')
+        const searchArea      = vars.get('!visualSearchArea') || 'viewport' 
+    
+
+        return (isDesktop ? Promise.resolve() :  csIpc.ask('PANEL_CLEAR_OCR_MATCHES_ON_PLAYING_PAGE'))
+            // Note: add 1s delay here to make sure old OCR overlayed are cleared before taking new screenshot
+            .then(() => delay(() => {}, 1000))
+            .then(() => {     
+              return captureImage({
+                isDesktop,
+                storedImageRect,
+                searchArea: /\.png/i.test(searchArea) ? 'rect' : searchArea,
+                scaleDpi: true,
+                devicePixelRatio: window.devicePixelRatio
+              })
+            })
+            .then(() => delay(() => {}, 500))
+            .then(() => {
+
+              const screenshotFileName = isDesktop
+              ? ensureExtName('.png', C.LAST_DESKTOP_SCREENSHOT_FILE_NAME)
+              : ensureExtName('.png', C.LAST_SCREENSHOT_FILE_NAME)
+            
+               return getFileBufferFromScreenshotStorage(screenshotFileName).then((imageBuffer) => {
+
+  
+                  let anthropicAPIKey = store.getState().config.anthropicAPIKey;
+                  console.log('anthropicAPIKey :>> ', anthropicAPIKey);
+
+                  const anthropicService = new AnthropicService(anthropicAPIKey)             
+                  const promptText = target
+
+                  store.dispatch(act.addLog('info', 'Calling Anthropic API'))
+                  const start = Date.now()
+
+                  // TODO: refactoring code required in regard to scaleFactor / macScaleFactor / window.devicePixelRatio 
+                  return anthropicService?.aiScreenXYProcessImage(imageBuffer, promptText).then(({coords,
+                     aiResponse}) => {
+
+                    const end = Date.now()
+                    const time = (end - start) / 1000
+                    const timeStr = time.toFixed(2)
+                    store.dispatch(act.addLog('info', `Result received (${timeStr}s): Answer is: ${aiResponse}`))
+
+                    const ai1 = coords[0].x || 0
+                    const ai2 = coords[0].y || 0
+
+                    let newVars = (() => {                     
+                      vars.set(
+                        {
+                          [value]: aiResponse,
+                          '!ai1': ai1,
+                          '!ai2': ai2,
+                        },
+                        true
+                      )
+                      return {
+                        [value]: aiResponse,
+                        '!ai1': ai1,
+                        '!ai2': ai2,
+                      }                      
+                    })()
+
+                    console.log('newVars:>> ', newVars)
+                    console.log(`newVars['!ai1'] === undefined: ${newVars['!ai1'] === undefined}`)
+
+
+                    if (extra && extra.debugVisual) {
+
+                      if (isDesktop) {
+
+                        console.log('debugVisual extra:>>', extra)
+                     
+                        captureImage({
+                          isDesktop : true,
+                          storedImageRect: null,
+                          scaleDpi: true,
+                          devicePixelRatio: window.devicePixelRatio
+                        })                
+                        .then(() => delay(() => {}, 1000))
+                        .then(() => { 
+      
+                          const imageInfo = {
+                            source: DesktopScreenshot.ImageSource.Storage,
+                            path:   ensureExtName(
+                              '.png',
+                              C.LAST_DESKTOP_SCREENSHOT_FILE_NAME
+                            )
+                          } 
+        
+                          const x = ai1
+                          const y = ai2
+      
+                          return csIpc.ask('PANEL_HIGHLIGHT_DESKTOP_X', {
+                              imageInfo,
+                              screenAvailableSize: {
+                                width: screen.availWidth,
+                                height: screen.availHeight
+                              },
+                              coordinates: {
+                                x: x,
+                                y: y
+                              }
+                            })
+                            .then(() => {
+                              return  {
+                                type: 'desktop',
+                                offset: {
+                                  x: x,
+                                  y: y
+                                }
+                              }
+                            })
+                        })
+
+                      } else {
+                    
+  
+                        csIpc.ask('PANEL_HIGHLIGHT_X', {
+                            offset: {
+                              x: ai1,
+                              y: ai2
+                            }
+                          })
+                        } 
+                    } 
+
+                    console.log('window.devicePixelRatio:>> ', window.devicePixelRatio)
+
+                    // offsetting window.devicePixelRatio windows machine included in aiScreenXYProcessImage
+                    // for mac it's required why??
+                    let ai1ForDesktop = isMac() ? ai1 : ai1 * window.devicePixelRatio
+                    let ai2ForDesktop = isMac() ? ai2 : ai2 * window.devicePixelRatio
+                 
+                    if (isDesktop){
+                      newVars = (() => {                     
+                        vars.set(
+                          {
+                            [value]: aiResponse,
+                            '!ai1': ai1ForDesktop,
+                            '!ai2': ai2ForDesktop,
+                          },
+                          true
+                        )
+                        return {
+                          [value]: aiResponse,
+                          '!ai1': ai1ForDesktop,
+                          '!ai2': ai2ForDesktop,
+                        }                      
+                      })()
+                    }
+
+
+ 
+                    return compose( //#224
+                      ...(isDesktop ? [
+                      newVars['!ai1'] === undefined ? id : safeUpdateIn(['vars', '!ai1'], (n) => ai1ForDesktop),
+                      newVars['!ai2'] === undefined ? id : safeUpdateIn(['vars', '!ai2'], (n) => ai2ForDesktop)
+                      ] : [
+                      newVars['!ai1'] === undefined ? id : safeUpdateIn(['vars', '!ai1'], (n) => ai1),
+                      newVars['!ai2'] === undefined ? id : safeUpdateIn(['vars', '!ai2'], (n) => ai2)
+                      ])
+                    )({
+                      vars: newVars,
+                      byPass: true
+                    });
+
+                  }).catch((error) => {
+                    throw new Error(error.message)
+                  })
+              }).catch((error) => {
+                throw new Error(error.message)
+              })
+            })
+            .catch((error) => {
+              throw new Error(error.message)
+            })
+        
+      }
+
       case 'OCRExtractScreenshot':
         guardOcrSettings()
 
@@ -2051,6 +2306,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
                   const best = regions[resultIndex].matched
 
                   if (!isCVTypeForDesktop(cvScope)) {
+                    console.log('!isCVTypeForDesktop::>> cvScope', cvScope)
                     const shouldHighlightElements = store.getState().config.playHighlightElements || (extra && extra.debugVisual)
 
                     if (shouldHighlightElements) {
@@ -2064,6 +2320,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
                       })
                     }
                   } else if (extra && extra.debugVisual) {
+                    console.log('extra:>>', extra)
                     const convert = (rect, index, type) => {
                       if (!rect)  return null
 
@@ -3439,6 +3696,56 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
               case 'desktop_coordinates': {
                 const { coordinates } = realTarget.value
 
+                // let isDesktop = isCVTypeForDesktop(vars.get('!CVSCOPE'));
+                // console.log('isDesktop:>> ', isDesktop)            
+
+                if (extra && extra.debugVisual) {
+                  console.log('debugVisual extra:>>', extra)
+                   
+                  return captureImage({
+                    isDesktop : true,
+                    storedImageRect: null,
+                    // searchArea: /\.png/i.test(searchArea) ? 'rect' : searchArea,
+                    scaleDpi: true,
+                    devicePixelRatio: window.devicePixelRatio
+                  })                
+                  .then(() => delay(() => {}, 500))
+                  .then(() => { 
+
+                    const imageInfo = {
+                      source: DesktopScreenshot.ImageSource.Storage,
+                      path:   ensureExtName(
+                        '.png',
+                        C.LAST_DESKTOP_SCREENSHOT_FILE_NAME
+                      )
+                    } 
+  
+                    const x = parseInt(coordinates[0], 10)
+                    const y = parseInt(coordinates[1], 10)
+
+                    return csIpc.ask('PANEL_HIGHLIGHT_DESKTOP_X', {
+                        imageInfo,
+                        screenAvailableSize: {
+                          width: screen.availWidth,
+                          height: screen.availHeight
+                        },
+                        coordinates: {
+                          x: x,
+                          y: y
+                        }
+                      })
+                      .then(() => {
+                        return  {
+                          type: 'desktop',
+                          offset: {
+                            x: x,
+                            y: y
+                          }
+                        }
+                      })
+                  })
+                }
+                
                 return Promise.resolve({
                   type: 'desktop',
                   offset: {
@@ -3450,6 +3757,16 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
 
               case 'viewport_coordinates': {
                 const { coordinates } = realTarget.value
+
+                if (extra && extra.debugVisual) {    
+                 csIpc.ask('PANEL_HIGHLIGHT_X', {
+                    offset: {
+                      x: parseFloat(coordinates[0]),
+                      y: parseFloat(coordinates[1])
+                    }
+                  })
+                }
+
 
                 return Promise.resolve({
                   type: 'viewport',
@@ -4271,6 +4588,10 @@ const initTestCasePlayer = ({ store, vars, interpreter, xCmdCounter, ocrCmdCount
           '!OCRY': 0,
           '!OCRHEIGHT': 0,
           '!OCRWIDTH': 0,
+          '!AI1': 0,
+          '!AI2': 0,
+          '!AI3': 0,
+          '!AI4': 0,
           '!LAST_DOWNLOADED_FILE_NAME':vars.get('!LAST_DOWNLOADED_FILE_NAME') || '',
           '!URL': state.playUrl || '',
           '!CURRENT_TAB_NUMBER':state.playtabIndex,

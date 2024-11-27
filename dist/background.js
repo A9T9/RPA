@@ -1,1 +1,0 @@
-try { importScripts('bg.js'); } catch (e) { console.error('failed to import script bg.js', e); }

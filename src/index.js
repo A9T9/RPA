@@ -93,6 +93,8 @@ polyfillTimeoutFunctions(csIpc)
 
 handleDelegatedBrowserFileSystemAPI()
 
+let DefaultStorageMode =  StorageStrategyType.Browser
+
 // TODO: uncomment/fix later
 // const store = createStore(
 //   reducer,
@@ -212,6 +214,11 @@ const restoreEditing = () => {
     })
 }
 
+// preset #210 
+// uncomment the following line to activate it
+// DefaultStorageMode =  StorageStrategyType.XFile
+
+
 const restoreConfig = () => {
   return storage.get('config')
     .then(config => {
@@ -219,6 +226,7 @@ const restoreConfig = () => {
         showSidePanel: false,
         useDarkTheme: false,
         sidePanelOnLeft: false,
+        anthropicAPIKey: '',
         showSettingsOnStart: false,
         showSidebar: false,
         showBottomArea: true,
@@ -257,7 +265,7 @@ const restoreConfig = () => {
         showCommonInternalVariables: true,
         showAdvancedInternalVariables: false,
         // xmodules related
-        storageMode: StorageStrategyType.Browser,
+        storageMode: DefaultStorageMode,
         xmodulesStatus: 'unregistered',
         // orc related
         ocrCalibration: 6,

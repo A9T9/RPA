@@ -161,6 +161,10 @@ export default function varsFactory (name = DEFAULT_KEY, options = {}, initial =
               key !== '!OCRWIDTH' &&
               key !== '!OCR_LEFT_X' &&
               key !== '!OCR_RIGHT_X' &&
+              key !== '!AI1' &&
+              key !== '!AI2' &&
+              key !== '!AI3' &&
+              key !== '!AI4' &&
               key !== '!BROWSER' &&
               key !== '!OS' &&
               key !== '!TIMES' &&
@@ -196,6 +200,10 @@ export default function varsFactory (name = DEFAULT_KEY, options = {}, initial =
       '!OCRWIDTH':              (val) => parseInt(val, 10) >= 0,
       '!OCR_LEFT_X':        (val) => parseInt(val, 10) >= 0,
       '!OCR_RIGHT_X':        (val) => parseInt(val, 10) >= 0,
+      '!AI1':               (val) => parseInt(val, 10) >= 0,
+      '!AI2':               (val) => parseInt(val, 10) >= 0,
+      '!AI3':               (val) => parseInt(val, 10) >= 0,
+      '!AI4':               (val) => parseInt(val, 10) >= 0,
       '!ERRORIGNORE':       isBoolean,
       '!STATUSOK':          isBoolean,
       '!WAITFORVISIBLE':    isBoolean,
@@ -291,6 +299,8 @@ export default function varsFactory (name = DEFAULT_KEY, options = {}, initial =
           return args[0]
         }
 
+        console.log('variable, subs, args >>>', variable, subs, args)
+
         const root = self.getVarForRender(variable)
         const rawValue = subs.reduce((prev, key, i) => {
           if (prev === null || prev === undefined) {
@@ -304,6 +314,9 @@ export default function varsFactory (name = DEFAULT_KEY, options = {}, initial =
     },
     getVarForRender: (key) => {
       const upperKey = (key || '').toUpperCase()
+
+      console.log('upperKey:>> ', upperKey)
+      console.log('vars:>> ', vars)
 
       if (upperKey in vars) {
         return vars[upperKey]
