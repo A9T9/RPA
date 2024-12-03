@@ -1,4 +1,337 @@
 export default {
+  "AI(Beta)/CU_PlayTicTacToe": {
+    "CreationDate": "2024-12-02",
+    "Commands":  [
+    {
+      "Command": "XDesktopAutomation",
+      "Target": "false",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "This demo macro uses an external website which is not affiliated with Ui.Vision.",
+      "Value": "blue",
+      "Description": ""
+    },
+    {
+      "Command": "bringBrowserToForeground",
+      "Target": "true",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://www.gamepix.com/play/tic-tac-toe-html5",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "aiComputerUse",
+      "Target": "You are playing a game of tic tac toe against the computer.\n\nYou are Player 1. \n\nIf you win, end with message 'GAMEWIN'. \n\nIf you lose, end with 'GAMELOST'. \n\nIf the game draws, end with 'GAMEDRAW'. \n\nIf you encounter invalid game state or cannot make a move, end with 'ERROR'. \n\nTool use instructions:  Do not use mouse move commands, only click commands.",
+      "Value": "s",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Computer Use Result = ${s}",
+      "Value": "blue",
+      "Description": ""
+    },
+    {
+      "Command": "if",
+      "Target": "${s}.lastIndexOf(\"GAMEWIN\") >= 0",
+      "Value": "",
+      "Description": "Search for substring in string: The return value of .lastIndexOf() is -1 if the substring is not found in the string at all."
+    },
+    {
+      "Command": "echo",
+      "Target": "We won !!! :)",
+      "Value": "#shownotification",
+      "Description": ""
+    },
+    {
+      "Command": "elseif",
+      "Target": "${s}.lastIndexOf(\"GAMELOST\") >= 0",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "We lost",
+      "Value": "cyan",
+      "Description": ""
+    },
+    {
+      "Command": "elseif",
+      "Target": "${s}.lastIndexOf(\"GAMEDRAW\") >= 0",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "A draw",
+      "Value": "blue",
+      "Description": ""
+    },
+    {
+      "Command": "elseif",
+      "Target": "${s}.lastIndexOf(\"ERROR\") >= 0",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "An error happened",
+      "Value": "brown",
+      "Description": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "This state should never happen. String should contain one of the keywords.",
+      "Value": "orange",
+      "Description": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": "",
+      "Description": ""
+    }
+  ]
+  },
+    "AI(Beta)/CU_UseWebCalculator": {
+    "CreationDate": "2024-12-02",
+    "Commands":  [
+    {
+      "Command": "XDesktopAutomation",
+      "Target": "false",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "This demo macro uses an external website which is not affiliated with Ui.Vision.",
+      "Value": "blue",
+      "Description": ""
+    },
+    {
+      "Command": "bringBrowserToForeground",
+      "Target": "true",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://www.theonlinecalculator.com/",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "aiComputerUse",
+      "Target": "Use the calculator to compute 8 + 9 by clicking the buttons.\nVerify the result. \n\nEnd with SUCCESS, or ERROR if problems occur. \n\n",
+      "Value": "s",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Computer Use Result = ${s}",
+      "Value": "blue",
+      "Description": ""
+    },
+    {
+      "Command": "if",
+      "Target": "${s}.lastIndexOf(\"SUCCESS\") >= 0",
+      "Value": "",
+      "Description": "Search for substring in string: The return value of .lastIndexOf() is -1 if the substring is not found in the string at all."
+    },
+    {
+      "Command": "echo",
+      "Target": "All worked fine",
+      "Value": "green",
+      "Description": ""
+    },
+    {
+      "Command": "elseif",
+      "Target": "${s}.lastIndexOf(\"ERROR\") >= 0",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "An error happened",
+      "Value": "brown",
+      "Description": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "This state should never happen. String should contain one of the key words.",
+      "Value": "orange",
+      "Description": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": "",
+      "Description": ""
+    }
+  ]
+  },
+    "AI(Beta)/CU_FillForm": {
+    "CreationDate": "2024-12-02",
+    "Commands":  [
+    {
+      "Command": "XDesktopAutomation",
+      "Target": "false",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "open",
+      "Target": "https://ui.vision/contact",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "bringBrowserToForeground",
+      "Target": "true",
+      "Value": "s",
+      "Description": ""
+    },
+    {
+      "Command": "aiComputerUse",
+      "Target": "Fill out this web form with artificial data and submit it. \n\nTwo fields have specific content: \n\nFor Topic, select 'General Inquiry' from the dropdown (press 'G' when dropdown is open and then ENTER). \n\nFor the Subject use 'Test. Ignore this message. Filter me out'. \n\nIf successful, end with 'SUCCESS'. \nIf you encounter any errors, end with 'ERROR'. \n\nTool use instructions:  \n\nSaves time: Skip the mouse_move before doing left_click\n\nAfter scrolling, take a fresh screenshot\n",
+      "Value": "s",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Computer Use Result = ${s}",
+      "Value": "blue",
+      "Description": ""
+    },
+    {
+      "Command": "if",
+      "Target": "${s}.lastIndexOf(\"SUCCESS\") >= 0",
+      "Value": "",
+      "Description": "Search for substring in string: The return value of .lastIndexOf() is -1 if the substring is not found in the string at all."
+    },
+    {
+      "Command": "echo",
+      "Target": "All worked fine",
+      "Value": "green",
+      "Description": ""
+    },
+    {
+      "Command": "elseif",
+      "Target": "${s}.lastIndexOf(\"ERROR\") >= 0",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "An error happened",
+      "Value": "brown",
+      "Description": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "This state should never happen. The final LLM output should contain one of the keywords.",
+      "Value": "orange",
+      "Description": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": "",
+      "Description": ""
+    }
+  ]
+  },
+    "AI(Beta)/CU_PressClear_Desktop": {
+    "CreationDate": "2024-12-03",
+    "Commands":  [
+    {
+      "Command": "XDesktopAutomation",
+      "Target": "true",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "aiComputerUse",
+      "Target": "Automate the Ui.Vision IDE. \n\nFind and press the Clear button. \n\nTo save time, do not use mouse move. Only do CLICK.\n\nTry only once. It is successful, if log tab is less than half full by the time you take a screenshot.\n\nEnd with SUCCESS, or ERROR if problems occur.",
+      "Value": "s",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "Computer Use Result = ${s}",
+      "Value": "blue",
+      "Description": ""
+    },
+    {
+      "Command": "if",
+      "Target": "${s}.lastIndexOf(\"SUCCESS\") >= 0",
+      "Value": "",
+      "Description": "Parse the LLM output for SUCCESS substring"
+    },
+    {
+      "Command": "echo",
+      "Target": "All worked fine",
+      "Value": "green",
+      "Description": ""
+    },
+    {
+      "Command": "elseif",
+      "Target": "${s}.lastIndexOf(\"ERROR\") >= 0",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "An error happened",
+      "Value": "brown",
+      "Description": ""
+    },
+    {
+      "Command": "else",
+      "Target": "",
+      "Value": "",
+      "Description": ""
+    },
+    {
+      "Command": "echo",
+      "Target": "This state should not happen. String should contain one of the keywords.",
+      "Value": "orange",
+      "Description": ""
+    },
+    {
+      "Command": "end",
+      "Target": "",
+      "Value": "",
+      "Description": ""
+    }
+  ]
+  },
+  
   "AI(Beta)/Prompt_CompareImages": {
     "CreationDate": "2024-11-11",
     "Commands":  [
@@ -87,7 +420,7 @@ export default {
     }
   ]
   },
-  "AI(Beta)/ScreenXY_Browser": {
+  "AI(Beta)/ScreenXY_SearchForum": {
     "CreationDate": "2024-11-22",
     "Commands":  [
     {
@@ -158,7 +491,7 @@ export default {
     }
   ]
   },
-  "AI(Beta)/ScreenXY_Desktop": {
+  "AI(Beta)/ScreenXY_PressClear_Desktop": {
     "CreationDate": "2024-11-22",
     "Commands":  [
     {

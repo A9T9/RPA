@@ -20,7 +20,7 @@ import { getNativeCVAPI } from './services/desktop'
 import { getXUserIO } from './services/xmodules/x_user_io'
 import { getXLocal } from './services/xmodules/xlocal'
 import { runOCR, runDownloadLog, runOCRLocal, runOCRTesseractC, searchTextInOCRResponse, ocrMatchCenter, allWordsWithPosition, scaleOcrResponseCoordinates, scaleOcrTextSearchMatch, isOcrSpaceFreeKey } from './services/ocr'
-import { compose, flatten, safeUpdateIn, parseBoolLike, clone, milliSecondsToStringInSecond, id, strictParseBoolLike, withCountDown, countDown, isMac } from './common/ts_utils'
+import { compose, flatten, safeUpdateIn, parseBoolLike, clone, milliSecondsToStringInSecond, id, strictParseBoolLike, withCountDown, countDown, isMac, isWindows } from './common/ts_utils'
 import { readableSize } from './services/storage/flat/storage'
 import { OcrHighlightType } from './services/ocr/types'
 import { Counter } from './common/counter/counter'
@@ -57,6 +57,7 @@ import { clearTimerForTimeoutStatus, startSendingTimeoutStatus } from './ext/pop
 import { convertOcrLanguageToTesseractLanguage } from './services/ocr/languages'
 import AnthropicService from '@/services/anthropic/anthropic.service'
 import { parseAiVisionTarget, aiScreenXYImageBuffers, aiPromptGetPromptAndImageArrayBuffers, getFileBufferFromScreenshotStorage } from './common/ai_vision'
+import Sampling from '@/services/ai/computer-use/sampling'
 
 const REPLAY_SPEED_DELAY = {
   NODISPLAYV1: 1,
@@ -1546,7 +1547,6 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
 
 
             // found the target
-            const hit = true
             const newVars = (() => {                     
               vars.set(
                 {
@@ -1566,7 +1566,6 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
             )({
               vars: newVars,
               byPass: true,
-              // best: hit
             })
           }).catch((error) => {
             throw new Error(error.message)
@@ -1580,6 +1579,249 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
               
       }
 
+      case 'aiComputerUse':{
+        console.log('aiComputerUse...')
+
+        if (!target || !target.length) {
+          throw new Error('target is required')
+        }
+
+        
+       // useOrAi = 'user' | 'ai'
+       // isActionOrResult = 'action' | 'result'
+       const logMessage = (message, userOrAi = null, isActionOrResult = false) => {
+        if (userOrAi === 'ai') {
+          if (isActionOrResult === 'action') {
+            store.dispatch(act.addLog('a', `Action: ${message}`))
+          } else {
+           store.dispatch(act.addLog('a', `${message}`))
+          }
+        } else if(userOrAi === 'user') {
+          if (isActionOrResult === 'result') {
+            store.dispatch(act.addLog('u', `Result: ${message}`))    
+          } else {
+            store.dispatch(act.addLog('u', `${message}`))
+          }      
+        } else {
+          store.dispatch(act.addLog('info', `${message}`))          
+        }
+       }
+
+        const isDesktop = isCVTypeForDesktop(vars.get('!CVSCOPE'))
+
+        const captureScreenShotFunction = () => {            
+          const storedImageRect = vars.get('!storedImageRect')
+          const searchArea      = vars.get('!visualSearchArea') || 'viewport'       
+
+          return (isDesktop ? Promise.resolve() :  csIpc.ask('PANEL_CLEAR_OCR_MATCHES_ON_PLAYING_PAGE'))
+            // Note: add 1s delay here to make sure old OCR overlayed are cleared before taking new screenshot
+            .then(() => delay(() => {}, 1000))
+            .then(() => {     
+              return captureImage({
+                isDesktop,
+                storedImageRect,
+                searchArea: /\.png/i.test(searchArea) ? 'rect' : searchArea,
+                scaleDpi: true,
+                devicePixelRatio: window.devicePixelRatio
+              })
+            })
+            .then(() => delay(() => {}, 1000))
+            .then(() => {
+              const screenshotFileName = isDesktop
+              ? ensureExtName('.png', C.LAST_DESKTOP_SCREENSHOT_FILE_NAME)
+              : ensureExtName('.png', C.LAST_SCREENSHOT_FILE_NAME)   
+              logMessage('Screenshot taken', 'user', 'result')  
+              return getFileBufferFromScreenshotStorage(screenshotFileName).then((imageBuffer) => {                
+                return imageBuffer
+              })
+            })
+        }
+
+        const handleMouseAction = async (action, scaleFactor) => {
+          // console.log('handleMouseAction:>> action::', action)
+          console.log('isDesktop:>> ', isDesktop)
+          console.log('scaleFactor:>> ', scaleFactor)
+
+          const originalCoords = isWindows() && !isDesktop ?                 
+          {
+            x: Math.round(action.x / scaleFactor / window.devicePixelRatio),
+            y: Math.round(action.y / scaleFactor  / window.devicePixelRatio)
+          }:          
+          {
+            x: Math.round(action.x / scaleFactor),
+            y: Math.round(action.y / scaleFactor)
+          }
+
+           console.log('originalCoords:>> ', originalCoords)
+
+          const executeMouseCommand = (command) => {   
+            console.log('executeMouseCommand:>> command:>> ', command)   
+               
+            const target = `${originalCoords.x },${originalCoords.y}`   
+            switch (command) {
+              case 'mouse_move':
+                store.dispatch(act.addLog('info', `Running XMove command target: ${target}`))
+                return runCsFreeCommands({ 
+                  cmd:    'XMove', 
+                  target: `${originalCoords.x},${originalCoords.y}`,
+                })                 
+              case 'left_click':
+                store.dispatch(act.addLog('info', `Running XClick command target: ${target}`))
+                return runCsFreeCommands({
+                  cmd:    'XClick',
+                  target: `${originalCoords.x},${originalCoords.y}`, 
+                }) 
+              case 'right_click':
+                store.dispatch(act.addLog('info', `Running XClick (#right) command target: ${target}`))
+                return runCsFreeCommands({
+                  cmd:    'XClick',
+                  target: `${originalCoords.x},${originalCoords.y}`,
+                  value:  '#right',
+                })
+              default:
+                console.log('handleMouseAction:>> unknown command:>> ', command)
+                return Promise.resolve()
+            }
+          }
+
+          const uiVisionCmd = action.command === 'mouse_move' ? 'XMove' : 'XClick'
+          
+          return executeMouseCommand(action.command).then ((result) => {
+            console.log('handleMouseAction:>> result:>> ', result)
+           
+            logMessage(`${uiVisionCmd} ${originalCoords.x},${originalCoords.y} (Scale factor: ${scaleFactor.toFixed(5)})`, 'user', 'result')  
+                return {
+              success: true
+            }
+          }).then ((result) => {
+            if (result.success) {
+              const actionText = action.command === 'mouse_move' ? 'Moved' :
+                  action.command === 'left_click' ? 'Left clicked' :
+                  'Right clicked';
+              return {
+                success: true,
+                message: `${actionText} at ${originalCoords.x},${originalCoords.y}`,
+                coordinates: originalCoords
+              };
+            }
+          })         
+        }
+
+        const  handleKeyboardAction = async (action) => {
+          console.log('handleKeyboardAction:>> action::', action)          
+
+          const executeKeyboardCommand = (action) => {
+            console.log('executeKeyboardCommand:>> action:>> ', action)
+            switch (action.type) {
+              case 'keyboard':
+              case 'text':
+                store.dispatch(act.addLog('info', `Running XType command, value: ${action.value}`))
+
+                return runCsFreeCommands({
+                  cmd:    'XType',
+                  target: action.value,
+                })
+              default:
+                console.error('executeKeyboardCommand:>> unknown command:>> ', action.type)
+                return Promise.resolve()
+            }
+          }
+
+          return executeKeyboardCommand(action).then ((result) => {
+             return {
+               success: true
+             }
+          })
+       }
+
+       let currentLoop = 0
+       const getTerminationRequest = (_currentLoop) => {
+        const state = store.getState()
+        currentLoop = _currentLoop
+        const maxLoop = state.config.aiComputerUseMaxLoops
+         if (_currentLoop > maxLoop) {
+           return 'max_loop_reached';
+         }
+         if (state.player.status === Player.C.STATUS.STOPPED) {
+           return 'player_stopped';
+         }    
+       }
+ 
+        const promptText = target // `You are using a web browser. All click and move actions must include coordinates. If you need to scroll down the page, use the keyboard e. g. PageDown.`
+        try {
+          // console.log('Creating Sampling instance...')
+          let anthropicAPIKey = store.getState().config.anthropicAPIKey;
+          console.log('anthropicAPIKey :>> ', anthropicAPIKey);
+
+          const sampling = new Sampling(anthropicAPIKey, C.ANTHROPIC.COMPUTER_USE_MODEL, promptText, 
+            captureScreenShotFunction,  handleMouseAction, handleKeyboardAction,
+            getTerminationRequest, logMessage
+          );
+
+          logMessage('Computer Use sequence start:')
+
+          const userPrompt = target
+          logMessage(userPrompt, 'user')
+      
+          console.log('Running sampling...')
+          //  const result = await sampling.run('Use the calculator to calculate 5 + 8 and verify the result. Then stop.');
+          //  const result = await sampling.run('You see a web form. Fill out all fields that you see. Use random but realistic data for names and email. Ignore drop downs. Scroll down with keyboard if needed. Submit the page. Then stop.');
+          //  anti spam stops this. good.   const result = await sampling.run('You see a website of a forum. Sign up for a new account. Fill out all fields that you see. Use random but realistic data for names and email. Ignore drop downs. Scroll down with keyboard if needed. Submit the page. Then stop. Skip all MOUSE MOVE commands. Just use CLICK.');
+          //  const result = await sampling.run('You see a website. Look for big firefox icon. If not found, use Page_down to scroll down. Look again. Do this until you found the Firefox or at the end of the page. Then stop.');
+          //  const result = await sampling.run('Look at the desktop and find the Firefox icon. Click it to open Firefox. When Firefox is open, use CTRL+L to jump to the Firefox address bar (this is where the URL is). Then enter https://ui.vision into the address bar. Press Enter to load the website. Verify the website has loaded. Then stop. Always return x y coordinates with the CLICK and MOVE commands.');
+          //  const result = await sampling.run('Type CTRL+L in Ui.Vision syntax. That is ${KEY_CTRL+KEY_L}.Then stop.');
+          //  const result = await sampling.run('All left_click amd move actions must include coordinates. A calculator is open on the desktop. Use it to calculate 5 + 8 and verify the result. Then stop.');
+          // return  sampling.run('You see a website. A tic tac toe game is open. You are Player 1. Play the game and win. Then stop.', getTerminationRequest).then((result) => {
+          return  sampling.run(userPrompt).then((result) => {
+            console.log('Sampling completed. Result:>>', JSON.stringify(result, null, 2))  
+
+            if(result.stopReason === 'max_loop_reached') {
+              throw new Error('E501: Loop Limit Reached. Increase if needed.')
+            } else if (result.stopReason === 'player_stopped') {
+              logMessage(`Computer Use sequence ended (${currentLoop + 1} loops)`)
+              return {
+                byPass: true,
+                log: {
+                  info: 'Player stopped manually.'
+                }
+              }
+            } else {
+
+              const messages = result//.content[0].text
+              const aiMessages = messages.filter((message) => message.role === 'assistant')
+              const aiResponse = aiMessages[aiMessages.length - 1]?.content?.[0]?.text
+
+              // found the target
+              const newVars = (() => {                     
+                vars.set(
+                  {
+                    [value]: aiResponse,
+                  },
+                  true
+                )
+                return {
+                  [value]: aiResponse,
+                }                      
+              })() 
+
+              return compose(
+                )({
+                  vars: newVars,
+                  byPass: true,
+                })
+            }
+ 
+          }).catch((error) => {
+            console.error('Error in aiComputerUse:', error)
+            throw error
+          })
+       
+        } catch (error) {
+          console.error('Error in aiComputerUse:', error)
+          throw error
+        } 
+      }
+
       case 'aiScreenXY': {
         console.log('aiScreenXY...')
 
@@ -1591,7 +1833,6 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
         const storedImageRect = vars.get('!storedImageRect')
         const searchArea      = vars.get('!visualSearchArea') || 'viewport' 
     
-
         return (isDesktop ? Promise.resolve() :  csIpc.ask('PANEL_CLEAR_OCR_MATCHES_ON_PLAYING_PAGE'))
             // Note: add 1s delay here to make sure old OCR overlayed are cleared before taking new screenshot
             .then(() => delay(() => {}, 1000))
@@ -1613,7 +1854,6 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
             
                return getFileBufferFromScreenshotStorage(screenshotFileName).then((imageBuffer) => {
 
-  
                   let anthropicAPIKey = store.getState().config.anthropicAPIKey;
                   console.log('anthropicAPIKey :>> ', anthropicAPIKey);
 
@@ -1654,11 +1894,8 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
                     console.log('newVars:>> ', newVars)
                     console.log(`newVars['!ai1'] === undefined: ${newVars['!ai1'] === undefined}`)
 
-
                     if (extra && extra.debugVisual) {
-
                       if (isDesktop) {
-
                         console.log('debugVisual extra:>>', extra)
                      
                         captureImage({
@@ -1767,6 +2004,8 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
             })
         
       }
+
+
 
       case 'OCRExtractScreenshot':
         guardOcrSettings()
@@ -3700,7 +3939,7 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
                 // console.log('isDesktop:>> ', isDesktop)            
 
                 if (extra && extra.debugVisual) {
-                  console.log('debugVisual extra:>>', extra)
+                  console.log('desktop_coordinates debugVisual extra:>>', extra)
                    
                   return captureImage({
                     isDesktop : true,
@@ -3730,8 +3969,8 @@ const interpretCsFreeCommands = ({ store, vars, getTcPlayer, getInterpreter, xCm
                           height: screen.availHeight
                         },
                         coordinates: {
-                          x: x,
-                          y: y
+                          x: x / window.devicePixelRatio,
+                          y: y / window.devicePixelRatio
                         }
                       })
                       .then(() => {

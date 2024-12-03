@@ -130,6 +130,17 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
         <div className="ai-response">
           <pre>{this.state.promptResponse}</pre>
         </div>
+        <div className="ai-settings-item">
+          <span className="label-text"><strong>aiComputerUse:</strong> Max loops before stopping: </span>
+          <Input
+            type="number"
+            min="0"
+            style={{ marginLeft: '10px', width: '70px' }}
+            value={this.props.config.aiComputerUseMaxLoops}
+            onChange={(e) => onConfigChange('aiComputerUseMaxLoops', e.target.value)}
+            placeholder="20"
+          />
+        </div>
         <div className="row" style={{ marginBottom: '10px', color: 'red' }}>
           {this.state.error}
         </div>

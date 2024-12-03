@@ -576,7 +576,7 @@ class Header extends React.Component {
 
     // preset #210
     // uncomment the following line to activate it
-    // applyPresetLicense('ENTERPRISE LICENSE HERE')
+    // applyPresetLicense('LICENSE KEY HERE')
 
     window.addEventListener("beforeunload", this.beforeUnloadHandler);
   }

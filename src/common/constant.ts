@@ -62,3 +62,7 @@ export const SCREENSHOT_DELAY = /Linux/i.test(self.navigator.userAgent) ? 200 : 
 export const CS_IPC_TIMEOUT = 4000
 
 export const STATE_STORAGE_KEY = 'background_state'
+
+export const ANTHROPIC = {
+  COMPUTER_USE_MODEL: 'claude-3-5-sonnet-20241022'
+}

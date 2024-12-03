@@ -1149,6 +1149,11 @@ export function isMac (): boolean {
   return !!/macintosh/i.test(userAgent) || (/mac os x/i.test(userAgent) && !/like mac os x/i.test(userAgent))
 }
 
+export function isWindows (): boolean {
+  const userAgent = window.navigator.userAgent
+  return !!/windows/i.test(userAgent)
+}
+
 export function resolvePath (path: any, basePath: string, relativePath: string): string {
   const dirPath = path.dirname(basePath)
 

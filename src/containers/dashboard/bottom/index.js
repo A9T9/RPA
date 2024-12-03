@@ -386,6 +386,12 @@ class DashboardBottom extends React.Component {
   }
 
   logStyle (log) {
+    // console.log('logStyle:>> ', log)
+    // this comes from 'aiComputerUse'
+    if (log.type === 'a') {
+      return { color: 'green' }
+    }
+
     if (log.options && log.options.color) {
       return { color: log.options.color }
     }

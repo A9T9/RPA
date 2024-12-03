@@ -227,6 +227,7 @@ const restoreConfig = () => {
         useDarkTheme: false,
         sidePanelOnLeft: false,
         anthropicAPIKey: '',
+        aiComputerUseMaxLoops: 20, 
         showSettingsOnStart: false,
         showSidebar: false,
         showBottomArea: true,
@@ -287,7 +288,7 @@ const restoreConfig = () => {
         defaultProxy: '',
         defaultProxyAuth: '',
         turnOffProxyAfterReplay: true,
-        ...config
+        ...config,
       }
       store.dispatch(updateConfig(cfg))
       return cfg
@@ -353,48 +354,41 @@ const genPlayerPlayCallback = ({ options,installed}) => {
       const logContent  = logs.map(log => renderLog(log, false))
       const text        = [logTitle, '###', ...logContent].join('\n')
 
-      if(isFullPath){
-              
-              const ua = window.navigator.userAgent
-              const path = options.savelog;
+      if (isFullPath) {              
+        const ua = window.navigator.userAgent
+        const path = options.savelog;
 
-              function os(){
-                  if (/windows/i.test(ua))  return 'windows'
-                  if (/mac/i.test(ua))      return 'mac'
-                  return 'linux'
-              }
-              
-              if (installed && installed!=undefined )  {
-                let osType = os();
-                runDownloadLog(text,path,osType)
-                .then(data => {
-                  return getDownloadMan().prepareDownload(options.savelog)
-                })
-                
-              }else{
-                pSaveLog = delay(() => {}, 500).then(() => {
-                downloadTextFile(text, decodeURIComponent(options.savelog))
-                // Note: We have to wait until savelog download completes if there is any
-                return getDownloadMan().prepareDownload(options.savelog)
-              })
-              
-              }
-            
-          }else{
-            if (!isFullPath || !getStorageManager().isXFileMode()) {
-              pSaveLog = delay(() => {}, 500).then(() => {
-              downloadTextFile(text, decodeURIComponent(options.savelog))
-              // Note: We have to wait until savelog download completes if there is any
-              return getDownloadMan().prepareDownload(options.savelog)
-              })
-              } else {
-              pSaveLog = getLogService().logTo(options.savelog, text)
-             }            
-          }
-      
-
-    }
- 
+        function os() {
+          if (/windows/i.test(ua))  return 'windows'
+          if (/mac/i.test(ua))      return 'mac'
+          return 'linux'
+        }
+        
+        if (installed && installed!=undefined )  {
+          let osType = os();
+          runDownloadLog(text,path,osType)
+          .then(data => {
+            return getDownloadMan().prepareDownload(options.savelog)
+          })          
+        } else {
+          pSaveLog = delay(() => {}, 500).then(() => {
+            downloadTextFile(text, decodeURIComponent(options.savelog))
+            // Note: We have to wait until savelog download completes if there is any
+            return getDownloadMan().prepareDownload(options.savelog)
+          })        
+        }        
+      } else {
+        if (!isFullPath || !getStorageManager().isXFileMode()) {
+          pSaveLog = delay(() => {}, 500).then(() => {
+            downloadTextFile(text, decodeURIComponent(options.savelog))
+            // Note: We have to wait until savelog download completes if there is any
+            return getDownloadMan().prepareDownload(options.savelog)
+          })
+        } else {
+        pSaveLog = getLogService().logTo(options.savelog, text)
+        }            
+      } 
+    } 
 
     const closeBrowser  = parseBoolLike(options.closeBrowser, false)
     const closeRPA      = parseBoolLike(options.closeRPA !== undefined ? options.closeRPA : options.closeKantu, true)

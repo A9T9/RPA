@@ -110,6 +110,7 @@ export const commandScopes = {
 
     'aiPrompt': CommandScope.All,
     'aiScreenXY': CommandScope.All,
+    'aiComputerUse': CommandScope.All,
 
     'setProxy': CommandScope.All,
     'run': CommandScope.All,
@@ -294,6 +295,7 @@ export function doesCommandSupportTargetOptions (str: string) {
     case 'verifyNotChecked':
     case 'aiPrompt':
     case 'aiScreenXY':
+    case 'aiComputerUse':
       return true
 
     default:
@@ -360,6 +362,7 @@ export function canCommandFind (str: string): boolean {
     case 'forEach':
     case 'OCRExtractScreenshot':
     case 'aiPrompt':
+    case 'aiComputerUse':
       return false
 
     default:

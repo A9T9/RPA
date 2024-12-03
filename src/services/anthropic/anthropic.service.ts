@@ -7,10 +7,13 @@ import { getStorageManager } from '../storage'
 import { dataURItoBlob } from '@/common/utils'
 import { isMac } from '@/common/ts_utils'
 import { getNativeXYAPI } from '../xy'
+import { ANTHROPIC } from '@/common/constant'
+
 interface Coordinates {
   coords: Array<{ x: number; y: number }>
   isSinglePoint?: boolean
 }
+
 type ScaleImageIfNeededResult = {
   buffer: ArrayBuffer
   scaleFactor: number
@@ -31,7 +34,7 @@ class AnthropicService {
   private anthropic: Anthropic
   MAX_WIDTH = 1280
   MAX_HEIGHT = 800
-  AI_MODEL = 'claude-3-5-sonnet-20241022'
+  // AI_MODEL = 'claude-3-5-sonnet-20241022'
   MAX_TOKENS = 1024
 
   MAX_PIXELS = 1191888 // Maximum total pixels
@@ -87,7 +90,7 @@ class AnthropicService {
   async getPromptResponse(promptText: string): Promise<string> {
     try {
       const message = await this.anthropic.messages.create({
-        model: this.AI_MODEL,
+        model: ANTHROPIC.COMPUTER_USE_MODEL,
         max_tokens: this.MAX_TOKENS,
         messages: [{ role: 'user', content: promptText }]
       })
@@ -112,7 +115,7 @@ class AnthropicService {
 
       // Call Anthropic API
       const message = await this.anthropic.messages.create({
-        model: this.AI_MODEL,
+        model: ANTHROPIC.COMPUTER_USE_MODEL,
         max_tokens: this.MAX_TOKENS,
         messages: [
           {
@@ -193,131 +196,6 @@ class AnthropicService {
     }
   }
 
-  async findCoordinates(mainImageBuffer: ArrayBuffer, promptText: string): Promise<Coordinates> {
-    try {
-      // Scale images if needed
-      const mainImageData = await this.scaleImageIfNeeded(mainImageBuffer)
-      const mainImageBase64 = Buffer.from(mainImageBuffer).toString('base64')
-
-      console.log('promptText:>>', promptText)
-
-      const message = await this.anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 1024,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                //Only screenshot input. -> Find based on description
-                text: promptText // 'Find the center of the Sign Up button. Answer with x,y|||'
-              },
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: 'image/png',
-                  data: mainImageBase64
-                }
-              }
-            ]
-          }
-        ]
-      })
-
-      const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
-      console.log("Claude's response:", responseText)
-
-      // Check if image was found
-      if (responseText.toLowerCase().includes('not found')) {
-        console.log('Reference image could not be found in the main image')
-        throw new Error('Reference image could not be found in the main image')
-      }
-
-      // Parse coordinates
-      const { coords: scaledCoords, isSinglePoint } = this.parseCoordinates(responseText)
-      if (scaledCoords.length === 0) {
-        console.log('Could not parse coordinates')
-        throw new Error('Could not parse coordinates')
-      }
-
-      // Scale coordinates back to original image size
-      const originalCoords = scaledCoords.map((coord) => ({
-        x: Math.round(coord.x / mainImageData.scaleFactor),
-        y: Math.round(coord.y / mainImageData.scaleFactor)
-      }))
-
-      // Log coordinates based on mode
-      console.log('Found coordinates:')
-      if (isSinglePoint) {
-        console.log(`Center (scaled): ${scaledCoords[0].x}, ${scaledCoords[0].y}`)
-        console.log(`Center (original): ${originalCoords[0].x}, ${originalCoords[0].y}`)
-      } else {
-        console.log(`Top-left (scaled): ${scaledCoords[0].x}, ${scaledCoords[0].y}`)
-        console.log(`Top-left (original): ${originalCoords[0].x}, ${originalCoords[0].y}`)
-        console.log(`Bottom-right (scaled): ${scaledCoords[1].x}, ${scaledCoords[1].y}`)
-        console.log(`Bottom-right (original): ${originalCoords[1].x}, ${originalCoords[1].y}`)
-      }
-      console.log(`Scale factor used: ${mainImageData.scaleFactor}`)
-
-      // Create SVG marker based on mode
-      let svg
-      if (isSinglePoint) {
-        svg = `
-        <svg width="${mainImageData.originalWidth}" height="${mainImageData.originalHeight}">
-          <circle cx="${originalCoords[0].x}" cy="${originalCoords[0].y}" r="30" fill="red" opacity="0.5" />
-          <text x="${originalCoords[0].x}" y="${originalCoords[0].y}" text-anchor="middle" font-size="18" font-weight="bold" fill="yellow">X</text>
-        </svg>
-      `
-      } else {
-        svg = `
-        <svg width="${mainImageData.originalWidth}" height="${mainImageData.originalHeight}">
-          <rect 
-            x="${originalCoords[0].x}" 
-            y="${originalCoords[0].y}" 
-            width="${originalCoords[1].x - originalCoords[0].x}" 
-            height="${originalCoords[1].y - originalCoords[0].y}" 
-            fill="none" 
-            stroke="red" 
-            stroke-width="5" 
-          />
-          <circle cx="${originalCoords[0].x}" cy="${originalCoords[0].y}" r="20" fill="cyan" />
-          <circle cx="${originalCoords[1].x}" cy="${originalCoords[1].y}" r="20" fill="cyan" />
-          <text x="${originalCoords[0].x}" y="${originalCoords[0].y - 10}" font-size="55" fill="red">TL</text>
-          <text x="${originalCoords[1].x}" y="${originalCoords[1].y - 10}" font-size="55" fill="red">BR</text>
-        </svg>
-      `
-      }
-
-      // TODO: uncomment and use the following code
-      // // Composite the SVG marker onto the original image
-      // const outputPath = path.join(path.dirname(mainImagePath), `matched_${path.basename(mainImagePath)}`)
-      // await sharp(mainImageBuffer)
-      //   .composite([
-      //     {
-      //       input: Buffer.from(svg),
-      //       top: 0,
-      //       left: 0
-      //     }
-      //   ])
-      //   .toFile(outputPath)
-
-      // // If scaling was applied, save the scaled version for reference
-      // if (mainImageData.scaleFactor < 1) {
-      //   const scaledOutputPath = path.join(path.dirname(mainImagePath), `scaled_${path.basename(mainImagePath)}`)
-      //   //   await fs.writeFile(scaledOutputPath, mainImageData.buffer);
-      //   //   console.log(`Scaled image saved to: ${scaledOutputPath}`);
-      // }
-
-      console.log(`Image processed successfully!`)
-      return { coords: originalCoords, isSinglePoint }
-      // console.log(`Output file: ${outputPath}`)
-    } catch (error) {
-      console.error('Error getting response from Anthropic:', error)
-      throw this.uivError(error)
-    }
-  }
   /*
    * Process image
    *
@@ -371,7 +249,7 @@ class AnthropicService {
 
       // Call Anthropic API
       const message = await this.anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
+        model: ANTHROPIC.COMPUTER_USE_MODEL,
         max_tokens: 1024,
         messages: [
           {
@@ -498,7 +376,7 @@ class AnthropicService {
 
       // Call Computer Use API
       const computerUseResponse = await this.anthropic.beta.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
+        model: ANTHROPIC.COMPUTER_USE_MODEL,
         max_tokens: 1024,
         tools: [
           {

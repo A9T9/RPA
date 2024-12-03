@@ -184,7 +184,8 @@ class DashboardEditor extends React.Component {
         case 'OCRExtractbyTextRelative':
         case 'OCRSearch': 
         case 'aiPrompt':
-        case 'aiScreenXY': {
+        case 'aiScreenXY': 
+        case 'aiComputerUse': {
           const selectedIndex = this.props.editing.meta.selectedIndex
           const run = () => {
             // Note: run visionFind/visualSearch as single line command, but without timeout waiting
@@ -285,6 +286,9 @@ class DashboardEditor extends React.Component {
 
         case 'aiScreenXY':
           throw new Error('No select possible in aiScreenXY mode')
+
+        case 'aiComputerUse':
+          throw new Error('No select possible in aiComputerUse mode')
 
         case 'XClickText':
         case 'XClickTextRelative':
@@ -1520,7 +1524,7 @@ class DashboardEditor extends React.Component {
     const isFindEnabled = selectedCmd && selectedCmd.cmd && canCommandFind(selectedCmd.cmd)
 
     const shouldUseSelectInputForTarget = selectedCmd && selectedCmd.targetOptions && selectedCmd.targetOptions.length  && doesCommandSupportTargetOptions(selectedCmd.cmd)
-    const shouldUseTextareaForTarget    = selectedCmd && ['executeScript', 'executeScript_Sandbox', 'aiPrompt', 'aiScreenXY'].indexOf(selectedCmd.cmd) !== -1
+    const shouldUseTextareaForTarget    = selectedCmd && ['executeScript', 'executeScript_Sandbox', 'aiPrompt', 'aiScreenXY', 'aiComputerUse'].indexOf(selectedCmd.cmd) !== -1
     const shouldUseNormalInputForTarget = !shouldUseSelectInputForTarget && !shouldUseTextareaForTarget
 
     return (
@@ -1558,7 +1562,7 @@ class DashboardEditor extends React.Component {
                                 const input = this.cmdInputRef.current.querySelector('input')
                                 if(/^[a-zA-Z0-9]$/.test(e.key)) {
                                   this.setState({ userInputCmdValue: input.value + e.key })
-                                }                                
+                                }                             
                               }}
                               onBlur={() => { 
                                 let value = this.state.userInputCmdValue
