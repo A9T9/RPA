@@ -1431,11 +1431,13 @@ const removeBodyMarkIfNecessary = (config) => {
 }
 
 const runCommand = (command) => {
+  console.log('runCommand command :>> ', command)
   if (!command.cmd) {
     throw new Error('runCommand: must provide cmd')
   }
 
   const pResult = (() => {
+    console.log('pResult state :>> ', state)
     // if it's an 'open' command, it must be executed in the top window
     if (state.playingFrame === window || command.cmd === 'open') {
       // Note: both top and inner frames could run commands here
@@ -1497,6 +1499,8 @@ const runCommand = (command) => {
         throw new Error('The selected frame has been removed. You may want to use another selectFrame before its removal')
       }
 
+
+
       // log('passing command to frame...', state.playingFrame, '...', window.location.href)
       // Note: pass on the command if our window is not the current playing one
       return postMessage(state.playingFrame, window, {
@@ -1509,6 +1513,8 @@ const runCommand = (command) => {
   // Note: set ipc secret on response, so that background could know whether a page has refreshed or redirected
   // only mark it on top-most window
   return pResult.then(result => {
+
+    console.log('pResult result:>> ', result);
     const secret = result.secret || (() => {
       if (window.top === window) {
         return csIpc.secret

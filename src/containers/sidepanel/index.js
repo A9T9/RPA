@@ -15,6 +15,7 @@ import { StorageStrategyType, getStorageManager } from '../../services/storage'
 import Controlbar from './components/controlbar'
 import Files from './components/files'
 import Logs from './components/logs'
+import AiChat from './components/ai_chat'
 import Macro from './components/macro'
 import ComputerSvg from '@/assets/svg/computer.svg'
 import BrowserSvg from '@/assets/svg/browser.svg'
@@ -31,7 +32,15 @@ class Sidepanel extends React.Component {
       movingX: 0,
       lastWidth: 260,
       currentMinWidth: 260
-    }
+    },
+    fullStatusText: '',
+    shortStatus: ''
+  }
+
+  // constructor
+  constructor(props) {
+    super(props)
+    this.renderStatus = this.renderStatus.bind(this)
   }
 
   getSideBarMinWidth = () => {
@@ -40,7 +49,7 @@ class Sidepanel extends React.Component {
   }
 
   openRegisterSettings = (e) => {
-    if (e && e.preventDefault)  e.preventDefault()
+    if (e && e.preventDefault) e.preventDefault()
     this.props.updateUI({ showSettings: true, settingsTab: 'register' })
   }
 
@@ -48,7 +57,7 @@ class Sidepanel extends React.Component {
     this.props.updateUI({ focusArea: FocusArea.Sidebar })
   }
 
-  componentDidMount () {
+  componentDidMount() {
     chrome.runtime.connect({ name: SIDEPANEL_PORT_NAME })
     const type = getStorageManager().getCurrentStrategyType()
     this.setState({ storageMode: type })
@@ -59,10 +68,11 @@ class Sidepanel extends React.Component {
       if (storage.key === 'config') {
         // get all changed config values
         const changedConfig = Object.keys(storage.newValue).reduce((acc, key) => {
-          if (storage.newValue[key] !== this.props.config[key]
+          if (
+            storage.newValue[key] !== this.props.config[key] &&
             // ignore array and object. otherwise it it can cause infinite loop
-            && !Array.isArray(storage.newValue[key]) 
-            && typeof storage.newValue[key] !== 'object'
+            !Array.isArray(storage.newValue[key]) &&
+            typeof storage.newValue[key] !== 'object'
           ) {
             acc[key] = storage.newValue[key]
           }
@@ -77,7 +87,72 @@ class Sidepanel extends React.Component {
     })
   }
 
-  prefixHardDisk (str) {
+  componentDidUpdate(prevProps) {
+    if (prevProps.logs_ !== this.props.logs_ || prevProps.player !== this.props.player || prevProps.status !== this.props.status) {
+      // Perform actions when the 'message' prop changes
+
+    console.log('prevProps for statusText:>> ', prevProps)
+      let fullStatusText = ''
+
+      if (['Files', 'Macro', 'Logs'].includes(this.props?.ui?.sidebarTab)) {
+        // If user selects macro, then the macro name is shown in status bar
+        // Status bar should contain macro result. So either the error message or "[info] Macro completed (Runtime 6.66s)" => So same text as in log file (or similar text, whatever is easier)
+        const { status, player } = this.props
+
+        const renderInner = () => {
+          switch (status) {
+            case C.APP_STATUS.RECORDER:
+              return 'Recording'
+            case C.APP_STATUS.PLAYER: {
+              this._lastMacroLog = null
+              switch (player.status) {
+                case C.PLAYER_STATUS.PLAYING: {
+                  const { nextCommandIndex, loops, currentLoop, timeoutStatus } = player
+                  if (nextCommandIndex === null || loops === null || currentLoop === 0) {
+                    return ''
+                  }
+
+                  const parts = [`Line ${nextCommandIndex + 1}`, `Round ${currentLoop}/${loops}`]
+
+                  if (timeoutStatus && timeoutStatus.type && timeoutStatus.total) {
+                    const { type, total, past } = timeoutStatus
+                    parts.unshift(`${type} ${past / 1000}s (${total / 1000})`)
+                  }
+
+                  return parts.join(' | ')
+                }
+
+                case C.PLAYER_STATUS.PAUSED:
+                  return 'Player paused'
+
+                default:
+                  return ''
+              }
+            }
+            default:
+              // pick between macro name or macro stopped log, whichever is latest
+              if (!this.getLatestMacroLog()) {
+                this._lastStatus = this._lastSelectedMacroName = this.getMacroName()
+              } else {
+                if (this._lastMacroLog !== this.getLatestMacroLog()) {
+                  this._lastStatus = this._lastMacroLog = this.getLatestMacroLog()
+                } else if (this._lastSelectedMacroName !== this.getMacroName()) {
+                  this._lastStatus = this._lastSelectedMacroName = this.getMacroName()
+                }
+              }
+              return this._lastStatus
+          }
+        }
+
+        fullStatusText = renderInner()
+        // ... and if it is too long, then show it in a tooltip
+        const shortStatus = fullStatusText.length > 40 ? fullStatusText.substring(0, 40).replace(/(\s+\S+)$/, '...') : fullStatusText
+        this.setState({ fullStatusText, shortStatus })
+      }
+    }
+  }
+
+  prefixHardDisk(str) {
     const isXFileMode = getStorageManager().isXFileMode()
     if (!isXFileMode) return str
 
@@ -96,31 +171,30 @@ class Sidepanel extends React.Component {
             height: '15px'
           }}
         />
-        <span>{ str }</span>
+        <span>{str}</span>
       </div>
     )
   }
 
-  shouldRenderMacroNote () {
+  shouldRenderMacroNote() {
     const { xmodulesStatus, storageMode } = this.props.config
 
-    if (storageMode !== StorageStrategyType.XFile)  return false
+    if (storageMode !== StorageStrategyType.XFile) return false
     if (xmodulesStatus === 'pro') return false
 
     const macroStorage = getStorageManager().getMacroStorage()
     return macroStorage.getDisplayCount() < macroStorage.getTotalCount()
   }
 
-
-  getMacroName () {
+  getMacroName() {
     const { src } = this.props.editing.meta
     return src && src.name && src.name.length ? src.name : 'Untitled'
   }
 
-  getLatestMacroLog () {
+  getLatestMacroLog() {
     const { player, logs_ } = this.props
     if (player.status === C.PLAYER_STATUS.STOPPED && logs_ && logs_.length) {
-      let latestMacroLogs = logs_.filter(log => log.type === 'info' && log.text?.startsWith('Macro '))
+      let latestMacroLogs = logs_.filter((log) => log.type === 'info' && log.text?.startsWith('Macro '))
       if (!latestMacroLogs.length) return '-0-'
       let latestMacroLog = latestMacroLogs[latestMacroLogs.length - 1]
       if (latestMacroLog) {
@@ -130,126 +204,84 @@ class Sidepanel extends React.Component {
     return ''
   }
 
-  renderStatus () {
-    // If user selects macro, then the macro name is shown in status bar
-    // Status bar should contain macro result. So either the error message or "[info] Macro completed (Runtime 6.66s)" => So same text as in log file (or similar text, whatever is easier)
-    const { status, player } = this.props
-
-    const renderInner = () => {
-      switch (status) {
-        case C.APP_STATUS.RECORDER:
-          return 'Recording'
-        case C.APP_STATUS.PLAYER: {
-          this._lastMacroLog = null
-          switch (player.status) {
-            case C.PLAYER_STATUS.PLAYING: {
-              const { nextCommandIndex, loops, currentLoop, timeoutStatus } = player
-              if (nextCommandIndex === null ||
-                loops === null || currentLoop === 0) {
-                  return ''
-              }
-
-              const parts = [
-              `Line ${nextCommandIndex + 1}`,
-              `Round ${currentLoop}/${loops}`
-              ]
-
-              if (timeoutStatus && timeoutStatus.type && timeoutStatus.total) {
-                const { type, total, past } = timeoutStatus
-                parts.unshift(`${type} ${past / 1000}s (${total / 1000})`)
-              }
-
-              return parts.join(' | ')
-            }
-
-            case C.PLAYER_STATUS.PAUSED:
-            return 'Player paused'
-
-            default:
-             return ''
-          }
-        }
-        default:
-          // pick between macro name or macro stopped log, whichever is latest
-          if (!this.getLatestMacroLog()) {
-            this._lastStatus = this._lastSelectedMacroName = this.getMacroName()
-          } else {
-            if (this._lastMacroLog !== this.getLatestMacroLog()) {
-              this._lastStatus =  this._lastMacroLog = this.getLatestMacroLog()
-            } else if (this._lastSelectedMacroName !== this.getMacroName()) {
-              this._lastStatus = this._lastSelectedMacroName = this.getMacroName()
-            }
-          }
-          return this._lastStatus
-      }
+  renderStatus(statusText) {
+    console.log('renderStatus:>> statusText:  ', statusText)
+    if (statusText) {
+    let fullStatusText = statusText
+      // ... and if it is too long, then show it in a tooltip
+      const shortStatus = fullStatusText.length > 40 ? fullStatusText.substring(0, 40).replace(/(\s+\S+)$/, '...') : fullStatusText
+      this.setState({ fullStatusText, shortStatus })
     }
+  } 
 
-    const fullStatus = renderInner()
-    // ... and if it is too long, then show it in a tooltip
-    const shortStatus = fullStatus.length > 40 ? fullStatus.substring(0, 40).replace(/(\s+\S+)$/, '...') : fullStatus
-
-    return <div className="status"
-      style={{
-        display: 'flex',
-        justifyContent: 'center',
-        marginTop: '10px',
-        fontSize: '14px'
-      }}
-    >
-    <Tooltip title={fullStatus}>
-      {shortStatus}
-    </Tooltip>
-    </div>
-  }
-
-  showDesktopIcon () {
+  showDesktopIcon() {
     const { ui, config } = this.props
-    const doShowDesktopIcon = (isCVTypeForDesktop(config.cvScope)  && ui.shouldEnableDesktopAutomation !== false) || ui.shouldEnableDesktopAutomation === true
-    return (doShowDesktopIcon && <div
-        className="vision-type">
+    const doShowDesktopIcon =
+      (isCVTypeForDesktop(config.cvScope) && ui.shouldEnableDesktopAutomation !== false) || ui.shouldEnableDesktopAutomation === true
+    return (
+      (doShowDesktopIcon && (
+        <div className="vision-type">
           <ComputerSvg />
-      </div>
-    ) || <div
-    className="vision-type">
-      <BrowserSvg />
-  </div>
+        </div>
+      )) || (
+        <div className="vision-type">
+          <BrowserSvg />
+        </div>
+      )
+    )
   }
 
-  render () {
+  render() {
     return (
       <div
         className={cn('sidepanel', { 'with-xmodules-note': this.shouldRenderMacroNote() })}
-        ref={el => { this.$dom = el }}
+        ref={(el) => {
+          this.$dom = el
+        }}
         style={{ minWidth: this.getSideBarMinWidth() }}
         onClickCapture={this.onClickSidebar}
-      >
-        {this.renderStatus()}
+      > 
+        <div
+          className="status"
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            marginTop: '10px',
+            fontSize: '14px'
+          }}
+        >
+          <Tooltip title={this.state.fullStatusText}>{this.state.shortStatus}</Tooltip>
+        </div>
         {this.showDesktopIcon()}
         <div className={cn('sidebar-inner', { 'no-tab': !this.props.config.showTestCaseTab })}>
           <Tabs
             type="card"
             defaultActiveKey="Files"
             activeKey={this.props.ui.sidebarTab || 'Files'}
-            onChange={activeKey => this.props.updateUI({ sidebarTab: activeKey })}
+            onChange={(activeKey) => this.props.updateUI({ sidebarTab: activeKey })}
             items={[
               {
                 key: 'Files',
-                label: this.prefixHardDisk('Files'),
+                label: 'Files',
                 children: <Files />
               },
               {
                 key: 'Macro',
-                label: this.prefixHardDisk('Macro'),
+                label: 'Macro',
                 children: <Macro />
               },
               {
                 key: 'Logs',
-                label: this.prefixHardDisk('Logs'),
+                label: 'Logs',
                 children: <Logs />
+              },
+              {
+                key: 'AiChat',
+                label: 'AI Chat',
+                children: <AiChat renderStatus={this.renderStatus} />
               }
             ]}
-          >
-          </Tabs>
+          ></Tabs>
         </div>
         <Controlbar />
       </div>
@@ -258,7 +290,7 @@ class Sidepanel extends React.Component {
 }
 
 export default connect(
-  state => ({
+  (state) => ({
     status: state.status,
     editing: state.editor.editing,
     player: state.player,
@@ -266,5 +298,5 @@ export default connect(
     ui: state.ui,
     logs_: state.logs
   }),
-  dispatch => bindActionCreators({...actions}, dispatch)
+  (dispatch) => bindActionCreators({ ...actions }, dispatch)
 )(Sidepanel)

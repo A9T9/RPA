@@ -36,7 +36,7 @@ export type MacroRunningStatus = {
   nextIndex:        number;
   commandResults:   CommandRunningStatus[];
   playerState:      PlayerState<Command>;
-  interpreterState: any;
+  interpreterState?: any;
 }
 
 export type DoneErrorIndices = {

@@ -212,7 +212,7 @@ export default {
     },
     {
       "Command": "aiComputerUse",
-      "Target": "Fill out this web form with artificial data and submit it. \n\nTwo fields have specific content: \n\nFor Topic, select 'General Inquiry' from the dropdown (press 'G' when dropdown is open and then ENTER). \n\nFor the Subject use 'Test. Ignore this message. Filter me out'. \n\nIf successful, end with 'SUCCESS'. \nIf you encounter any errors, end with 'ERROR'. \n\nTool use instructions:  \n\nSaves time: Skip the mouse_move before doing left_click\n\nAfter scrolling, take a fresh screenshot\n",
+      "Target": "Fill out this web form with artificial data and submit it. \n\nTwo fields have specific content: \n\nFor Topic, select 'General Inquiry' from the dropdown (press 'G' when dropdown is open and then ENTER). \n\nFor the Subject use 'Test. Ignore this message. Filter me out'. \n\nFill the Message input box before the Subjext box.\n\nIf successful, end with 'SUCCESS'. \nIf you encounter any errors, end with 'ERROR'. \n\nTool use instructions:  \n\nSaves time: Skip the mouse_move before doing left_click\n\nAfter scrolling, take a fresh screenshot\n",
       "Value": "s",
       "Description": ""
     },

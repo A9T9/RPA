@@ -1,22 +1,22 @@
 import React from 'react'
 import { connect } from 'react-redux'
 import { bindActionCreators, Dispatch } from 'redux'
-import { Button, Input, Modal } from 'antd'
+import { Button, Checkbox, Form, Input, Modal } from 'antd'
 import { getStorageManager } from '@/services/storage'
-import AnthropicService, { NO_ANTHROPIC_API_KEY_ERROR } from '@/services/anthropic/anthropic.service'
+import AnthropicService, { NO_ANTHROPIC_API_KEY_ERROR } from '@/services/ai/anthropic/anthropic.service'
 import { Actions as simpleActions } from '@/actions/simple_actions'
 import * as actions from '@/actions'
 import { State } from '@/reducers/state'
 import { message } from 'antd'
 
-export interface AiTabProps {
+interface AiTabProps {
   config: { [key: string]: any }
   updateConfig: (config: { [key: string]: any }) => void
 }
 
 interface AiTabAppState {
   anthropicAPIKey: string
-  prompt: string
+  prompt: string 
   promptResponse: string
   error: string
 }
@@ -29,7 +29,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
 
   state: AiTabAppState = {
     anthropicAPIKey: '',
-    prompt: 'Explain a random Ui.Vision command',
+    prompt: 'Explain a random Ui.Vision command', 
     promptResponse: '',
     error: ''
   }
@@ -59,7 +59,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
   }
 
   render() {
-    const onConfigChange = (key: string, val: string) => {
+    const onConfigChange = (key: string, val: any) => {
       this.props.updateConfig({ [key]: val })
     }
 
@@ -120,9 +120,6 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
           <Button type="primary" onClick={this.onClickTestPrompt}>
             Test
           </Button>
-          {/* <Button type="primary" onClick={this.onClickTestFindImageCenter}>
-            Test Image
-          </Button> */}
         </div>
         <div className="row" style={{ marginBottom: '10px' }}>
           Anthropic API (Claude) Answer:
@@ -131,16 +128,37 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
           <pre>{this.state.promptResponse}</pre>
         </div>
         <div className="ai-settings-item">
-          <span className="label-text"><strong>aiComputerUse:</strong> Max loops before stopping: </span>
+          <span className="label-text">
+            <strong>aiComputerUse:</strong> Max loops before stopping:{' '}
+          </span>
           <Input
             type="number"
             min="0"
             style={{ marginLeft: '10px', width: '70px' }}
             value={this.props.config.aiComputerUseMaxLoops}
             onChange={(e) => onConfigChange('aiComputerUseMaxLoops', e.target.value)}
-            placeholder="20"
+            placeholder=""
           />
         </div>
+
+        <div className="ai-chat-in-sidebar">
+          <Checkbox
+            onClick={(e) => {
+              onConfigChange('useInitialPromptInAiChat', (e.target as HTMLInputElement).checked)
+            }}
+            checked={this.props.config.useInitialPromptInAiChat}
+          >
+            AI Chat in sidebar. Use initial prompt.
+          </Checkbox>
+          <Input
+            type="text"
+            value={this.props.config.aiChatSidebarPrompt || 'Describe what you see, in 10 words or less.'} 
+            onChange={(e) => {
+              onConfigChange('aiChatSidebarPrompt', e.target.value)
+            }}
+          />
+        </div>
+
         <div className="row" style={{ marginBottom: '10px', color: 'red' }}>
           {this.state.error}
         </div>

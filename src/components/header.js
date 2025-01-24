@@ -2,68 +2,61 @@ import React from "react";
 import { connect } from "react-redux";
 import { bindActionCreators } from "redux";
 // import {  Link } from "react-router-dom";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Button,
   Checkbox,
-  Dropdown,
-  Menu,
-  Icon,
-  Modal,
-  Row,
   Col,
+  Dropdown,
   Form,
-  Radio,
   Input,
-  Select,
-  Tabs,
   message,
+  Modal,
+  Radio,
+  Row,
+  Select,
+  Tabs
 } from "antd";
 import copyToClipboard from "copy-to-clipboard";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
-import "antd/dist/reset.css"
-import "./header.scss";
-import { getCurrentTab } from "../common/tab_utils";
-import { getState, updateState } from "../ext/common/global_state";
-import { getActiveTabId, getPlayTab } from "../ext/common/tab";
-import { getPlayer, Player } from "../common/player";
-import { hasUnsavedMacro } from "../recomputed";
-import getSaveTestCase from "./save_test_case";
-import { Actions, Actions as simpleActions } from "../actions/simple_actions";
+import CONFIG from '@/config';
+import { ocrViewport, ocrViewportCalibration } from "@/modules/ocr.ts";
+import { SettingOutlined } from "@ant-design/icons";
+import "antd/dist/reset.css";
 import * as actions from "../actions";
+import { Actions, Actions as simpleActions } from "../actions/simple_actions";
 import * as C from "../common/constant";
-import { range, setIn, updateIn, compose, cn } from "../common/utils";
-import { getXFile } from "../services/xmodules/xfile";
-import { getXLocal } from "../services/xmodules/xlocal";
-import { getXUserIO } from "../services/xmodules/x_user_io";
-import { getXDesktop } from "../services/xmodules/xdesktop";
-import { getXScreenCapture } from "../services/xmodules/x_screen_capture";
-import { XModuleTypes } from "../services/xmodules/common";
-import { getStorageManager, StorageManagerEvent } from "../services/storage";
-import Ext from "../common/web_extension";
-import { ocrLanguageOptions, tesseractLanguageOptions } from "../services/ocr/languages";
-import { ocrViewport, ocrViewportCalibration } from "../init_player";
-import { getOcrCommandCounter } from "../services/ocr/command_counter";
 import { fromHtml, generateEmptyHtml } from "../common/convert_utils";
-import { readFileAsText } from "../common/ts_utils";
-import { importSideProject } from "../services/side/convert";
-import { restoreBackup } from "../services/backup/restore";
-import { parseProxyUrl } from "../services/proxy";
+import { isCVTypeForDesktop } from "../common/cv_utils";
+import { encrypt } from "../common/encrypt";
 import ipc from "../common/ipc/ipc_cs";
 import FileSaver from "../common/lib/file_saver";
-import { encrypt } from "../common/encrypt";
-import { getLicenseService } from "../services/license";
+import { getPlayer, Player } from "../common/player";
+import { readFileAsText } from "../common/ts_utils";
+import { cn, compose, range, setIn, updateIn } from "../common/utils";
+import Ext from "../common/web_extension";
+import { getState, updateState } from "../ext/common/global_state";
+import { getPlayTab } from "../ext/common/tab";
+import { hasUnsavedMacro } from "../recomputed";
+import { store } from '../redux';
 import { isNetworkError } from "../services/api/http_api";
+import { restoreBackup } from "../services/backup/restore";
+import { getLicenseService } from "../services/license";
 import { Feature } from "../services/license/types";
-import { isCVTypeForDesktop } from "../common/cv_utils";
-import { base64 } from "@/common/base64";
-import { array } from "prop-types";
-import { SettingOutlined } from "@ant-design/icons";
 import { isOcrSpaceFreeKey, testOcrSpaceAPIKey } from "../services/ocr";
-import CONFIG from '@/config'
-import { store } from '../redux'
-import TextArea from "antd/es/input/TextArea";
+import { ocrLanguageOptions, tesseractLanguageOptions } from "../services/ocr/languages";
+import { parseProxyUrl } from "../services/proxy";
+import { importSideProject } from "../services/side/convert";
+import { getStorageManager, StorageManagerEvent } from "../services/storage";
+import { getXScreenCapture } from "../services/xmodules/x_screen_capture";
+import { getXUserIO } from "../services/xmodules/x_user_io";
+import { getXDesktop } from "../services/xmodules/xdesktop";
+import { getXFile } from "../services/xmodules/xfile";
+import { getXLocal } from "../services/xmodules/xlocal";
+import "./header.scss";
+import getSaveTestCase from "./save_test_case";
 import AITab from "./settings_modal/tabs/ai";
+
 
 const OSType = (() => {
   const ua = window.navigator.userAgent;
@@ -3041,10 +3034,14 @@ class Header extends React.Component {
               </Dropdown.Button>
             </Button.Group>
             {/* <Button onClick={async() => {
-              const tabId = await getActiveTabId();
-              alert(`TabId: ${tabId}`);
+              await updateState({
+                status: C.APP_STATUS.PLAYER,
+                pendingPlayingTab: false,
+                xClickNeedCalibrationInfo: null
+              })
+        
             }}>
-              TabId
+              Send Command
             </Button> */}
 
             <Button shape="circle" onClick={() => this.showSettingsModal()}>

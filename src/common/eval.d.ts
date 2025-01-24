@@ -1,0 +1,1 @@
+export declare const evaluateScript: (code: string) => Promise<any>

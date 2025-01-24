@@ -1,0 +1,75 @@
+.ai-chat {
+  .ai-conversation {
+    overflow-y: scroll;
+    width: 96%;
+    margin: 0px 0px 100px 12px;
+    position: fixed;
+    height: calc(100% - 300px);
+
+    .ai-conversation-item {
+      padding: 1px 5px;
+      font-size: 15px;
+
+      .sender-you {
+        color: green;
+      }
+
+      .sender-ai {
+        color: black;
+      }
+
+      .sender-action {
+        color: orange;
+      }
+
+      .sender-error {
+        color: red;
+      }
+
+      .sender {
+        margin-right: 2px;
+        font-weight: bold;
+      }
+    }
+  }
+}
+
+.chat-footer {
+  margin-bottom: 100px;
+  padding-top: 5px;
+  border-top: 1px solid lightgray;
+  position: fixed;
+  bottom: 0px;
+  height: 100px;
+  background: white;
+  width: 100%;
+
+  .chat-input {
+    width: calc(100% - 15px);
+    border: 1px solid lightgray;
+    padding: 4px;
+    margin: 2px 8px;
+    border-radius: 5px;
+    font-weight: bold;
+    outline: none;
+  }
+
+  .chat-actions {
+    width: calc(100% - 7px);
+    position: relative;
+    padding: 0px 10px;
+
+    button {
+      cursor: pointer;
+    }
+
+    .find-button{
+      margin-left: 5px;
+    }
+
+    .stop-button {
+      position: absolute;
+      right: 0;
+    }
+  }
+}

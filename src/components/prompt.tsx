@@ -4,8 +4,8 @@ import PropTypes from 'prop-types'
 import { Modal, Input } from 'antd'
 
 type PromptProps = {
-  width:           number;
-  title:           string;
+  width?:           number;
+  title?:           string;
   message:         string;
   keepOpenOnError?: boolean;
   value?:          string;
@@ -15,10 +15,10 @@ type PromptProps = {
   noInput?:        boolean;
   inputType?:      string;
   closable?:       boolean;
-  okText:          string;
-  cancelText:      string;
-  onOk:            (str: string) => Promise<boolean>;
-  onCancel:        () => Promise<boolean>;
+  okText?:          string;
+  cancelText?:      string;
+  onOk?:            (str: string) => Promise<boolean>;
+  onCancel?:        () => Promise<boolean>;
 }
 
 type State = {

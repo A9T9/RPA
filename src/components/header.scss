@@ -88,11 +88,11 @@
     color: #aaa;
   }
 
-  label[title="Replay Helper"] {
+  label[title='Replay Helper'] {
     align-items: start;
   }
 
-  label[title="Ui.Vision Side Panel"] {
+  label[title='Ui.Vision Side Panel'] {
     align-items: start;
   }
 
@@ -174,7 +174,6 @@
 
     .row {
       margin-bottom: 10px;
-
     }
 
     p {
@@ -301,7 +300,7 @@
 
     .ant-checkbox {
       align-self: start;
-      margin-top: 2px
+      margin-top: 2px;
     }
   }
 
@@ -337,7 +336,6 @@
 
   .xmodules-pane {
     padding: 0 0 20px;
-
   }
 
   .register-pane {
@@ -349,7 +347,8 @@
       }
 
       &.inactive {
-        &, & a {
+        &,
+        & a {
           color: #aaa;
         }
       }
@@ -383,18 +382,18 @@
       }
     }
   }
-  .offline-modal-label{
-      display: inline-block;
-      width: 80px;
-      margin-top: 3%;
+  .offline-modal-label {
+    display: inline-block;
+    width: 80px;
+    margin-top: 3%;
   }
-  .offline-modal-row{
+  .offline-modal-row {
     margin-left: 15%;
     margin-top: 3%;
-}
+  }
 }
 
-.api-key-notification {    
+.api-key-notification {
   font-size: 12px;
   margin-left: 8px;
 }
@@ -419,18 +418,25 @@
     }
   }
 
-  .ai-response{
+  .ai-response {
     margin-bottom: 10px;
     width: 100%;
 
-    pre{
+    pre {
       text-wrap: auto;
       border: 1px solid lightgray;
       padding: 5px;
       border-radius: 5px;
-      min-height: 150px;
-      max-height: 200px;
+      height: 60px;
+      line-height: 17px;
+    }
+  }
+
+  .ai-chat-in-sidebar {
+    margin-bottom: 20px;
+
+    label {
+      margin-bottom: 15px;
     }
   }
 }
-

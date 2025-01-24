@@ -11,11 +11,11 @@ import { withTimeout } from "@/common/utils";
 import { getPlayTab,getPlayTabOpenB } from "../common/tab";
 
 // Note: There are several versions of runCommandXXX here. One by one, they have a better tolerence of error
-// 1. runCommand:
+// 1. sendRunCommand:
 //      Run a command, and wait until we can confirm that command is completed (e.g.  xxxAndWait)
 //
 // 2. runCommandWithRetry:
-//      Enhance runCommand with retry mechanism, only retry when element is not found
+//      Enhance sendRunCommand with retry mechanism, only retry when element is not found
 //
 // 3. runCommandWithClosureAndErrorProcess:
 //      Include `args` in closure, and take care of `errorIgnore`
@@ -306,7 +306,7 @@ function waitForCommandToComplete (command: Command, res: RunCommandResponse): P
   })
 }
 
-async function runCommand (command: Command, retryInfo: any): Promise<RunCommandResult> {
+async function sendRunCommand (command: Command, retryInfo: any): Promise<RunCommandResult> {
   const state = await getState()
   const ipcTimeout = getIpcTimeout(command)
 
@@ -340,7 +340,7 @@ async function runCommand (command: Command, retryInfo: any): Promise<RunCommand
       ipcCallTimeout: ipcTimeout
     })
   }
-
+console.log('run command:>> ', command)
   const res = await callPlayTab<RunCommandResponse>({
     command: 'RUN_COMMAND',
     args: {
@@ -384,11 +384,15 @@ async function runCommandWithRetry (command: Command): Promise<RunCommandResult>
   const timerSecret = Math.random()
   await updateState({ timerSecret })
 
+  console.log(`runCommandWithRetry:>> command: ${command}`)
+
   const commandTimeout = getCommandTimeout(command)
   const maxRetryOnIpcTimeout = 1
   let retryCountOnIpcTimeout = 0
 
-  const fn = retry(runCommand, {
+  console.log(`runCommandWithRetry:>> ${command.cmd}`)
+
+  const fn = retry(sendRunCommand, {
     timeout: commandTimeout,
     shouldRetry: (e) => {
       log('runCommandWithRetry - shouldRetry', e.message)
@@ -441,7 +445,7 @@ async function runCommandWithRetry (command: Command): Promise<RunCommandResult>
     }
 
     if (command.targetOptions && command.targetOptions.length) {
-      return runCommand(command, { final: true })
+      return sendRunCommand(command, { final: true })
     }
 
     return Promise.reject(e)
@@ -449,8 +453,10 @@ async function runCommandWithRetry (command: Command): Promise<RunCommandResult>
 }
 
 function runCommandWithClosureAndErrorProcess (command: Command): Promise<RunCommandResult> {
+
   return runCommandWithRetry(command)
   .catch(e => {
+    console.log('runCommandWithClosureAndErrorProcess c:>>', e)
     // Return default value for storeXXX commands
     if (['storeText', 'storeValue', 'storeChecked', 'storeAttribute'].indexOf(command.cmd) !== -1) {
       const value = command.value
@@ -539,6 +545,7 @@ function runWithHeartBeat (command: Command): Promise<RunCommandResult> {
   return Promise.race([
     runCommandWithClosureAndErrorProcess(command)
       .then(data => {
+        console.log('runCommandWithClosureAndErrorProcess data:>> ', data)
         stopInfiniteCheck()
         return data
       })

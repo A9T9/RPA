@@ -704,13 +704,6 @@ class MacroTable extends React.Component {
             { key: 'edit_in_ide', label: 'Edit (in IDE)' }
           ]}
         />
-        {/* <Menu onClick={handleClick} style={menuStyle} mode="vertical" selectable={false}>          
-          <Menu.Item key="run_line">Execute this command</Menu.Item>
-          <Menu.Item key="play_from_here_keep_variables">Play from here and keep variables</Menu.Item>
-          <Menu.Item key="play_to_here">Play to this point</Menu.Item>
-          <Menu.Divider />
-          <Menu.Item key="edit_in_ide">Edit (in IDE)</Menu.Item> 
-        </Menu> */}
       </div>
     )
   }
