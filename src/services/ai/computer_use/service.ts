@@ -2,7 +2,6 @@ import * as act from '@/actions'
 import * as C from '@/common/constant'
 import { Player } from '@/common/player'
 import { compose, isWindows } from '@/common/ts_utils'
-import { getVarsInstance } from '@/common/variables'
 import { store } from '@/redux'
 import { NO_ANTHROPIC_API_KEY_ERROR } from '../anthropic'
 import Sampling, { ClaudeSamplingMessage, SamplingError, SamplingParams } from './sampling'
@@ -44,7 +43,7 @@ export class ComputerUseService {
 
   private _runCsFreeCommand = (command: any) => {
     command.spExtra = { isDesktop: this.params.isDesktop }
-    
+
     return this.params.runCsFreeCommands(command)
   }
 
@@ -104,15 +103,31 @@ export class ComputerUseService {
     console.log('#220 isDesktop:>> ', isDesktop)
     console.log('scaleFactor:>> ', scaleFactor)
 
+    // const originalCoords =
+    //   isWindows() && !isDesktop
+    //     ? {
+    //         x: Math.round(action.x / scaleFactor / window.devicePixelRatio),
+    //         y: Math.round(action.y / scaleFactor / window.devicePixelRatio)
+    //       }
+    //     : {
+    //         x: Math.round(action.x / scaleFactor),
+    //         y: Math.round(action.y / scaleFactor)
+
+    // Scale coordinates back to original size
+    // const originalCoords =  {
+    //   x: Math.round(action.x / scaleFactor / window.devicePixelRatio),
+    //   y: Math.round(action.y / scaleFactor / window.devicePixelRatio)
+    // }
+
     const originalCoords =
-      isWindows() && !isDesktop
+      isWindows() && isDesktop
         ? {
-            x: Math.round(action.x / scaleFactor / window.devicePixelRatio),
-            y: Math.round(action.y / scaleFactor / window.devicePixelRatio)
-          }
-        : {
             x: Math.round(action.x / scaleFactor),
             y: Math.round(action.y / scaleFactor)
+          }
+        : {
+            x: Math.round(action.x / scaleFactor / window.devicePixelRatio),
+            y: Math.round(action.y / scaleFactor / window.devicePixelRatio)
           }
 
     console.log('originalCoords:>> ', originalCoords)
@@ -226,8 +241,7 @@ export class ComputerUseService {
     }
   }
 
-  run = async (promptText: string, value:string, vars: any, ) => {
-
+  run = async (promptText: string, value: string, vars: any) => {
     try {
       let anthropicAPIKey = store.getState().config.anthropicAPIKey
       console.log('anthropicAPIKey :>> ', anthropicAPIKey)
@@ -254,7 +268,10 @@ export class ComputerUseService {
               return obj.map(replaceDataFieldValue)
             } else if (obj && typeof obj === 'object') {
               return Object.fromEntries(
-                Object.entries(obj).map(([key, value]) => [key, key === 'data' ? `a big text. length: ${(value as string).length}` : replaceDataFieldValue(value)])
+                Object.entries(obj).map(([key, value]) => [
+                  key,
+                  key === 'data' ? `a big text. length: ${(value as string).length}` : replaceDataFieldValue(value)
+                ])
               )
             }
             return obj

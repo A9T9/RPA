@@ -163,7 +163,7 @@ class Sampling {
       }
 
       // console.log('Calling API with messages:', JSON.stringify(params.messages, null, 2))
-      const userPrompt = params.messages[0].content[0].text
+      // const userPrompt = params.messages[0].content[0].text
 
       // this.logMessage(userPrompt, 'user')
 

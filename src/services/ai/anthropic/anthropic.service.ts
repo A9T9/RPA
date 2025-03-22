@@ -325,7 +325,6 @@ class AnthropicService {
   async aiScreenXYProcessImage(
     imageBuffer: ArrayBuffer,
     promptText: string
-    // mainImageFileName: string
   ): Promise<ProcessImageResult> {
     try {
       const image = await Jimp.read(imageBuffer)

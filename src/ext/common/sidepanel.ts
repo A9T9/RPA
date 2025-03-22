@@ -17,7 +17,7 @@ export const checkIfSidePanelOpen = () => {
       return racePromise;
     })
     .then((isPanelActive) => {
-      console.log("isPanelActive:>>", isPanelActive);
+      console.log("isPanel tab Active:>>", isPanelActive);
       return getState().then((state: any) => [isPanelActive, state]);
     })
     .then(([isPanelActive, state]) => {

@@ -5,7 +5,7 @@
   "description": "__MSG_description__",
   "short_name": "__MSG_short_name__",
   "default_locale": "en",
-  "version": "9.5.1",
+  "version": "9.5.3",
 
   "icons": {
     "128": "logo128.png"
@@ -44,7 +44,7 @@
       "run_at": "document_start"
     }
   ],
-  
+
   "side_panel": {
     "default_path": "sidepanel.html"
   },

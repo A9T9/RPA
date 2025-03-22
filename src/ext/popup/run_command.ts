@@ -1,14 +1,14 @@
-import { isFirefox } from '@/common/dom_utils';
-import { getState, updateState, ExtensionState } from "../common/global_state";
-import { Command } from "@/services/player/macro"
+import { isFirefox } from '@/common/dom_utils'
+import { getState, updateState, ExtensionState } from '../common/global_state'
+import { Command } from '@/services/player/macro'
 import Ext from '@/common/web_extension'
-import log from "@/common/log"
-import ipc from "@/common/ipc/ipc_cs";
-import * as C from "@/common/constant"
-import { delay, retry } from "@/common/ts_utils";
-import { clearTimerForTimeoutStatus, startSendingTimeoutStatus } from "./timeout_counter"
-import { withTimeout } from "@/common/utils";
-import { getPlayTab,getPlayTabOpenB } from "../common/tab";
+import log from '@/common/log'
+import ipc from '@/common/ipc/ipc_cs'
+import * as C from '@/common/constant'
+import { delay, retry } from '@/common/ts_utils'
+import { clearTimerForTimeoutStatus, startSendingTimeoutStatus } from './timeout_counter'
+import { withTimeout } from '@/common/utils'
+import { getPlayTab, getPlayTabOpenB } from '../common/tab'
 
 // Note: There are several versions of runCommandXXX here. One by one, they have a better tolerence of error
 // 1. sendRunCommand:
@@ -29,11 +29,11 @@ import { getPlayTab,getPlayTabOpenB } from "../common/tab";
 //      Run `runWithHeartBeat` with retry mechanism. only retry when it's a 'lost heart beat' error
 //      When closed/refresh is detected, it will try to send same command to that tab again.
 
-export async function runCommandInPlayTab (command: Command): Promise<RunCommandResult> {
+export async function runCommandInPlayTab(command: Command): Promise<RunCommandResult> {
   log('2. runCommandInPlayTab:>> command:', command)
   clearTimerForTimeoutStatus()
 
-  const superFast = command.extra?.superFast && !['open'].includes(command.cmd) || false
+  const superFast = (command.extra?.superFast && !['open'].includes(command.cmd)) || false
 
   // Note: `disableHeartBeat` is only set to true when current tab will
   // be closed ("reload tab" / "change url" excluded).
@@ -45,7 +45,31 @@ export async function runCommandInPlayTab (command: Command): Promise<RunCommand
 
   // TODO: reduce time here or Omit it??. it takes 100ms
   // **Solution: prepare the tab only once in the beginning of the macro
-  const shouldSkipCommandRun =  superFast ? false : await preparePlayTab(command)
+  const shouldSkipCommandRun = superFast ? false : await preparePlayTab(command)
+  console.log('shouldSkipCommandRun:>>', shouldSkipCommandRun, command)
+
+  // fix here:
+  //|| command.cmd !== 'open'
+
+  if (command.cmd === 'open') {
+    console.log("shouldSkipCommandRun:>> command.cmd === 'open'")
+
+    const timeoutPageLoad = getTimeoutPageLoad(command)
+
+    const promise1 = callPlayTab({
+      command: 'DOM_READY',
+      args: {},
+      ipcCallTimeout: timeoutPageLoad
+    })
+
+    const promise2 = callPlayTab({
+      command: 'HACK_ALERT',
+      args: {},
+      ipcCallTimeout: C.CS_IPC_TIMEOUT
+    })
+
+    await Promise.all([promise1, promise2]).then(() => {})
+  }
 
   if (shouldSkipCommandRun) {
     return {}
@@ -53,14 +77,15 @@ export async function runCommandInPlayTab (command: Command): Promise<RunCommand
 
   try {
     return await runWithRetryOnLostHeartBeat(command)
-  } catch (err){
+  } catch (err) {
     const e = err as Error
     log.error('catched in runCommandInPlayTab', e.stack)
 
-    if (e && e.message && (
-          e.message.indexOf('lost heart beat when running command') !== -1 ||
-          e.message.indexOf('Could not establish connection') !== -1
-        )) {
+    if (
+      e &&
+      e.message &&
+      (e.message.indexOf('lost heart beat when running command') !== -1 || e.message.indexOf('Could not establish connection') !== -1)
+    ) {
       return await runWithRetryOnLostHeartBeat(command)
     }
 
@@ -68,17 +93,17 @@ export async function runCommandInPlayTab (command: Command): Promise<RunCommand
   }
 }
 
-function updateHeartBeatSecret (options?: { disabled?: boolean }): Promise<void> {
+function updateHeartBeatSecret(options?: { disabled?: boolean }): Promise<void> {
   if (options?.disabled) {
     return updateState({ heartBeatSecret: -1 })
   } else {
     return updateState((state) => {
       const oldHeartBeatSecret = state.heartBeatSecret || 0
 
-      return ({
+      return {
         ...state,
         heartBeatSecret: (Math.max(0, oldHeartBeatSecret) + 1) % 10000
-      })
+      }
     })
   }
 }
@@ -102,28 +127,29 @@ function callPlayTab<T = any>(params: PlayTabIPCParams): Promise<T> {
   const ipcNoLaterThan = params.tabIpcNoLaterThan ?? defaultNoLaterThan
   const ipcCallTimeout = params.ipcCallTimeout ?? defaultIpcCallTimeout
 
-  return ipc.ask('PANEL_CALL_PLAY_TAB', {
-    ipcTimeout,
-    ipcNoLaterThan,
-    payload: {
-      command: params.command,
-      args: params.args,
-    }
-  }, ipcCallTimeout)
+  return ipc.ask(
+    'PANEL_CALL_PLAY_TAB',
+    {
+      ipcTimeout,
+      ipcNoLaterThan,
+      payload: {
+        command: params.command,
+        args: params.args
+      }
+    },
+    ipcCallTimeout
+  )
 }
 
 type CheckHeartBeatResponse = {
   secret: string
 }
 
-async function checkHeartBeat (
-  tabIpcTimeout?: number,
-  tabIpcExpiredAt?: number
-): Promise<CheckHeartBeatResponse> {
+async function checkHeartBeat(tabIpcTimeout?: number, tabIpcExpiredAt?: number): Promise<CheckHeartBeatResponse> {
   const disableHeartBeat = await getState('disableHeartBeat')
 
   if (disableHeartBeat) {
-    return { secret: "heart_beat_disabled" }
+    return { secret: 'heart_beat_disabled' }
   }
 
   await updateHeartBeatSecret()
@@ -133,24 +159,23 @@ async function checkHeartBeat (
     tabIpcNoLaterThan: tabIpcExpiredAt,
     command: 'HEART_BEAT',
     args: {}
-  })
-  .catch(e => {
+  }).catch((e) => {
     log.error('at least I catched it', e.message)
     throw new Error('heart beat error thrown')
   })
 }
 
-function shouldWaitForDownloadAfterRun (command: Command): boolean {
+function shouldWaitForDownloadAfterRun(command: Command): boolean {
   // log('shouldWaitForDownloadAfterRun', command)
   return command.cmd === 'click'
 }
 
-function shoudWaitForCommand (command: Command): boolean {
-  // log('shoudWaitForCommand', command)
+function shouldWaitForCommand(command: Command): boolean {
+  log('shouldWaitForCommand:>>', command)
   return /andWait/i.test(command.cmd) || ['open', 'refresh'].indexOf(command.cmd) !== -1
 }
 
-function getCommandTimeout (command: Command): number {
+function getCommandTimeout(command: Command): number {
   const defaultTimeout = command.extra.timeoutElement * 1000
 
   switch (command.cmd) {
@@ -168,7 +193,7 @@ function getCommandTimeout (command: Command): number {
 }
 
 // Note: -1 will disable ipc timeout for 'pause', and 'onDownload' command
-function getIpcTimeout (command: Command): number {
+function getIpcTimeout(command: Command): number {
   const pageLoadTimeout = (command?.extra?.timeoutPageLoad || 60) * 1000
 
   switch (command.cmd) {
@@ -195,16 +220,13 @@ function getIpcTimeout (command: Command): number {
   }
 }
 
-function getTimeoutPageLoad (command: Command): number {
-  return ((command?.extra?.timeoutPageLoad) || 60) * 1000
+function getTimeoutPageLoad(command: Command): number {
+  return (command?.extra?.timeoutPageLoad || 60) * 1000
 }
 
-function withPageLoadCheck <T>(
-  command: Command,
-  timeoutPageLoad: number,
-  promiseFunc: () => Promise<T>
-): Promise<T> {
-  const shouldWait = shoudWaitForCommand(command)
+function withPageLoadCheck<T>(command: Command, timeoutPageLoad: number, promiseFunc: () => Promise<T>): Promise<T> {
+  const shouldWait = shouldWaitForCommand(command)
+  console.log('shouldWait:>>', shouldWait)
 
   if (!shouldWait) {
     return promiseFunc()
@@ -214,11 +236,16 @@ function withPageLoadCheck <T>(
   const clear = startSendingTimeoutStatus(timeoutPageLoad)
 
   return Promise.race([
-    promiseFunc()
-      .then(
-        data => { clear(); return data },
-        e => { clear(); throw e }
-      ),
+    promiseFunc().then(
+      (data) => {
+        clear()
+        return data
+      },
+      (e) => {
+        clear()
+        throw e
+      }
+    ),
     delay(() => {
       throw new Error(`Error #230: Page load ${timeoutPageLoad / 1000} seconds time out`)
     }, timeoutPageLoad)
@@ -226,7 +253,7 @@ function withPageLoadCheck <T>(
 }
 
 type RunCommandResult = {
-  pageUrl?: string;
+  pageUrl?: string
   vars?: Record<string, unknown>
   log?: {
     info?: string
@@ -248,69 +275,84 @@ type RunCommandResponse<T = any> = {
   isIFrame: boolean
 }
 
-function waitForCommandToComplete (command: Command, res: RunCommandResponse): Promise<void> {
-  const timeoutPageLoad  = getTimeoutPageLoad(command)
-  const timeoutHeartbeat = (res?.data?.extra?.timeoutElement as number || 10) * 1000
-  const shouldWait       = shoudWaitForCommand(command)
+function waitForCommandToComplete(command: Command, res: RunCommandResponse): Promise<void> {
+  const timeoutPageLoad = getTimeoutPageLoad(command)
+  const timeoutHeartbeat = ((res?.data?.extra?.timeoutElement as number) || 10) * 1000
+  const shouldWait = shouldWaitForCommand(command)
+
+  // console.log('shouldWait=:>>', shouldWait)
+  // console.log('shouldWait=:>> command', command)
 
   if (!shouldWait) {
     return Promise.resolve()
   }
 
   return delay(() => {}, 2000)
-  .then(() => {
-    // Note: After refresh/redirect, ipc secret in content script changes,
-    // use this fact to tell whether a page is loaded or not
-    return retry(() => {
-      return checkHeartBeat()
-      .then(async (heartBeatResult) => {
-        const lastSecret      = await getState('lastCsIpcSecret')
-        const heartBeatSecret = heartBeatResult.secret
+    .then(() => {
+      // Note: After refresh/redirect, ipc secret in content script changes,
+      // use this fact to tell whether a page is loaded or not
+      return retry(
+        () => {
+          return checkHeartBeat().then(async (heartBeatResult) => {
+            const lastSecret = await getState('lastCsIpcSecret')
+            const heartBeatSecret = heartBeatResult.secret
 
-        if (lastSecret === heartBeatSecret) {
-          throw new Error('Error #220: Still same ipc secret')
+            if (lastSecret === heartBeatSecret) {
+              throw new Error('Error #220: Still same ipc secret')
+            }
+            return true
+          })
+        },
+        {
+          shouldRetry: () => true,
+          timeout: timeoutHeartbeat,
+          retryInterval: 250
         }
-        return true
+      )()
+    })
+    .catch((e) => {
+      const { cmd } = command
+      const isAndWait = /AndWait/.test(cmd)
+
+      console.warn(e)
+
+      if (isAndWait) {
+        const instead = cmd.replace('AndWait', '')
+        throw new Error(
+          `Error #200: '${cmd}' failed. No page load event detected after ${timeoutHeartbeat / 1000} seconds. Try '${instead}' instead. Error details: ` +
+            e.message
+        )
+      } else {
+        throw new Error(
+          `Error #210: '${cmd}' failed. No page load event detected after ${timeoutHeartbeat / 1000}s (!TIMEOUT_WAIT). Error details: ` +
+            e.message
+        )
+      }
+    })
+    .then(() => {
+      const promise1 = callPlayTab({
+        command: 'DOM_READY',
+        args: {},
+        ipcCallTimeout: timeoutPageLoad
       })
-    }, {
-      shouldRetry: () => true,
-      timeout: timeoutHeartbeat,
-      retryInterval: 250
-    })()
-  })
-  .catch(e => {
-    const { cmd }   = command
-    const isAndWait = /AndWait/.test(cmd)
 
-    console.warn(e)
+      const promise2 = callPlayTab({
+        command: 'HACK_ALERT',
+        args: {},
+        ipcCallTimeout: C.CS_IPC_TIMEOUT
+      })
 
-    if (isAndWait) {
-      const instead = cmd.replace('AndWait', '')
-      throw new Error(`Error #200: '${cmd}' failed. No page load event detected after ${timeoutHeartbeat / 1000} seconds. Try '${instead}' instead. Error details: ` + e.message)
-    } else {
-      throw new Error(`Error #210: '${cmd}' failed. No page load event detected after ${timeoutHeartbeat / 1000}s (!TIMEOUT_WAIT). Error details: ` + e.message)
-    }
-  })
-  .then(async () => {
-    await callPlayTab({
-      command: 'DOM_READY',
-      args: {},
-      ipcCallTimeout: timeoutPageLoad
+      return Promise.all([promise1, promise2]).then(() => {})
     })
-
-    await callPlayTab({
-      command: 'HACK_ALERT',
-      args: {},
-      ipcCallTimeout: C.CS_IPC_TIMEOUT
-    })
-  })
 }
 
-async function sendRunCommand (command: Command, retryInfo: any): Promise<RunCommandResult> {
+async function sendRunCommand(command: Command, retryInfo: any): Promise<RunCommandResult> {
   const state = await getState()
   const ipcTimeout = getIpcTimeout(command)
 
-  const superFast = command.extra?.superFast && !['open'].includes(command.cmd) || false
+  console.log('sendRunCommand command:>> ', command)
+
+  const superFast = (command.extra?.superFast && !['open'].includes(command.cmd)) || false
 
   if (state.status !== C.APP_STATUS.PLAYER) {
     throw new Error("can't run command when it's not in player mode")
@@ -323,7 +365,7 @@ async function sendRunCommand (command: Command, retryInfo: any): Promise<RunCom
 
   // TODO: re-consider this, it takes 80+ms
   // Note: each command keeps target page's status as PLAYING
-  if(!superFast) {
+  if (!superFast) {
     await callPlayTab({
       command: 'SET_STATUS',
       args: {
@@ -332,7 +374,7 @@ async function sendRunCommand (command: Command, retryInfo: any): Promise<RunCom
     })
   }
 
-  // TODO: re-consider this, it takes 20ms 
+  // TODO: re-consider this, it takes 20ms
   if (!superFast) {
     await callPlayTab({
       command: 'DOM_READY',
@@ -340,26 +382,24 @@ async function sendRunCommand (command: Command, retryInfo: any): Promise<RunCom
       ipcCallTimeout: ipcTimeout
     })
   }
-console.log('run command:>> ', command)
+
+  console.log('run command:>> ', command)
+
   const res = await callPlayTab<RunCommandResponse>({
     command: 'RUN_COMMAND',
     args: {
       command: {
         ...command,
-          extra: {
-            ...(command.extra || {}),
-            retryInfo
-          }
+        extra: {
+          ...(command.extra || {}),
+          retryInfo
+        }
       }
     },
     ipcCallTimeout: ipcTimeout
   })
 
-  await withPageLoadCheck(
-    command,
-    getTimeoutPageLoad(command),
-    () => waitForCommandToComplete(command, res)
-  )
+  await withPageLoadCheck(command, getTimeoutPageLoad(command), () => waitForCommandToComplete(command, res))
 
   const secret = (res.data as any)?.secret
 
@@ -370,27 +410,26 @@ console.log('run command:>> ', command)
   return res.data
 }
 
-function isTimeoutError (msg: string): boolean {
-  return !!msg &&
-          (msg.indexOf('timeout reached when looking for') !== -1 ||
-            msg.indexOf('timeout reached when waiting for') !== -1 ||
-            msg.indexOf('element is found but not visible yet') !== -1 ||
-            msg.indexOf('IPC Promise has been destroyed') !== -1)
+function isTimeoutError(msg: string): boolean {
+  return (
+    !!msg &&
+    (msg.indexOf('timeout reached when looking for') !== -1 ||
+      msg.indexOf('timeout reached when waiting for') !== -1 ||
+      msg.indexOf('element is found but not visible yet') !== -1 ||
+      msg.indexOf('IPC Promise has been destroyed') !== -1)
+  )
 }
 
-
-async function runCommandWithRetry (command: Command): Promise<RunCommandResult> {
+async function runCommandWithRetry(command: Command): Promise<RunCommandResult> {
   // Note: add timerSecret to ensure it won't clear timer that is not created by this function call
   const timerSecret = Math.random()
   await updateState({ timerSecret })
 
-  console.log(`runCommandWithRetry:>> command: ${command}`)
+  console.log(`runCommandWithRetry:>> command:>> `, command)
 
   const commandTimeout = getCommandTimeout(command)
   const maxRetryOnIpcTimeout = 1
   let retryCountOnIpcTimeout = 0
-
-  console.log(`runCommandWithRetry:>> ${command.cmd}`)
 
   const fn = retry(sendRunCommand, {
     timeout: commandTimeout,
@@ -419,9 +458,10 @@ async function runCommandWithRetry (command: Command): Promise<RunCommandResult>
       return isTimeoutError(e.message)
     },
     onFirstFail: (e: Error) => {
-      const title = e && e.message && e.message.indexOf('element is found but not visible yet') !== -1
-                        ? 'Tag waiting' // All use Tag Waiting for now  // 'Visible waiting'
-                        : 'Tag waiting'
+      const title =
+        e && e.message && e.message.indexOf('element is found but not visible yet') !== -1
+          ? 'Tag waiting' // All use Tag Waiting for now  // 'Visible waiting'
+          : 'Tag waiting'
 
       startSendingTimeoutStatus(commandTimeout, title)
     },
@@ -436,7 +476,7 @@ async function runCommandWithRetry (command: Command): Promise<RunCommandResult>
   })
 
   try {
-    return await fn(command) as Promise<RunCommandResult>
+    return (await fn(command)) as Promise<RunCommandResult>
   } catch (err) {
     const e = err as Error
 
@@ -452,10 +492,8 @@ async function runCommandWithRetry (command: Command): Promise<RunCommandResult>
   }
 }
 
-function runCommandWithClosureAndErrorProcess (command: Command): Promise<RunCommandResult> {
-
-  return runCommandWithRetry(command)
-  .catch(e => {
+function runCommandWithClosureAndErrorProcess(command: Command): Promise<RunCommandResult> {
+  return runCommandWithRetry(command).catch((e) => {
     console.log('runCommandWithClosureAndErrorProcess c:>>', e)
     // Return default value for storeXXX commands
     if (['storeText', 'storeValue', 'storeChecked', 'storeAttribute'].indexOf(command.cmd) !== -1) {
@@ -486,12 +524,10 @@ function runCommandWithClosureAndErrorProcess (command: Command): Promise<RunCom
   })
 }
 
-function runWithHeartBeat (command: Command): Promise<RunCommandResult> {
-  const isTabOpenForSelectWindow =
-      command.cmd === 'selectWindow' &&
-      /^\s*tab=open\s*$/i.test(command.target)
+function runWithHeartBeat(command: Command): Promise<RunCommandResult> {
+  const isTabOpenForSelectWindow = command.cmd === 'selectWindow' && /^\s*tab=open\s*$/i.test(command.target)
 
-  const superFast = command.extra?.superFast && !['open'].includes(command.cmd) || false
+  const superFast = (command.extra?.superFast && !['open'].includes(command.cmd)) || false
   console.log('2a. runWithHeartBeat:>> superFast:', superFast)
 
   const neverResolvePromise = new Promise<void>(() => {})
@@ -506,14 +542,14 @@ function runWithHeartBeat (command: Command): Promise<RunCommandResult> {
       // 2. it's going to download files, which will kind of reload page and reconnect ipc
 
       const pNoNeedForHearBeat = ((): Promise<boolean> => {
-        if (shoudWaitForCommand(command)) {
+        if (shouldWaitForCommand(command)) {
           return Promise.resolve(true)
         }
 
         return ipc.ask('PANEL_HAS_PENDING_DOWNLOAD', {})
       })()
 
-      return pNoNeedForHearBeat.then(noNeedForHeartBeat => {
+      return pNoNeedForHearBeat.then((noNeedForHeartBeat) => {
         if (noNeedForHeartBeat) {
           updateHeartBeatSecret({ disabled: true })
           return neverResolvePromise
@@ -523,10 +559,9 @@ function runWithHeartBeat (command: Command): Promise<RunCommandResult> {
           return Promise.resolve()
         }
 
-        return checkHeartBeat(100, startTime)
-        .then(
+        return checkHeartBeat(100, startTime).then(
           () => delay(check, 1000),
-          e => {
+          (e) => {
             log.error('lost heart beart!!', e.stack)
             throw new Error('lost heart beat when running command')
           }
@@ -544,21 +579,22 @@ function runWithHeartBeat (command: Command): Promise<RunCommandResult> {
 
   return Promise.race([
     runCommandWithClosureAndErrorProcess(command)
-      .then(data => {
+      .then((data) => {
         console.log('runCommandWithClosureAndErrorProcess data:>> ', data)
         stopInfiniteCheck()
         return data
       })
-      .catch(e => {
+      .catch((e) => {
         stopInfiniteCheck()
         return Promise.reject(e)
       }),
-      superFast ? new Promise(() => {}) as any as Promise<RunCommandResult> :
-    (isTabOpenForSelectWindow ? new Promise(() => {}) : infiniteCheckHeartBeat()) as any as Promise<RunCommandResult>
+    superFast
+      ? (new Promise(() => {}) as any as Promise<RunCommandResult>)
+      : ((isTabOpenForSelectWindow ? new Promise(() => {}) : infiniteCheckHeartBeat()) as any as Promise<RunCommandResult>)
   ])
 }
 
-async function runWithRetryOnLostHeartBeat (command: Command): Promise<RunCommandResult> {
+async function runWithRetryOnLostHeartBeat(command: Command): Promise<RunCommandResult> {
   const runWithHeartBeatRetry = retry(runWithHeartBeat, {
     timeout: getCommandTimeout(command),
     shouldRetry: (e) => {
@@ -570,7 +606,7 @@ async function runWithRetryOnLostHeartBeat (command: Command): Promise<RunComman
     }
   })
 
-  const superFast = command.extra?.superFast && !['open'].includes(command.cmd) || false
+  const superFast = (command.extra?.superFast && !['open'].includes(command.cmd)) || false
   console.log('2b. runWithRetryOnLostHeartBeat:>> superFast', superFast)
 
   const result = await runWithHeartBeatRetry(command)
@@ -606,10 +642,10 @@ type PreparePlayTabIntermediateResult = {
   hasOpenedUrl: boolean
 }
 
-async function openNewUrlInPlayTab (command: Command, startPageLoadCountDown: () => void): Promise<PreparePlayTabIntermediateResult> {
+async function openNewUrlInPlayTab(command: Command, startPageLoadCountDown: () => void): Promise<PreparePlayTabIntermediateResult> {
   const { cmd, target, value } = command
   const [isOpenCommand, shouldSkipCommandRun, url] = (() => {
-    if (cmd === 'open' || cmd === 'openBrowser' ) {
+    if (cmd === 'open' || cmd === 'openBrowser') {
       return [true, false, target]
     }
 
@@ -626,46 +662,48 @@ async function openNewUrlInPlayTab (command: Command, startPageLoadCountDown: ()
 
   startPageLoadCountDown()
   if (cmd === 'openBrowser') {
-    return getPlayTabOpenB((url! as string))
-    .then((tab: chrome.tabs.Tab) => ({ tab, shouldSkipCommandRun, hasOpenedUrl: true }) as PreparePlayTabIntermediateResult)
+    return getPlayTabOpenB(url! as string).then(
+      (tab: chrome.tabs.Tab) => ({ tab, shouldSkipCommandRun, hasOpenedUrl: true }) as PreparePlayTabIntermediateResult
+    )
   } else {
-    return getPlayTab((url! as string))
-    .then((tab: chrome.tabs.Tab) => ({ tab, shouldSkipCommandRun, hasOpenedUrl: true }) as PreparePlayTabIntermediateResult)  
+    return getPlayTab(url! as string).then(
+      (tab: chrome.tabs.Tab) => ({ tab, shouldSkipCommandRun, hasOpenedUrl: true }) as PreparePlayTabIntermediateResult
+    )
   }
 }
 
-function preparePlayTabIPC (
+function preparePlayTabIPC(
   command: Command,
   tab: chrome.tabs.Tab,
   startCountDown: () => void,
   stopCountDown: () => void
 ): Promise<PreparePlayTabIntermediateResult> {
-  return ipc.ask('PANEL_CS_IPC_READY', {
-    tabId: tab.id!,
-    timeout:  100,
-  })
-  .then(
-    () => {
-      return { tab, hasOpenedUrl: false } as PreparePlayTabIntermediateResult
-    },
-    () => {
-      return openNewUrlInPlayTab(command, startCountDown)
-    }
-  )
-  .then(({ tab, hasOpenedUrl, shouldSkipCommandRun }: PreparePlayTabIntermediateResult) => {
-    return callPlayTab({
-      command: 'HEART_BEAT',
-      args: '',
-      tabIpcTimeout: getTimeoutPageLoad(command)
+  return ipc
+    .ask('PANEL_CS_IPC_READY', {
+      tabId: tab.id!,
+      timeout: 100
     })
-    .then(() => {
-      stopCountDown()
-      return { tab, hasOpenedUrl, shouldSkipCommandRun }
+    .then(
+      () => {
+        return { tab, hasOpenedUrl: false } as PreparePlayTabIntermediateResult
+      },
+      () => {
+        return openNewUrlInPlayTab(command, startCountDown)
+      }
+    )
+    .then(({ tab, hasOpenedUrl, shouldSkipCommandRun }: PreparePlayTabIntermediateResult) => {
+      return callPlayTab({
+        command: 'HEART_BEAT',
+        args: '',
+        tabIpcTimeout: getTimeoutPageLoad(command)
+      }).then(() => {
+        stopCountDown()
+        return { tab, hasOpenedUrl, shouldSkipCommandRun }
+      })
     })
-  })
 }
 
-function ensurePlayTabIPC (
+function ensurePlayTabIPC(
   command: Command,
   tab: chrome.tabs.Tab,
   startCountDown: () => void,
@@ -674,37 +712,33 @@ function ensurePlayTabIPC (
   // Note: in case the playing tab exists but not has a broken page, and is not reachable by tabs.sendMessage
   // We should try to run open command again if any
   let timeout = getTimeoutPageLoad(command)
-  return withTimeout(
-    timeout,
-    async () => {
-      try {
-        return await preparePlayTabIPC(command, tab, startCountDown, stopCountDown)
-      } catch (err) {
-        const e = err as Error
+  return withTimeout(timeout, async () => {
+    try {
+      return await preparePlayTabIPC(command, tab, startCountDown, stopCountDown)
+    } catch (err) {
+      const e = err as Error
 
-        if (!/Could not establish connection/.test(e.message)) {
-          return Promise.reject(e)
-        }
-
-        const newTabResult = await openNewUrlInPlayTab(command, startCountDown)
-        return await preparePlayTabIPC(command, newTabResult.tab, startCountDown, stopCountDown)
+      if (!/Could not establish connection/.test(e.message)) {
+        return Promise.reject(e)
       }
+
+      const newTabResult = await openNewUrlInPlayTab(command, startCountDown)
+      return await preparePlayTabIPC(command, newTabResult.tab, startCountDown, stopCountDown)
     }
-  )
-  .catch(e => {
+  }).catch((e) => {
     if (/withTimeout/.test(e.message)) {
       throw new Error(`Ui.Vision fails to open this url`)
     }
-    
+
     if (e.message === 'timeout') {
-      throw new Error(`Error #230: Page load ${(timeout/1000)} seconds time out`)
+      throw new Error(`Error #230: Page load ${timeout / 1000} seconds time out`)
     }
 
     throw e
   })
 }
 
-function createCountDown (timeout: number): [() => void , () => void] {
+function createCountDown(timeout: number): [() => void, () => void] {
   let stopPageLoadCountDown: () => void = () => {}
   const startPageLoadCountDown = () => {
     stopPageLoadCountDown()
@@ -714,11 +748,11 @@ function createCountDown (timeout: number): [() => void , () => void] {
   return [startPageLoadCountDown, stopPageLoadCountDown]
 }
 
-function isChromeSpecialPage (url: string): boolean {
+function isChromeSpecialPage(url: string): boolean {
   return url.startsWith('chrome://') || url.startsWith('chrome-error://')
 }
 
-function waitForPageLoadComplete (tab: chrome.tabs.Tab): Promise<boolean> {
+function waitForPageLoadComplete(tab: chrome.tabs.Tab): Promise<boolean> {
   return new Promise((resolve, reject) => {
     const timeout = 60 * 1000
     const interval = 300
@@ -730,98 +764,115 @@ function waitForPageLoadComplete (tab: chrome.tabs.Tab): Promise<boolean> {
         reject(new Error('timeout'))
       }
 
-      Ext.scripting.executeScript({
-          target: {tabId: tab.id},
+      Ext.scripting
+        .executeScript({
+          target: { tabId: tab.id },
           func: () => {
             return document.readyState
           }
-        }).then((result:any) => {
-          // wait for document ready 
+        })
+        .then((result: any) => {
+          // wait for document ready
           if (result && result[0].result === 'complete') {
             clearInterval(timer)
             resolve(true)
           }
-        }).catch((e:any) => {
+        })
+        .catch((e: any) => {
           console.log('executeScript err:>> ', e)
           if (timeout < elapsed) {
-            reject(new Error('E231: Page load error'))            
+            reject(new Error('E231: Page load error'))
           }
         })
     }, interval)
   })
 }
 
-function preparePlayTab (command: Command): Promise<boolean> {
+function preparePlayTab(command: Command): Promise<boolean> {
   const [startPageLoadCountDown, stopPageLoadCountDown] = createCountDown(getTimeoutPageLoad(command))
-
-  return getPlayTab()
-  // Note: catch any error, and make it run 'getPlayTab(args.url)' instead
-  .catch((e: Error) => ({ id: -1 } as chrome.tabs.Tab))
-  .then ((tab: chrome.tabs.Tab) => {
-    // to check if the playTab window is closed
-    const windowId = tab.windowId
-    // check if window is closed
-    return Ext.windows.get(windowId, { populate: true }).then((win:any) => {
-      // when window is closed, it will return a popup window
-      if (win && win.type == 'popup' && win.tabs.length === 1 && 
-        (win.tabs[0].url.startsWith(`chrome-extension://${Ext.runtime.id}`) 
-        || win.tabs[0].url.match(/moz-extension:\/\/[a-z0-9-]+\//))
-      ) {
-        throw new Error('E530: No browser open. Please close the IDE and then start the browser.')
-      }
-      return tab
-    })
-  })
-  .then((tab: chrome.tabs.Tab) => {
-    // log('after first getPlayTab', tab)
-
-    // On Firefox, it does get ipc from "about:blank", but somehow the connection is not good
-    // it's always reconnecting. so instead of trying to run command on "about:blank",
-    // redirect it to meaningful url
-    const nonresponsiveFirefoxURLs = ['about:home', 'about:blank', 'about:config', 'about:debugging']
-
-    // if tab.url starts with any of the nonresponsiveFirefoxURLs
-    if (Ext.isFirefox() && nonresponsiveFirefoxURLs.some(url => tab.url!.startsWith(url))) {
-      return openNewUrlInPlayTab(command, startPageLoadCountDown)
-      .then(() => waitForPageLoadComplete(tab))
-    }
-
-    // For chrome special URLs like "chrome://extensions/", "chrome://settings/" etc,
-    // if command is "open", we should open it in the same tab
-    // and wait for it to be ready
-    // in some uncertain cases url property in tab object is turned out not to be available
-    if (!tab.url || isChromeSpecialPage(tab.url!)) {
-      return openNewUrlInPlayTab(command, startPageLoadCountDown)
-          .then(() => waitForPageLoadComplete(tab))
-    }
-
-    return ensurePlayTabIPC(command, tab, startPageLoadCountDown, stopPageLoadCountDown)
-    .then(({ tab, hasOpenedUrl, shouldSkipCommandRun }) => {
-      // const p = args.shouldNotActivateTab ? Promise.resolve() : activateTab(tab.id, true)
-      const p = Promise.resolve()
-
-      // Note: wait for tab to confirm it has loaded
-      return p
-      .then(() => ipc.ask('PANEL_CS_IPC_READY', {
-        tabId: tab.id!,
-        timeout: 6000 * 10,
-      }))
-      .then(async () => {
-        if (hasOpenedUrl) {
-          await callPlayTab({
-            command: 'MARK_NO_COMMANDS_YET',
-            args: {},
-            ipcCallTimeout: C.CS_IPC_TIMEOUT
-          })
-        }
-
-        await callPlayTab({
-          command: 'SET_STATUS',
-          args: { status: C.CONTENT_SCRIPT_STATUS.PLAYING },
-          ipcCallTimeout: C.CS_IPC_TIMEOUT
+  console.log('preparePlayTab:>> command:>>', command)
+  return (
+    getPlayTab()
+      // Note: catch any error, and make it run 'getPlayTab(args.url)' instead
+      .catch((e: Error) => ({ id: -1 }) as chrome.tabs.Tab)
+      .then((tab: chrome.tabs.Tab) => {
+        // to check if the playTab window is closed
+        const windowId = tab.windowId
+        // check if window is closed
+        return Ext.windows.get(windowId, { populate: true }).then((win: any) => {
+          // when window is closed, it will return a popup window
+          if (
+            win &&
+            win.type == 'popup' &&
+            win.tabs.length === 1 &&
+            (win.tabs[0].url.startsWith(`chrome-extension://${Ext.runtime.id}`) || win.tabs[0].url.match(/moz-extension:\/\/[a-z0-9-]+\//))
+          ) {
+            throw new Error('E530: No browser open. Please close the IDE and then start the browser.')
+          }
+          return tab
         })
       })
-      .then(() => shouldSkipCommandRun)
-    })
-  })
+      .then((tab: chrome.tabs.Tab) => {
+        // log('after first getPlayTab', tab)
+
+        const ipcTimeout = getIpcTimeout(command)
+        const timeoutPromise = new Promise((resolve, reject) => {
+          setTimeout(() => {
+            reject(new Error(`Error #230: Page load ${ipcTimeout / 1000} seconds time out`))
+          }, ipcTimeout)
+        })
+
+        // On Firefox, it does get ipc from "about:blank", but somehow the connection is not good
+        // it's always reconnecting. so instead of trying to run command on "about:blank",
+        // redirect it to meaningful url
+        const nonresponsiveFirefoxURLs = ['about:home', 'about:blank', 'about:config', 'about:debugging']
+
+        // if tab.url starts with any of the nonresponsiveFirefoxURLs
+        if (Ext.isFirefox() && nonresponsiveFirefoxURLs.some((url) => tab.url!.startsWith(url))) {
+          const openNewURLPromise = openNewUrlInPlayTab(command, startPageLoadCountDown).then(() => waitForPageLoadComplete(tab))
+          return Promise.race([openNewURLPromise, timeoutPromise.then(() => false)])
+        }
+
+        // For chrome special URLs like "chrome://extensions/", "chrome://settings/" etc,
+        // if command is "open", we should open it in the same tab
+        // and wait for it to be ready
+        // in some uncertain cases url property in tab object is turned out not to be available
+        if (!tab.url || isChromeSpecialPage(tab.url!)) {
+          const openNewURLPromise = openNewUrlInPlayTab(command, startPageLoadCountDown).then(() => waitForPageLoadComplete(tab))
+          return Promise.race([openNewURLPromise, timeoutPromise.then(() => false)])
+        }
+
+        return ensurePlayTabIPC(command, tab, startPageLoadCountDown, stopPageLoadCountDown).then(
+          ({ tab, hasOpenedUrl, shouldSkipCommandRun }) => {
+            // const p = args.shouldNotActivateTab ? Promise.resolve() : activateTab(tab.id, true)
+            const p = Promise.resolve()
+
+            // Note: wait for tab to confirm it has loaded
+            return p
+              .then(() =>
+                ipc.ask('PANEL_CS_IPC_READY', {
+                  tabId: tab.id!,
+                  timeout: 6000 * 10
+                })
+              )
+              .then(async () => {
+                if (hasOpenedUrl) {
+                  await callPlayTab({
+                    command: 'MARK_NO_COMMANDS_YET',
+                    args: {},
+                    ipcCallTimeout: C.CS_IPC_TIMEOUT
+                  })
+                }
+
+                await callPlayTab({
+                  command: 'SET_STATUS',
+                  args: { status: C.CONTENT_SCRIPT_STATUS.PLAYING },
+                  ipcCallTimeout: C.CS_IPC_TIMEOUT
+                })
+              })
+              .then(() => shouldSkipCommandRun)
+          }
+        )
+      })
+  )
 }

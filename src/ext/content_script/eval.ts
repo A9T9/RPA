@@ -13,13 +13,13 @@ export type EvalAPI = {
 
 export async function evalViaInject(code: string): Promise<unknown> {
   const api = await untilInjected()
-  log('sending INJECT_RUN_EVAL >>>>>>',code)
+  // log('sending INJECT_RUN_EVAL >>>>>>',code)
   return api.eval(code)
 }
 
 export async function hackAlertInject(code: string): Promise<unknown> {
   const api = await untilHackAlertInjected() // old: await untilInjected() // new: await untilHackAlertInjected()
-  log('sending INJECT_RUN_EVAL >>>>>>',code)
+  // log('sending INJECT_RUN_EVAL >>>>>>',code)
   return api.eval(code)
 }
 
@@ -51,7 +51,7 @@ export function untilHackAlertInjected (): Promise<EvalAPI> {
   }
 
   return retry(() => {
-    log('sending INJECT_READY')
+    // log('sending INJECT_READY untilHackAlertInjected')
     return postMessage(window, window, { cmd: 'INJECT_READY' }, '*', 500)
   }, {
     shouldRetry: () => true,
