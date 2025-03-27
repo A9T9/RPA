@@ -32,7 +32,7 @@
     "@types/uuid": "^9.0.8",
     "aes-js": "^3.1.2",
     "antd": "^5.14.2",
-    "axios": "^1.6.7",
+    "axios": "^1.8.2",
     "buffer": "^6.0.3",
     "codemirror": "^5.65.16",
     "copy-to-clipboard": "^3.3.3",
