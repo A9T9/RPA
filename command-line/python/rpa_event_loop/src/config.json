@@ -1,0 +1,14 @@
+{
+  "read_battery_marco" : "read_battery_marco",
+  "switch_to_util_marco" : "switch_to_util_marco",
+  "switch_to_sol_marco" : "switch_to_sol_marco",
+  "path_autorun_html" : "C:\\ui_vision\\ui.vision.html",
+  "browser_path" : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "voltage_cutoff_low": 50,
+  "voltage_cutoff_high": 80,
+  "timeout_seconds" : 10,
+  "wait_interval" : 10,
+  "num_executions" : 10,
+  "log_location" : "C:\\ui_vision\\logs"
+}
+
