@@ -23,14 +23,8 @@
 
   "web_accessible_resources": [
     {
-      "resources": [
-        "content_script.js",
-        "inject.js",
-        "logo.png"
-      ],
-      "matches": [
-        "<all_urls>"
-      ],
+      "resources": ["content_script.js", "inject.js", "logo.png"],
+      "matches": ["<all_urls>"],
       "extension_ids": []
     }
   ],
@@ -73,15 +67,10 @@
     "sidePanel",
     "scripting"
   ],
-  "host_permissions": [
-    "\u003Call_urls>"
-  ],
-  
+  "host_permissions": ["\u003Call_urls>"],
+
   "content_security_policy": {
-     "extension_pages": "script-src 'self' 'wasm-unsafe-eval';"
-  }
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval';"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5lZjSUnD+H84eJgrScpy+AFUUMLPau0Dqb406lDmnNM3szJglbz50WhxELO17S5eBJ6U5SyqF6Q8ZxagkoYhUYevLvA2pc/EkXlmE5FwDzNx8itssDwnC1ui6aqZOAQNXOPLJLah+RgYdHOtxwE+UsE3GyOkgv/17OmV39t15r+Lzx8bkD0gFZ0XMosH6M4Rrb3pP4eZEzvhwOn1a2SnOOUZDvd2kIxRpi07Imm+3N4503BteVsGwbnxvkWg/7sviOpvrFoc630kkdEKw6OQS3vtlJMXuCo/RuDzXce63Y0HOAOskFydSPRzz4bMD5mDkopeOVjyv+2TOjyNBmno4wIDAQAB"
 }
-
-
-
-
