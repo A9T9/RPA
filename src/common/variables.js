@@ -192,7 +192,7 @@ export default function varsFactory (name = DEFAULT_KEY, options = {}, initial =
       '!TIMEOUT_DOWNLOAD_START': (val) => parseInt(val, 10) >= 0,
       '!CSVREADLINENUMBER': (val) => parseInt(val, 10) >= 0,
       '!OCRLANGUAGE':       (val,store) => isValidOCRLanguage(val,window['store']),
-      '!OCRENGINE':         (val) => [1, 2, 98, 99].indexOf(parseInt(val, 10)) !== -1,
+      '!OCRENGINE':         (val) => [1, 2, 3, 4, 5, 6, 7, 8, 98, 99].indexOf(parseInt(val, 10)) !== -1,
       '!OCRSCALE':          isBoolean,
       '!OCRX':              (val) => parseInt(val, 10) >= 0,
       '!OCRY':              (val) => parseInt(val, 10) >= 0,
