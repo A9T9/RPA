@@ -318,8 +318,6 @@ export class ComputerUseService {
 
           this.messages = error.messages
 
-          // TODO: update this.messages with the messages returned in the error
-
           throw uivError(error)
         })
     } catch (error) {

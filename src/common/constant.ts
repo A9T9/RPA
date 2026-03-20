@@ -1,52 +1,25 @@
+const mk = (list: string[]): Record<string, string> =>
+  list.reduce(
+    (prev, key) => {
+      prev[key] = key
+      return prev
+    },
+    {} as Record<string, string>
+  )
 
-const mk = (list: string[]): Record<string, string> => list.reduce((prev, key) => {
-  prev[key] = key;
-  return prev
-}, {} as Record<string, string>)
+export const APP_STATUS = mk(['NORMAL', 'INSPECTOR', 'RECORDER', 'PLAYER'])
 
-export const APP_STATUS = mk([
-  'NORMAL',
-  'INSPECTOR',
-  'RECORDER',
-  'PLAYER'
-])
+export const INSPECTOR_STATUS = mk(['PENDING', 'INSPECTING', 'STOPPED'])
 
-export const INSPECTOR_STATUS = mk([
-  'PENDING',
-  'INSPECTING',
-  'STOPPED'
-])
+export const RECORDER_STATUS = mk(['PENDING', 'RECORDING', 'STOPPED'])
 
-export const RECORDER_STATUS = mk([
-  'PENDING',
-  'RECORDING',
-  'STOPPED'
-])
+export const PLAYER_STATUS = mk(['PLAYING', 'PAUSED', 'STOPPED'])
 
-export const PLAYER_STATUS = mk([
-  'PLAYING',
-  'PAUSED',
-  'STOPPED'
-])
+export const PLAYER_MODE = mk(['TEST_CASE', 'TEST_SUITE'])
 
-export const PLAYER_MODE = mk([
-  'TEST_CASE',
-  'TEST_SUITE'
-])
+export const CONTENT_SCRIPT_STATUS = mk(['NORMAL', 'RECORDING', 'INSPECTING', 'PLAYING'])
 
-export const CONTENT_SCRIPT_STATUS = mk([
-  'NORMAL',
-  'RECORDING',
-  'INSPECTING',
-  'PLAYING'
-])
-
-export const TEST_CASE_STATUS = mk([
-  'NORMAL',
-  'SUCCESS',
-  'ERROR',
-  'ERROR_IN_SUB'
-])
+export const TEST_CASE_STATUS = mk(['NORMAL', 'SUCCESS', 'ERROR', 'ERROR_IN_SUB'])
 
 export const LAST_SCREENSHOT_FILE_NAME = '__lastscreenshot'
 
@@ -64,5 +37,7 @@ export const CS_IPC_TIMEOUT = 4000
 export const STATE_STORAGE_KEY = 'background_state'
 
 export const ANTHROPIC = {
-  COMPUTER_USE_MODEL: 'claude-3-5-sonnet-20241022'
-}
+  COMPUTER_USE_MODEL: 'claude-sonnet-4-5-20250929',
+  COMPUTER_USE_TOOL_VERSION: 'computer_20250124',
+  COMPUTER_USE_BETA_FLAG: 'computer-use-2025-01-24'
+} as const

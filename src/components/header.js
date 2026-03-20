@@ -32,7 +32,7 @@ import { encrypt } from "../common/encrypt";
 import ipc from "../common/ipc/ipc_cs";
 import FileSaver from "../common/lib/file_saver";
 import { getPlayer, Player } from "../common/player";
-import { readFileAsText } from "../common/ts_utils";
+import { isMac, readFileAsText } from "../common/ts_utils";
 import { cn, compose, range, setIn, updateIn } from "../common/utils";
 import Ext from "../common/web_extension";
 import { getState, updateState } from "../ext/common/global_state";
@@ -1994,7 +1994,7 @@ class Header extends React.Component {
                         </div>
                       ) : (
                         <div className="status-box">
-                          <span>Not Installed</span>
+                          <span> {isMac() ? "Not available/not needed for Mac" : "Not Installed"} </span>
                           <a
                             href={getXScreenCapture().downloadLink()}
                             target="_blank"

@@ -11,7 +11,7 @@ interface Coordinates {
 }
 
 type ScaleImageIfNeededResult = {
-  buffer: ArrayBuffer
+  buffer: ArrayBuffer 
   scaleFactor: number
   originalWidth: number
   originalHeight: number
@@ -322,10 +322,7 @@ class AnthropicService {
     }
   }
 
-  async aiScreenXYProcessImage(
-    imageBuffer: ArrayBuffer,
-    promptText: string
-  ): Promise<ProcessImageResult> {
+  async aiScreenXYProcessImage(imageBuffer: ArrayBuffer, promptText: string): Promise<ProcessImageResult> {
     try {
       const image = await Jimp.read(imageBuffer)
 
@@ -375,7 +372,7 @@ class AnthropicService {
         max_tokens: 1024,
         tools: [
           {
-            type: 'computer_20241022',
+            type: ANTHROPIC.COMPUTER_USE_TOOL_VERSION,
             name: 'computer',
             display_width_px: scaledWidth,
             display_height_px: scaledHeight,
@@ -398,7 +395,7 @@ class AnthropicService {
             ]
           }
         ],
-        betas: ['computer-use-2024-10-22']
+        betas: [ANTHROPIC.COMPUTER_USE_BETA_FLAG]
       })
 
       // Parse both responses
@@ -413,12 +410,11 @@ class AnthropicService {
       console.log('scaleFactor', scaleFactor)
       // console.log('macScaleFactor', macScaleFactor)
 
-
       // Scale coordinates back to original size
       const originalComputerUseCoords = computerUseCoords.coords.map((coord) => ({
-            x: Math.round(coord.x / scaleFactor / window.devicePixelRatio),
-            y: Math.round(coord.y / scaleFactor / window.devicePixelRatio)
-          }))     
+        x: Math.round(coord.x / scaleFactor / window.devicePixelRatio),
+        y: Math.round(coord.y / scaleFactor / window.devicePixelRatio)
+      }))
 
       // Log coordinates
       console.log('Computer Use API coordinates:')

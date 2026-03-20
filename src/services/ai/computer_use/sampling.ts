@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import ComputerUse, { ComputerUseActionResult } from './computer_use'
 import { ComputerUseMessageType } from './model'
+import { ANTHROPIC } from '@/common/constant'
 
 export interface SamplingParams {
   anthropicAPIKey: string
@@ -176,7 +177,7 @@ class Sampling {
         max_tokens: 1024,
         tools: [
           {
-            type: 'computer_20241022',
+            type: ANTHROPIC.COMPUTER_USE_TOOL_VERSION,
             name: 'computer',
             display_width_px: width,
             display_height_px: height,
@@ -185,7 +186,7 @@ class Sampling {
         ],
         messages: params.messages,
         system: params.system,
-        betas: ['computer-use-2024-10-22']
+        betas: [ANTHROPIC.COMPUTER_USE_BETA_FLAG]
       })
 
       console.log('Raw API response:', JSON.stringify(response, null, 2))
