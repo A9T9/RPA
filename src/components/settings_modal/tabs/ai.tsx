@@ -35,8 +35,6 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
   }
 
   async onClickTestPrompt() {
-    console.log('anthropicAPIKey:>> ', this.props.config.anthropicAPIKey)
-
     const anthropicAPIKey = this.props.config.anthropicAPIKey || ''
     if (!anthropicAPIKey) {
       message.error(NO_ANTHROPIC_API_KEY_ERROR)

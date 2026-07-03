@@ -1871,7 +1871,6 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
       return aiPromptGetPromptAndImageArrayBuffers(target)
         .then(({ prompt, mainImageBuffer, searchImageBuffer }) => {
           let anthropicAPIKey = store.getState().config.anthropicAPIKey
-          console.log('anthropicAPIKey :>> ', anthropicAPIKey)
 
           const anthropicService = new AnthropicService(anthropicAPIKey)
           const promptText = prompt
@@ -1977,7 +1976,6 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
             return getFileBufferFromScreenshotStorage(screenshotFileName)
               .then((imageBuffer) => {
                 let anthropicAPIKey = store.getState().config.anthropicAPIKey
-                console.log('anthropicAPIKey :>> ', anthropicAPIKey)
 
                 const anthropicService = new AnthropicService(anthropicAPIKey)
                 const promptText = target

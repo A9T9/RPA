@@ -1413,7 +1413,10 @@ class Header extends React.Component {
                         Cloud OCR: OCR.Space, Engine1 
                       </Radio>
                       <Radio value="2" onClick={() => onChangeDefaultOCREngine("2")}>
-                        Cloud OCR: OCR.Space, Engine2 
+                        Cloud OCR: OCR.Space, Engine2
+                      </Radio>
+                      <Radio value="3" onClick={() => onChangeDefaultOCREngine("3")}>
+                        Cloud OCR: OCR.Space, Engine3
                       </Radio>
                     </Radio.Group>
                     <div>
@@ -1422,7 +1425,7 @@ class Header extends React.Component {
                         type="text"
                         style={{ width: "120px" }}
                         value={this.state.userEnteredOCRAPIKey}
-                        disabled={[1,2].includes( this.props.config.ocrEngine) ? false : true }
+                        disabled={[1,2,3].includes( this.props.config.ocrEngine) ? false : true }
                         onChange={(e) =>
                           {
                             this.setState({ userEnteredOCRAPIKey: e.target.value });    
@@ -1432,7 +1435,7 @@ class Header extends React.Component {
                       <Button
                         type="primary"
                         style={{ marginLeft: "8px" }}
-                        disabled={ [1,2].includes( this.props.config.ocrEngine) ? false : true }
+                        disabled={ [1,2,3].includes( this.props.config.ocrEngine) ? false : true }
                         onClick={() => {
                            // connect to endpoint
                           let key = this.state.userEnteredOCRAPIKey?.trim();
@@ -1445,7 +1448,10 @@ class Header extends React.Component {
  
                           if (!isFreeApiKey) {
                             // it's a pro key  
-                            url = this.props.config.ocrEngine == 1 ? CONFIG.ocr.proApi1Endpoint : CONFIG.ocr.proApi2Endpoint
+                            // Pro endpoints (apipro1 main / apipro2 backup) are shared by ALL
+                            // engines; the engine is selected via the OCREngine request param,
+                            // not the URL. Just use the main pro endpoint here.
+                            url = CONFIG.ocr.proApi1Endpoint
                           } else {
                             url = CONFIG.ocr.freeApiEndpoint
                           }
@@ -2797,11 +2803,10 @@ class Header extends React.Component {
                       inactive: !getLicenseService().hasNoLicense(),
                     })}
                   >
-                    <p>Open-Source Ui.Vision PRO and Enterprise Editions are available 
-					  for users requiring Enterprise capabilities,
-					  including direct file storage, update management, and priority support services. 
-					  Should you have already acquired a license key for either the PRO or Enterprise Edition,
-					  please proceed to enter it below:
+                    <p>Ui.Vision is open-source and free for personal and commercial use.
+					  For premium services like update management and priority support, we offer Pro and Enterprise editions.
+                    </p>
+                    <p>Already have a Pro or Enterprise license key? Please enter it below:
                     </p>
                     <div className="actions">
                       <a href={getLicenseService().getUpgradeUrl()} target="_blank">

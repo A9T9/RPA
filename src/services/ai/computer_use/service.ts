@@ -244,7 +244,6 @@ export class ComputerUseService {
   run = async (promptText: string, value: string, vars: any) => {
     try {
       let anthropicAPIKey = store.getState().config.anthropicAPIKey
-      console.log('anthropicAPIKey :>> ', anthropicAPIKey)
 
       if (!anthropicAPIKey) {
         throw new Error(NO_ANTHROPIC_API_KEY_ERROR)

@@ -1,6 +1,6 @@
 # Ui.Vision [RPA](https://ui.vision/rpa)
 
-- AI Robotic Process Automation, includes Selenium IDE import/export
+- Modern Robotic Process Automation, Selenium IDE compatible
 
 Questions? Suggestions? - Meet us in the Ui.Vision [RPA user forum](https://forum.ui.vision).
 

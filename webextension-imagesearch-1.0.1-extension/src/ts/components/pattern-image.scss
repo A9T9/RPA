@@ -1,0 +1,34 @@
+@import "common";
+
+.pattern-image-container {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: url($checkerboard-image);
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+
+    &.editing {
+        .pattern-image {
+            cursor: crosshair;
+        }
+    }
+
+    .pattern-image {
+        max-width: 100%;
+        height: auto;
+    }
+
+    .confirmation-buttons {
+        display: none;
+        position: absolute;
+        right: 15px;
+        bottom: 15px;
+
+        &.active {
+            display: block;
+        }
+    }
+}

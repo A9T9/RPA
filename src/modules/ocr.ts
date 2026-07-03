@@ -17,7 +17,6 @@ import {
   searchTextInOCRResponse
 } from '@/services/ocr'
 import { getOcrCommandCounter } from '@/services/ocr/command_counter'
-import { getOcrEndpointPicker } from '@/services/ocr/endpoint_picker'
 import { convertOcrLanguageToTesseractLanguage } from '@/services/ocr/languages'
 import { OcrHighlightType } from '@/services/ocr/types'
 import { readableSize } from '@/services/storage/flat/storage'
@@ -41,6 +40,12 @@ export const getOcrResponse = ({
   return new Promise((resolve, reject) => {
     // Note: must make sure `getOcrCommandCounter` is called with args before this (currently it's in `initPlayer`)
     const ocrCmdCounter = getOcrCommandCounter()
+    // Pro keys have two interchangeable endpoints (apipro1 / apipro2). For each
+    // OCR command we try them in a random order: pick one, and if it fails fall
+    // over to the other; if both fail we report an error. This queue holds the
+    // not-yet-tried endpoints for the current command and is rebuilt per command
+    // (per getOcrResponse call), so there is no persisted endpoint history.
+    let proEndpointQueue: Array<{ id: string, key: string, url: string }> | null = null
     const getApiAndKey = () => {
       let stateConfig = store.getState().config
       console.log('config :>> ', config)
@@ -48,7 +53,6 @@ export const getOcrResponse = ({
       const { ocrMode, ocrEngine, ocrSpaceApiKey, ocrOfflineURL, ocrOfflineAPIKey } = stateConfig
 
       console.log('ocrMode :>> ', ocrMode)
-      console.log('ocrSpaceApiKey :>> ', ocrSpaceApiKey)
 
       switch (ocrMode) {
         case 'enabled': {
@@ -56,35 +60,35 @@ export const getOcrResponse = ({
             throw new Error('Please set OCR API key first')
           }
 
-          const ocrEndpointPicker = getOcrEndpointPicker()
-
           // For sample keys check: https://github.com/teamdocs/sidebar_uiv/issues/106
           // All free keys start with "K8...".
           const isFreeApiKey = isOcrSpaceFreeKey(ocrSpaceApiKey)
 
-          if (!isFreeApiKey) {
-            // it's a pro key
-            let proOcrEndpoint
-            if (ocrEngine == 1) {
-              proOcrEndpoint = config.ocr.proApi1Endpoint
-            } else if (ocrEngine == 2) {
-              proOcrEndpoint = config.ocr.proApi2Endpoint
-            }
-
-            let server = ocrEndpointPicker.setSingleServerInstance({
-              id: ocrEngine.toString(),
-              key: ocrSpaceApiKey,
-              url: proOcrEndpoint
-            })
-            return server
-          } else {
-            let server = ocrEndpointPicker.setSingleServerInstance({
-              id: '3',
+          if (isFreeApiKey) {
+            // Free keys have a single endpoint, so there is nothing to fail over to.
+            return Promise.resolve({
+              id: 'free',
               key: ocrSpaceApiKey,
               url: config.ocr.freeApiEndpoint
             })
-            return server
           }
+
+          // Pro key: apipro1 and apipro2 are interchangeable (the engine is
+          // selected via the OCREngine request param, not the URL). Try them in
+          // a random order, falling over to the other one if the first fails.
+          if (!proEndpointQueue) {
+            const pros = [
+              { id: 'pro1', key: ocrSpaceApiKey, url: config.ocr.proApi1Endpoint },
+              { id: 'pro2', key: ocrSpaceApiKey, url: config.ocr.proApi2Endpoint }
+            ]
+            proEndpointQueue = Math.random() < 0.5 ? pros : [pros[1], pros[0]]
+          }
+
+          const next = proEndpointQueue.shift()
+          if (!next) {
+            throw new Error('All OCR servers are down')
+          }
+          return Promise.resolve(next)
         }
 
         case 'offline_enabled': {
@@ -167,8 +171,14 @@ export const getOcrResponse = ({
 
         // Note: check in advance so that it throws error before making OCR requests
         ocrCmdCounter.check()
+        // Short label for the OCR engine being used: Cloud E1/E2/E3 for the
+        // OCR.Space cloud engines, JS for the Javascript (Tesseract) engine,
+        // Local for the XModule local OCR.
+        const engineLabel = engine == 98 ? 'JS'
+                          : engine == 99 ? 'Local'
+                          : 'Cloud E' + engine
         if (store.getState().player.status != 'STOPPED') {
-          store.dispatch(act.addLog('info', `OCR (${lang}) started (${fileSize})`))
+          store.dispatch(act.addLog('info', `OCR (${lang}, ${engineLabel}) started (${fileSize})`))
         }
 
         console.log('#233 engine:>> ', engine)
@@ -266,7 +276,6 @@ export const getOcrResponse = ({
             isOverlayRequired: true,
             getApiUrlAndApiKey: () => {
               return getApiAndKey().then((data) => {
-                console.log('getApiUrlAndApiKey data :>> ', data)
                 //  store.dispatch(act.addLog('info', `OCR request is sent to ${data.url}`))
                 return data
               })
@@ -275,63 +284,37 @@ export const getOcrResponse = ({
               const { ocrMode } = store.getState().config
               console.log('shouldRetry :>> ')
 
-              switch (ocrMode) {
-                case 'enabled':
-                  return getOcrEndpointPicker()
-                    .isAllDown()
-                    .then((down) => !down)
-                case 'offline_enabled':
-                case 'disabled':
-                  return false
-              }
+              // Retry only when there is still an untried pro endpoint to fail
+              // over to. Free/offline have a single endpoint, so never retry.
+              return ocrMode === 'enabled' && proEndpointQueue != null && proEndpointQueue.length > 0
             },
             didGetResponse: (data) => {
               const { server, startTime, endTime, response, error } = data
-              const id = server.id || server.url
 
               console.log('didGetResponse data:>> ', data)
 
-              return getOcrEndpointPicker()
-                .validServers()
-                .then((result) => {
-                  // It hasn't marked current api, so it's safer to tell we have next to try if there are gte 2 servers.
-                  const hasNextToTry = result.servers.length >= 2
+              // Another endpoint is left to try only if the failover queue still
+              // has an entry (pro keys, first failure).
+              const hasNextToTry = proEndpointQueue != null && proEndpointQueue.length > 0
 
-                  let endpointType =
-                    server.url == config.ocr.proApi1Endpoint ? 'pro1' : server.url == config.ocr.proApi2Endpoint ? 'pro2' : 'free'
+              const endpointType =
+                server.url == config.ocr.proApi1Endpoint ? 'pro1' : server.url == config.ocr.proApi2Endpoint ? 'pro2' : 'free'
 
-                  if (response) {
-                    store.dispatch(
-                      act.addLog('info', `OCR result received (${getDuration(startTime, endTime)} from ${endpointType} endpoint)`)
-                    )
-                  } else if (error) {
-                    store.dispatch(
-                      act.addLog(
-                        'warning',
-                        `Error in OCR endpoint ${id} after ${getDuration(startTime, endTime)}: ${error.message}` +
-                          (hasNextToTry ? ' - trying next.' : '')
-                      )
-                    )
-                  }
+              if (response) {
+                store.dispatch(
+                  act.addLog('info', `OCR result received (${getDuration(startTime, endTime)} from ${endpointType} endpoint)`)
+                )
+              } else if (error) {
+                store.dispatch(
+                  act.addLog(
+                    'warning',
+                    `Error in OCR endpoint ${endpointType} after ${getDuration(startTime, endTime)}: ${error.message}` +
+                      (hasNextToTry ? ' - trying next.' : '')
+                  )
+                )
+              }
 
-                  if (id && response) {
-                    getOcrEndpointPicker().use(id)
-                  }
-
-                  if (!id) return Promise.resolve()
-                  // Note: only mark server as error if browser is online
-                  if (!window.navigator.onLine) return Promise.resolve()
-
-                  return getOcrEndpointPicker()
-                    .report(id, {
-                      lastError: error,
-                      lastOcrExitCode: response ? response.OCRExitCode : undefined,
-                      lastRequestTimestamp: startTime,
-                      lastResponseTimestamp: endTime,
-                      lastTotalMilliseconds: endTime - startTime
-                    })
-                    .then(() => {})
-                })
+              return Promise.resolve()
             }
           }).then(
             (data) => {
@@ -350,11 +333,6 @@ export const getOcrResponse = ({
             },
             (e) => {
               cancelCountDown()
-
-              if (/All OCR servers are down/i.test(e.message)) {
-                getOcrEndpointPicker().reset()
-              }
-
               throw e
             }
           )

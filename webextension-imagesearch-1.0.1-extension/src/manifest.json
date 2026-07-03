@@ -1,0 +1,28 @@
+{
+    "manifest_version": 2,
+
+    "name": "Kantu Search",
+    "version": "1.0",
+    "description": "Image search in web pages.",
+
+    "permissions": ["activeTab", "tabs", "<all_urls>"],
+
+    "background": {
+        "scripts": ["js/background.js"],
+        "persistent": true
+    },
+
+    "content_scripts": [
+        {
+            "matches": ["<all_urls>"],
+            "all_frames": true,
+            "match_about_blank": true,
+            "js": ["js/content-script.js"],
+            "run_at": "document_end"
+        }
+    ],
+
+    "browser_action": {
+        "default_icon": "img/kantusearch-logo.png"
+    }
+}

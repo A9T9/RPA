@@ -1,0 +1,53 @@
+@import "common";
+
+.page-container {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.page-row {
+    position: relative;
+}
+
+.page-row-auto {
+    flex-grow: 1;
+}
+
+.upload-file-container {
+    vertical-align: middle;
+    max-width: 8.5rem;
+
+    .btn {
+        display: block;
+        position: absolute;
+        width: 100%;
+        top: 0;
+        right: 0;
+        left: 0;
+        z-index: 1;
+        height: calc(2.25rem + 2px);
+    }
+}
+
+.region-image-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background-position: 0px 0px;
+    background-repeat: repeat;
+    background-image: url($checkerboard-image);
+
+    img {
+        padding: 15px;
+    }
+}
+
+.logs {
+    width: 100%;
+    min-height: 250px;
+    border: 1px solid #ccc;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+}

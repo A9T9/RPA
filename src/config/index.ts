@@ -18,21 +18,21 @@ export default {
   },
   xmodulesLimit: {
     unregistered: {
-      ocrCommandCount: 100,
+      ocrCommandCount: Infinity,
       xCommandCount: Infinity,
-      xFileMacroCount: 10,
+      xFileMacroCount: Infinity,
       proxyExecCount: Infinity,
       upgradeUrl: 'https://goto.ui.vision/x/idehelp?help=k_xupgradepro'
     },
     free: {
-      ocrCommandCount: 250,
+      ocrCommandCount: Infinity,
       xCommandCount: Infinity,
-      xFileMacroCount: 20,
+      xFileMacroCount: Infinity,
       proxyExecCount: Infinity,
       upgradeUrl: 'https://goto.ui.vision/x/idehelp?help=k_xupgradepro'
     },
     pro: {
-      ocrCommandCount: 500,
+      ocrCommandCount: Infinity,
       xCommandCount: Infinity,
       xFileMacroCount: Infinity,
       proxyExecCount: Infinity,
@@ -46,7 +46,7 @@ export default {
     freeApiEndpoint: 'https://api.ocr.space/parse/image',
     proApi1Endpoint: 'https://apipro1.ocr.space/parse/image',
     proApi2Endpoint: 'https://apipro2.ocr.space/parse/image',
-    
+
     apiTimeout: 60 * 1000,
     singleApiTimeout: 30 * 1000,
     apiHealthyResponseTime: 20 * 1000,

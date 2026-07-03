@@ -79,7 +79,25 @@ export async function showPanelWindow ({ params, showSettingsOnStart, selectComm
   const panelTabId = isSidePanelWindow() ?  state.tabIds.lastPanelWindow : state.tabIds.panel
   console.log('panelTabId :>> ', panelTabId)
 
-  return activateTab(panelTabId, true)
+  // After a browser restart or extension reload, `panelTabId` is a stale value
+  // restored from storage. The browser may have since assigned that same tab id
+  // to an unrelated tab (e.g. a Google search tab), so activating it blindly
+  // would focus the wrong tab instead of opening the extension. Only reuse the
+  // stored tab when it really is our panel page; otherwise fall through to
+  // creating a fresh panel window.
+  const isReusablePanelTab = await (async (): Promise<boolean> => {
+    if (panelTabId == null || panelTabId === SIDEPANEL_TAB_ID) return false
+    try {
+      const tab = await Ext.tabs.get(panelTabId)
+      const url = (tab && (tab.url || tab.pendingUrl)) || ''
+      return url.startsWith(Ext.runtime.getURL('popup.html')) ||
+             url.startsWith(Ext.runtime.getURL('sidepanel.html'))
+    } catch (e) {
+      return false
+    }
+  })()
+
+  return (isReusablePanelTab ? activateTab(panelTabId, true) : Promise.reject(new Error('panel tab not reusable')))
   .then(
     (): boolean => false,
     (): Promise<boolean> => {

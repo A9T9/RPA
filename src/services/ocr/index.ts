@@ -36,7 +36,7 @@ export type RunOCROptions = {
   shouldRetry?:       () => boolean | Promise<boolean>;
   scale?:             boolean | 'true' | 'false';
   isTable?:           boolean | 'true' | 'false';
-  engine?:            1 | 2;
+  engine?:            1 | 2 | 3;
   os:                 string;
 }
 
@@ -208,16 +208,14 @@ export function runOCRLocal (options: RunOCROptions): Promise<any> {
 export function runOCR (options: RunOCROptions): Promise<any> {
   const scaleStr = (options.scale + '').toLowerCase()
   const scale    = ['true', 'false'].indexOf(scaleStr) !== -1 ? scaleStr : 'true'
-  const engine   = [1, 2].indexOf(options.engine || 0) !== -1 ? options.engine : 1
+  const engine   = [1, 2, 3].indexOf(options.engine || 0) !== -1 ? options.engine : 1
   const singleRun = (): Promise<OcrResponse> => {
     return options.getApiUrlAndApiKey()
     .then(server => {
       const { url, key } = server
       const f = new FormData()
 
-      console.log('runOCR url:>> ',url);
-      console.log('runOCR key:>> ',key);
-
+      // Note: never log `key` here - it is the user's secret OCR API key.
       f.append('apikey', key)
       f.append('language', options.language)
       f.append('scale', scale as string)
@@ -315,28 +313,38 @@ export function testOcrSpaceAPIKey ({url, key }: { url:string, key: string }): P
  
       const f = new FormData()
 
-      console.log('runOCR url:>> ',url);
-      console.log('runOCR key:>> ',key);
+      f.append('apikey', key)
+      // Attach a tiny dummy file so the API gets past content validation
+      // and actually authenticates the key. Without a file it returns
+      // "E400: No content provided" before ever checking the key.
+      f.append('file', new Blob(['x'], { type: 'text/plain' }), 'test.txt')
 
-      f.append('apikey', key)    
+      // The key is valid unless the API explicitly rejects the KEY itself.
+      // A bad key -> HTTP 403 + "E555: API key not valid".
+      // A good key -> HTTP 400 + "E501: Not an image or PDF" (our dummy file
+      // isn't an image). superagent rejects ALL non-2xx responses, so we must
+      // inspect the response in BOTH the success and error handlers.
+      const isKeyRejected = (res: any): boolean => {
+        if (!res) return false
+        const body    = res.body || {}
+        const errText = (body.error || res.text || '').toString()
+        return res.status === 403 || errText.includes('API key not valid') || errText.includes('E555')
+      }
 
       return withTimeout(10 * 1000, () => {
         return request.post(url)
         .send(f)
       })
       .then(
-        (res) => {
-
-          // if res.body is json object
-          if (res.body && res.body.ErrorMessage && res.body.ErrorMessage.length > 0 && res.body.ErrorMessage[0] === "Unable to recognize the file type") {
-            // key is valid
-            return true
-          } else {
-            return false
-          }
-        })
-      .catch(e => { 
+        (res) => !isKeyRejected(res))
+      .catch(e => {
         console.log('testOcrSpaceAPIKey e:>> ',e);
+        // Non-2xx responses (incl. the expected 400 for a valid key) land here.
+        // Only treat it as invalid when the API actually rejected the key.
+        if (e && e.response) {
+          return !isKeyRejected(e.response)
+        }
+        // Network/timeout error - cannot validate.
         return false
       })
 }

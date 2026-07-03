@@ -16,6 +16,19 @@ var distDir = (function () {
   }
 })()
 
+// In production builds (the `build`/`build-ff` scripts set NODE_ENV=production)
+// strip console.log/info/debug to cut noise and avoid leaking data. Keep
+// console.error/warn. Dev builds (`start`) keep all logging.
+var isProd = process.env.NODE_ENV === 'production'
+// Base plugins mirror what .babelrc declared; kept inline so babel-loader is
+// self-contained (babelrc:false below) and option merging stays deterministic.
+var basePlugins = ['@babel/plugin-transform-modules-commonjs']
+// In production builds strip console.log/info/debug (keep error/warn) to cut
+// noise and avoid leaking data. Dev builds (`start`) keep all logging.
+var babelPlugins = isProd
+  ? basePlugins.concat([['transform-remove-console', { exclude: ['error', 'warn'] }]])
+  : basePlugins
+
 module.exports = {
   entry: {
     popup:            './src/index.js',
@@ -53,7 +66,10 @@ module.exports = {
         use: {
           loader: 'babel-loader',
           options: {
-            presets: ['@babel/preset-env', '@babel/preset-react', '@babel/preset-typescript']
+            babelrc: false,
+            configFile: false,
+            presets: ['@babel/preset-env', '@babel/preset-react', '@babel/preset-typescript'],
+            plugins: babelPlugins
           }
         }
       },
@@ -63,7 +79,10 @@ module.exports = {
         use: {
           loader: 'babel-loader',
           options: {
-            presets: ['@babel/preset-env', '@babel/preset-react']
+            babelrc: false,
+            configFile: false,
+            presets: ['@babel/preset-env', '@babel/preset-react'],
+            plugins: babelPlugins
           }
         }
       },
@@ -165,16 +184,19 @@ module.exports = {
       backgroundFileName: 'background.js',
       createManifestJson: ({ getFilesForEntryPoint }) => {
         if (process.env.BROWSER === 'firefox') {
+          // remove these permissions from firefox because 
+          // either because they are unavailable in firefox
+          // or they create issues
           manifestJson['permissions'] = manifestJson['permissions'].filter(p => {
             return [
-              'pageCapture', 'debugger', 'webNavigation', 'management', 'downloads.shelf'
+             'debugger', 'webNavigation', 'management', 'downloads.ui', 'sidePanel'
             ].indexOf(p) === -1
           })
 
           manifestJson['browser_specific_settings'] = {
             gecko: {
-				id: 'kantu@a9t9.com',
-				strict_min_version: '115.0'			
+              id: 'kantu@a9t9.com',
+              strict_min_version: '115.0'			
             }
           }
 
@@ -201,11 +223,7 @@ module.exports = {
 
           delete manifestJson['offline_enabled']
           delete manifestJson['options_page']    
-          
-          // remove  sidePanel from permissions
-          manifestJson['permissions'] = manifestJson['permissions'].filter(p => {
-            return p !== 'sidePanel'
-          })     
+              
         }
 
         manifestJson['content_scripts'][0]['js']  = getFilesForEntryPoint('content_script')
