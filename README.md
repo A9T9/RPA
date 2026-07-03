@@ -1,6 +1,7 @@
 # Ui.Vision [RPA](https://ui.vision/rpa)
 
 - Modern Robotic Process Automation, Selenium IDE compatible
+- Ui.Vision is open-source and **free** for personal and commercial use.
 
 Questions? Suggestions? - Meet us in the Ui.Vision [RPA user forum](https://forum.ui.vision).
 
