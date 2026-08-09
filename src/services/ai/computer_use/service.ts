@@ -6,7 +6,13 @@ import { store } from '@/redux'
 import { NO_ANTHROPIC_API_KEY_ERROR } from '../anthropic'
 import Sampling, { ClaudeSamplingMessage, SamplingError, SamplingParams } from './sampling'
 import OpenAICompatSampling, { ISamplingEngine } from '../openai_compatible/sampling'
-import { getInstallIdSync, isFreeTierConsentPending, mapUIVisionFreeTierError } from '../uivision_free_tier'
+import {
+  getInstallIdSync,
+  getProKey,
+  isFreeTierConsentPending,
+  isProTier,
+  mapUIVisionFreeTierError
+} from '../uivision_free_tier'
 import { isCdpInputAvailable } from '@/services/cdp_input'
 import { ComputerUseMessageType } from './model'
 
@@ -26,6 +32,9 @@ export type AIProviderConfig = {
   baseURL: string
   model: string
   label: string
+  // 'uivision' only: 'pro' once a PRO key is actually in use, so error texts
+  // can stop offering a paying customer the "add your own API key" advice
+  tier?: 'free' | 'pro'
 }
 
 // API keys arrive via copy/paste, which likes to add whitespace or capitalize
@@ -43,15 +52,22 @@ export const getAIProviderConfig = (): AIProviderConfig => {
   const provider = config.aiProvider || 'uivision'
 
   switch (provider) {
-    case 'uivision':
+    case 'uivision': {
+      // PRO is the same endpoint with the purchased key in the Bearer header.
+      // Picking PRO without entering a key falls back to the install ID, so
+      // the AI keeps working on free quota instead of failing — the settings
+      // tab says so next to the empty field.
+      const proKey = isProTier(config) ? getProKey(config) : ''
       return {
         provider,
-        // pseudonymous install ID rides in the existing Bearer header
-        apiKey: getInstallIdSync(),
+        tier: proKey ? 'pro' : 'free',
+        // the PRO key, or the pseudonymous install ID, in the Bearer header
+        apiKey: proKey || getInstallIdSync(),
         baseURL: C.OPENAI_COMPAT.UIVISION_BASE_URL,
         model: C.OPENAI_COMPAT.UIVISION_PLACEHOLDER_MODEL,
-        label: 'Ui.Vision AI'
+        label: proKey ? 'Ui.Vision AI PRO' : 'Ui.Vision AI'
       }
+    }
     case 'openrouter':
       return {
         provider,
@@ -81,7 +97,7 @@ export const getAIProviderConfig = (): AIProviderConfig => {
 
 const uivError = (error: any, providerLabel = 'Anthropic') => {
   if (error instanceof Error) {
-    const freeTierMessage = mapUIVisionFreeTierError(error.message)
+    const freeTierMessage = mapUIVisionFreeTierError(error.message, getAIProviderConfig().tier === 'pro')
     if (freeTierMessage) {
       return new Error(freeTierMessage)
     }

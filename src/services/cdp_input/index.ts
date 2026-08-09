@@ -299,3 +299,118 @@ export const sendCdpMouseEvent = (tabId: number, event: MouseEvent): Promise<boo
     { cleanupTimeout: DETACH_AFTER_IDLE_MS }
   )
 }
+
+// The screen-origin calibration probe (see run_command's getViewportRectInScreen).
+//
+// The sampler that measures the origin is a mousemove listener on the play
+// tab's TOP document, and a plugin-hosted viewport swallows the probe: Chrome's
+// built-in PDF viewer fills the page with an <embed> that is an OUT-OF-PROCESS
+// frame, so a CDP mouse move over it is routed to that frame and the top
+// document never sees the event. Measured 2026-08-09 on
+// download.ui.vision/demo/pdf-test.pdf, side panel docked left: the probe never
+// produced a measurement, the derived fallback came out 378px wrong in x (the
+// panel's width, which screenLeft + 8 knows nothing about) and 275px in y, and
+// the FIRST browser-scope XClick on every freshly loaded PDF landed there. The
+// second one was always right — the mis-aimed OS mouse move the first click
+// performs generates a real trusted mousemove, which calibrates it. Reloading
+// the PDF without moving the mouse reproduced the miss every time, while the
+// identical sequence on an ordinary HTML page measured correctly.
+//
+// So give the top document something of its own to be hit: a transparent
+// full-viewport overlay, added and removed inside the SAME debugger session as
+// the move, so the hit test resolves in the top frame. On an ordinary page this
+// changes nothing (the probe already worked there); on a plugin page it is the
+// difference between a measured origin and a click hundreds of pixels away.
+const PROBE_OVERLAY_ID = '__uivision_screen_origin_probe__'
+
+// Resolves only once the overlay has been COMPOSITED and the viewport has
+// stopped moving. Two separate reasons to wait, both measured:
+//
+// (1) Hit-testing does not consult the DOM — it runs in the browser process
+//     against the last committed compositor frame — so a move dispatched in the
+//     same tick as the insert is routed by the OLD hit-test data, straight back
+//     into the plugin frame. That defeated the first version of this fix: the
+//     overlay was in the DOM, the move ignored it. Hence the animation frames.
+//
+// (2) Attaching the debugger raises Chrome's "is debugging" infobar, which
+//     pushes the page down ~56px and shrinks innerHeight — and during that
+//     animation the event's own coordinates and window.innerHeight update at
+//     DIFFERENT moments. A sample taken mid-transition pairs an already-shifted
+//     oy with a stale innerHeight, and GET_VIEWPORT_RECT_IN_SCREEN's barShift
+//     correction then double-counts the bar. Measured 2026-08-09 on one page
+//     nobody touched: origin y of 254 during the animation, then 201 with the
+//     bar up and 145 with it gone — 254 is 201 plus one whole bar height, and a
+//     click aimed with it lands a bar height away. So wait for innerHeight to
+//     hold still before letting the probe's event be dispatched; once the
+//     SAMPLE is clean, later reads self-correct as the bar comes and goes.
+//
+// Capped, because a page that resizes continuously (an animating layout) would
+// otherwise never settle — a late probe still beats no probe.
+const ADD_PROBE_OVERLAY = `new Promise(function (resolve) {
+  var d = document.getElementById(${JSON.stringify(PROBE_OVERLAY_ID)});
+  if (!d) {
+    d = document.createElement('div');
+    d.id = ${JSON.stringify(PROBE_OVERLAY_ID)};
+    d.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;z-index:2147483647;background:transparent;pointer-events:auto';
+    (document.body || document.documentElement).appendChild(d);
+  }
+  var last = -1, stable = 0, waited = 0;
+  (function settle () {
+    var h = window.innerHeight;
+    stable = h === last ? stable + 1 : 0;
+    last = h;
+    if (stable >= 3 || waited >= 1500) {
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () { resolve(true) });
+      });
+      return;
+    }
+    waited += 60;
+    setTimeout(settle, 60);
+  })();
+})`
+
+const REMOVE_PROBE_OVERLAY = `(function () {
+  var d = document.getElementById(${JSON.stringify(PROBE_OVERLAY_ID)});
+  if (d && d.parentNode) d.parentNode.removeChild(d);
+  return true;
+})()`
+
+export const calibrateScreenOriginViaCdp = (tabId: number): Promise<boolean> => {
+  ensureDebuggerApi('the screen-origin probe is', 'XClick with the mouse already over the page')
+  if (typeof tabId !== 'number') return Promise.resolve(false)
+
+  return withDebugger(
+    { tabId },
+    (api: any) => {
+      const evaluate = (expression: string, awaitPromise = false) =>
+        api.sendCommand('Runtime.evaluate', { expression, returnByValue: true, awaitPromise })
+      // The overlay must come down even if the move throws — a page left with
+      // an invisible full-viewport div would swallow every later click, a far
+      // worse bug than the one this fixes.
+      const takeDown = (finish: () => any) => evaluate(REMOVE_PROBE_OVERLAY).then(finish, finish)
+
+      // TWO moves at different points: a mousemove to the position the pointer
+      // is already at can be coalesced away, and the sampler only needs one
+      // event to fire — whichever of the two lands is enough.
+      return evaluate(ADD_PROBE_OVERLAY, true)
+        .then(() => api.sendCommand('Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x: 1,
+          y: 1,
+          button: 'none'
+        }))
+        .then(() => api.sendCommand('Input.dispatchMouseEvent', {
+          type: 'mouseMoved',
+          x: 12,
+          y: 12,
+          button: 'none'
+        }))
+        .then(
+          () => takeDown(() => api.done(null, true)),
+          (e: Error) => takeDown(() => api.done(e))
+        )
+    },
+    { cleanupTimeout: DETACH_AFTER_IDLE_MS }
+  )
+}

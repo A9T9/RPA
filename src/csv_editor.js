@@ -69,7 +69,8 @@ class App extends React.Component {
 
     if (!csvFile) return
 
-    document.title = csvFile + ' - RPA CSV Editor'
+    // the same raw-text editor serves both file types of the CSV/TXT tab
+    document.title = csvFile + (/\.txt$/i.test(csvFile) ? ' - RPA Text Editor' : ' - RPA CSV Editor')
 
     getStorageManager()
     .getCSVStorage()

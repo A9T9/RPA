@@ -1,4 +1,5 @@
 import { delay, dpiFromFileName, getPageDpi, ensureExtName, dataURItoBlob } from './common/utils'
+import { isMac } from './common/ts_utils'
 import { ComputerVisionType, isCVTypeForDesktop } from './common/cv_utils';
 import { activateTab } from './common/tab_utils'
 import { getStorageManager } from './services/storage'
@@ -40,14 +41,48 @@ export function searchVision(args: SearchVisionParams): Promise<SearchVisionResu
   const patternDpi            = dpiFromFileName(visionFileName) || 96
   const pageDpi               = getPageDpi()
   const pStorageMan           = Promise.resolve(getStorageManager())
+  // PLATFORM VARIANT: on macOS, 'tab_dpi_96.png' uses 'tab_mac_dpi_96.png'
+  // instead when that file exists. Widgets are drawn by the OS, not by the
+  // image search — the same control has different corner radii, fonts, focus
+  // rings and antialiasing on macOS, so an image captured on Windows scores
+  // just under the bar rather than failing outright (0.55-0.59 against a 0.60
+  // default, measured on the shipped sidebar/toolbar anchors). Raising the
+  // threshold would paper over it; shipping the platform's own pixels does
+  // not. Falls back to the base name, so one image still serves every platform
+  // where the target looks the same — which is why the plain black-on-white
+  // range_* words need no variant.
+  //
+  // '_mac' goes BEFORE the dpi tag so '_dpi_<n>' stays the LAST element of the
+  // name: the rescaler reads it, and the resource/rename paths anchor on it
+  // ( /_dpi_\d+$/ and /(?:_dpi_\d+)?\.png$/ ), so a suffix after it would
+  // quietly break them.
+  const platformVariantOf     = (fileName: string): string | null => {
+    if (!isMac()) return null
+    if (/_mac(?:_dpi_\d+)?\.png$/i.test(fileName)) return null
+    if (!/\.png$/i.test(fileName)) return null
+
+    return /_dpi_\d+\.png$/i.test(fileName)
+      ? fileName.replace(/(_dpi_\d+\.png)$/i, '_mac$1')
+      : fileName.replace(/\.png$/i, '_mac.png')
+  }
   const getPatternImage       = (fileName: string) => {
     return pStorageMan.then(storageMan => {
       const visionStorage = storageMan.getVisionStorage()
+      const variant       = platformVariantOf(fileName)
 
-      return visionStorage.exists(fileName)
-      .then(existed => {
-        if (!existed) throw new Error(`Error #121: ${command.cmd}: No input image found for file name '${fileName}'`)
-        return visionStorage.read(fileName, 'DataURL')
+      const pickName = () => {
+        if (!variant) return Promise.resolve(fileName)
+        return visionStorage.exists(variant)
+        .then((hasVariant: boolean) => hasVariant ? variant : fileName)
+        .catch(() => fileName)
+      }
+
+      return pickName().then((name: string) => {
+        return visionStorage.exists(name)
+        .then(existed => {
+          if (!existed) throw new Error(`Error #121: ${command.cmd}: No input image found for file name '${fileName}'`)
+          return visionStorage.read(name, 'DataURL')
+        })
       })
     })
   }

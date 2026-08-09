@@ -1,5 +1,6 @@
 import { getAIProviderConfig } from '@/services/ai/computer_use/service'
 import { chatCompletionsUrl } from '@/common/uiv_link'
+import { uivInstallHeader } from '@/services/ai/uivision_free_tier'
 import { CoordSpace, coordSpaceForModel } from '@/services/ai/openai_compatible/sampling'
 
 // OpenAI-compatible vision calls for aiPrompt and aiScreenXY.
@@ -115,7 +116,9 @@ export async function askOpenAICompatible (
       // and it stays out of the request body schema. It is a HINT, not a
       // trust boundary — the client sets it, so route COST on it, not access.
       'X-UIV-Task': task,
-      'X-Title': 'Ui.Vision RPA'
+      'X-Title': 'Ui.Vision RPA',
+      // device id — our proxy only; on PRO the Bearer header is the account key
+      ...uivInstallHeader(providerConfig.baseURL)
     },
     body: JSON.stringify(body)
   })

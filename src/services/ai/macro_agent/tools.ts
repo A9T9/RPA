@@ -316,6 +316,26 @@ export class MacroAgentTools {
     return store.getState().editor.editing
   }
 
+  // The logs store keeps only the last 500 entries (ADD_LOGS slices), so
+  // collecting a run's lines by index breaks PERMANENTLY once the cap is hit:
+  // logs.length pins at 500 and slice(lengthBefore) returns [] for every run
+  // after (seen after an error flood wedged a play tab — all later bridge runs
+  // reported "(no log output)"). Mark the run's start with the last entry's
+  // unique id instead and cut after that entry; if the marker is gone (evicted
+  // by 500+ new lines, or the user cleared the log), everything still in the
+  // store is newer than the marker — take it all.
+  private logMarker = (): string | null => {
+    const logs = store.getState().logs
+    return logs.length ? logs[logs.length - 1].id : null
+  }
+
+  private logsSinceMarker = (marker: string | null): any[] => {
+    const logs = store.getState().logs
+    if (marker === null) return logs
+    const idx = logs.findIndex((l: any) => l.id === marker)
+    return idx === -1 ? logs : logs.slice(idx + 1)
+  }
+
   private getMacroName(): string {
     const src = this.getEditing().meta && this.getEditing().meta.src
     return src && src.name && src.name.length ? src.name : 'Untitled'
@@ -333,6 +353,22 @@ export class MacroAgentTools {
     })
     if (!problems.length) return null
     return `Error: the macro uses deprecated commands:\n${problems.join('\n')}\nPlease resubmit the macro with the modern commands.`
+  }
+
+  // Reject minified one-liner scripts — some models (first seen with
+  // gpt-5.6-luna, live 2026-08-06) emit the whole Script as a single
+  // semicolon-joined line. Valid JS, so nothing downstream complains, but
+  // unreadable in the editor. The error asks for a formatted resubmit of the
+  // same program (self-correct pattern, like checkDeprecatedCommands).
+  // Heuristic: average line length far above what indented code produces
+  // (formatted code averages ~40-60 chars/line) — a few long lines (xpaths,
+  // banner HTML) inside an otherwise formatted script stay accepted.
+  private checkMinifiedScript = (script: string): string | null => {
+    const len = script.length
+    if (len < 400) return null
+    const lineCount = script.split('\n').length
+    if (len / lineCount <= 160) return null
+    return 'Error: the Script is minified — everything on one line (or a few very long lines). Resubmit the SAME program formatted as readable multi-line JavaScript: one statement per line, normal indentation, real newlines (\\n escapes in the JSON string). Do not change the logic.'
   }
 
   private getMacro = (): string => {
@@ -366,6 +402,11 @@ export class MacroAgentTools {
     const deprecatedError = this.checkDeprecatedCommands(obj.data.commands)
     if (deprecatedError) {
       return { text: deprecatedError, isError: true }
+    }
+
+    const minifiedError = isScript ? this.checkMinifiedScript(obj.data.script) : null
+    if (minifiedError) {
+      return { text: minifiedError, isError: true }
     }
 
     // a visual macro must stay visual unless the user agreed to convert it
@@ -448,6 +489,12 @@ export class MacroAgentTools {
       return { text: deprecatedError, isError: true }
     }
 
+    const minifiedError =
+      typeof obj.data.script === 'string' ? this.checkMinifiedScript(obj.data.script) : null
+    if (minifiedError) {
+      return { text: minifiedError, isError: true }
+    }
+
     // unique name: model's Name, with _1/_2/... appended on collision
     // ('__imported__' is fromJSONString's placeholder for a missing Name).
     // JS script macros always get the .js suffix — it drives the tree icon
@@ -515,7 +562,7 @@ export class MacroAgentTools {
       return { text: 'Error: a macro is already running.', isError: true }
     }
 
-    const logCountBefore = state.logs.length
+    const runLogMarker = this.logMarker()
 
     // same tab targeting as the side panel Play button: the focused window's
     // active WEB tab — a bare query({active:true}) picks tabs[0] in window
@@ -580,7 +627,7 @@ export class MacroAgentTools {
       store.dispatch(act.updateUI({ sidebarTab: 'AiChat', aiRunningMacro: false }))
     }
 
-    const newLogs = store.getState().logs.slice(logCountBefore)
+    const newLogs = this.logsSinceMarker(runLogMarker)
     const logText = newLogs
       .map((l: any) => `[${l.type}] ${l.text}`)
       .join('\n')
@@ -597,13 +644,20 @@ export class MacroAgentTools {
       return { text: 'Error: a JS script is already running.', isError: true }
     }
 
-    const logCountBefore = store.getState().logs.length
+    const runLogMarker = this.logMarker()
     this.params.logMessage(`Running JS script "${this.getMacroName()}"`, 'user', 'result')
     store.dispatch(act.updateUI({ sidebarTab: 'Macro', aiRunningMacro: true }))
 
-    // the agent's Stop must reach the script (runScript resolves at run end)
+    // the agent's Stop must reach the script (runScript resolves at run end).
+    // Track WHO stopped it: a bare "Script stopped" verdict read as a macro
+    // bug (endless while(true) macros can only ever end this way)
+    let stoppedByChat = false
+    const runStart = Date.now()
     const stopWatch = setInterval(() => {
-      if (this.params.shouldStop()) stopScript()
+      if (this.params.shouldStop()) {
+        stoppedByChat = true
+        stopScript()
+      }
     }, 500)
 
     let result: { ok: boolean; error: string | null; errorLine: number | null }
@@ -616,15 +670,18 @@ export class MacroAgentTools {
       store.dispatch(act.updateUI({ sidebarTab: 'AiChat', aiRunningMacro: false }))
     }
 
-    const newLogs = store.getState().logs.slice(logCountBefore)
+    const newLogs = this.logsSinceMarker(runLogMarker)
     const logText = newLogs
       .map((l: any) => `[${l.type}] ${l.text}`)
       .join('\n')
       .slice(-4000)
 
+    const runSeconds = Math.round((Date.now() - runStart) / 1000)
     const verdict = result.ok
       ? 'finished without errors'
-      : `FAILED: ${result.error}${result.errorLine ? ` (script line ${result.errorLine})` : ''}`
+      : result.error === 'Script stopped'
+        ? `STOPPED after ${runSeconds}s — ${stoppedByChat ? 'the chat turn was stopped, which cuts off the running macro' : 'the user pressed Stop'}. This is NOT a macro error, and there is no execution limit: a deliberately endless macro (a while(true) repeater/monitor) can only ever end this way. If the log below shows its loop completing cycles correctly, treat the macro as verified.`
+        : `FAILED: ${result.error}${result.errorLine ? ` (script line ${result.errorLine})` : ''}`
 
     // final values of the script's top-level `var`s — published by the
     // runner into ui.scriptVars; often the fastest way to see WHERE a

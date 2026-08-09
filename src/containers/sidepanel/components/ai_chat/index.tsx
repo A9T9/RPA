@@ -292,7 +292,9 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
 
   chooseFreeTier = () => {
     if (this.props.updateConfig) {
-      this.props.updateConfig({ aiProvider: 'uivision' })
+      // the tier is explicit: "free" here must not inherit a PRO tier left
+      // over in config from a previous selection
+      this.props.updateConfig({ aiProvider: 'uivision', uivisionTier: 'free' })
     }
     this.setState({ freeTierJustChosen: true })
   }

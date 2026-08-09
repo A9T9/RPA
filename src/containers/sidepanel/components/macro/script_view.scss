@@ -177,6 +177,22 @@
     background: rgba(250, 199, 117, 0.4) !important;
   }
 
+  // Scope badge on the Find / Select / Image buttons: which surface that tool
+  // will act on. Deliberately quiet — it rides next to the label and must not
+  // compete with the tool's own icon. The desktop one is the only tinted case:
+  // "this leaves the browser" is the surprising state, page scope is the norm.
+  .script-scope-badge {
+    margin-left: 6px;
+    font-size: 11px;
+    opacity: 0.65;
+    vertical-align: baseline;
+  }
+
+  .script-scope-desktop {
+    color: #d46b08;
+    opacity: 0.95;
+  }
+
   // uiv.* API calls (overlay mode): known calls in brand blue, unknown
   // names marked as probable typos
   .cm-uiv-call {
@@ -210,6 +226,11 @@ html[data-theme='dark'] .sidepanel-script-view {
       .script-tools-title {
         color: #9aa4b2;
       }
+    }
+
+    // #d46b08 is legible on white and muddy on the dark toolbar — lift it
+    .script-scope-desktop {
+      color: #ffa940;
     }
 
     .script-hint {

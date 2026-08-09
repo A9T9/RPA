@@ -33,6 +33,38 @@ const oops = process.env.NODE_ENV === 'production'
                 ? () => {}
                 : (e) => log.error(e.stack)
 
+// PASSIVE screen-origin sampler (Chrome only in effect; Firefox never reads
+// it — mozInnerScreenX is exact). Every trusted mouse event carries the
+// viewport's true screen position as screenX - clientX, so the page tells us
+// the number Chrome has no API for, for free, every time the user moves the
+// mouse. GET_VIEWPORT_RECT_IN_SCREEN prefers this over the derived
+// screenLeft/outerHeight guess (measured 64px wrong on a real system); when no
+// mouse event has happened yet, the XClick path fires one CDP mouse-move to
+// generate one. screenLeft/Top are snapshotted so a window move between the
+// sample and its use is corrected instead of invalidating it. Untrusted
+// events are ignored — a page can dispatchEvent() any screenX it likes, and
+// this number aims real OS clicks.
+let lastScreenOrigin = null
+document.addEventListener('mousemove', (e) => {
+  if (!e.isTrusted) return
+  lastScreenOrigin = {
+    ox: e.screenX - e.clientX,
+    oy: e.screenY - e.clientY,
+    screenLeft: window.screenLeft,
+    screenTop: window.screenTop,
+    // inner/outer heights let a later reader detect IN-WINDOW chrome coming or
+    // going — above all Chrome's own debugger notice, which appears with the
+    // very CDP probe that feeds this sampler and auto-hides seconds later,
+    // sliding the viewport up by its height with NO change to screenLeft/Top.
+    // Measured live: one click aimed 55px low in exactly that window.
+    innerHeight: window.innerHeight,
+    outerHeight: window.outerHeight,
+    // page zoom changes devicePixelRatio in Chrome and re-scales client
+    // coordinates — a sample from another zoom is not correctable, only stale
+    dpr: window.devicePixelRatio
+  }
+}, { capture: true, passive: true })
+
 const state = {
   status: C.CONTENT_SCRIPT_STATUS.NORMAL,
   // Note: it decides whether we're running commands
@@ -1041,7 +1073,35 @@ const bindIPCListener = () => {
           devicePixelRatioService: dprService
         })
 
-        return viewportRectService.getViewportRectInScreen()
+        return viewportRectService.getViewportRectInScreen().then(rect => {
+          // Firefox: the service used mozInnerScreenX — exact, nothing to add
+          if (typeof window.mozInnerScreenX !== 'undefined') {
+            return { ...rect, source: 'exact' }
+          }
+          // Chrome: the service DERIVED the origin from screenLeft/outerHeight
+          // guesses (fixed 8px border, all vertical chrome assumed above the
+          // viewport) — measured 64px wrong on a real system, sending every
+          // browser-scope XClick off target. A trusted mouse event knows the
+          // truth: screenX - clientX IS the origin. lastScreenOrigin holds the
+          // most recent one (any real user mouse-move, or the CDP calibration
+          // probe the XClick path fires when none has happened yet); a window
+          // move since then shows up in screenLeft/Top and shifts it.
+          if (lastScreenOrigin && lastScreenOrigin.dpr === window.devicePixelRatio) {
+            // barShift: in-window chrome (Chrome's debugger notice) appearing
+            // or disappearing since the sample — innerHeight changed while
+            // outerHeight did not. A window RESIZE moves both by the same
+            // amount and cancels out; a top-edge resize shows up in screenTop.
+            const barShift = (window.innerHeight - lastScreenOrigin.innerHeight) -
+              (window.outerHeight - lastScreenOrigin.outerHeight)
+            return {
+              ...rect,
+              x: lastScreenOrigin.ox + (window.screenLeft - lastScreenOrigin.screenLeft),
+              y: lastScreenOrigin.oy + (window.screenTop - lastScreenOrigin.screenTop) - barShift,
+              source: 'measured'
+            }
+          }
+          return { ...rect, source: 'derived' }
+        })
       }
 
       default:

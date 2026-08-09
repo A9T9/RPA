@@ -12,7 +12,7 @@ import { backup } from '../services/backup/backup'
 import log from '../common/log'
 import { fromJSONString } from '../common/convert_utils'
 import config from '../config'
-import { CLASSIC_PREINSTALL, JS_PREINSTALL } from '../config/preinstall_macros'
+import { CLASSIC_PREINSTALL, JS_PREINSTALL, MOVED_JS_PREINSTALL_PATHS } from '../config/preinstall_macros'
 import { WELCOME_SCRIPT, STAR_SCRIPT, CAT_SCRIPT } from '../config/preinstall_js_scripts'
 import Ext from '../common/web_extension'
 import { getMacroExtraKeyValueData } from '../services/kv_data/macro_extra_data'
@@ -1518,10 +1518,31 @@ export function restoreDemoMacros (kind /* 'js' | 'classic' */) {
     log('PREINSTALL_CSV_LIST', PREINSTALL_CSV_LIST)
     log('PREINSTALL_VISION_LIST', PREINSTALL_VISION_LIST)
 
+    // demos that moved to another folder leave a stale copy at their OLD path
+    // on already-installed setups — remove it, or the tree shows the demo
+    // twice. Both name variants are tried: file mode stores plain .js,
+    // browser mode appends .json to the resolved path.
+    const removeMovedDemoCopies = () => {
+      if (kind === 'classic') return Promise.resolve()
+
+      const macroStorage = getStorageManager().getMacroStorage()
+      const p = macroStorage.getPathLib()
+
+      return Promise.all(MOVED_JS_PREINSTALL_PATHS.map(relativePath => {
+        const base = macroStorage.filePath(p.join(config.preinstall.macroFolder, relativePath))
+        return Promise.all([base, `${base}.json`].map(filePath =>
+          macroStorage.fileExists(filePath)
+          .then(exists => exists ? macroStorage.removeFile(filePath) : undefined)
+          .catch(() => undefined)
+        ))
+      }))
+    }
+
     return Promise.all([
       writePreinstallMacroSet(kind === 'classic' ? CLASSIC_PREINSTALL : JS_PREINSTALL),
       installPreinstallCsvs(dispatch),
       installPreinstallVisionImages(dispatch)
     ])
+    .then(result => removeMovedDemoCopies().then(() => result))
   }
 }

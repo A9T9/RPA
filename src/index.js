@@ -1171,6 +1171,11 @@ const updatePageTitle = (args) => {
 // into "Demo and QA Test Scripts (Classic)". The version marker is still
 // written, so installs that predate this keep their upgrade history
 // consistent and the sets are written only once, not on every startup.
+function installFreshMacroSet () {
+  return store.dispatch(installWelcomeMacro())
+  .then(() => store.dispatch(restoreDemoMacros('js')))
+}
+
 function tryPreinstall () {
   return storage.get('preinstall_info')
   .then(info => {
@@ -1179,15 +1184,63 @@ function tryPreinstall () {
     if (askedVersions.indexOf(thisVersion) !== -1) return false
 
     const installOnFresh = !info
-      ? store.dispatch(installWelcomeMacro())
-        .then(() => store.dispatch(restoreDemoMacros('js')))
-        .catch(e => log.warn(`demo macro install failed: ${e && e.message}`))
+      ? installFreshMacroSet()
       : Promise.resolve()
 
+    // The version marker is written ONLY after the install actually
+    // succeeded. It used to be written unconditionally, with the failure
+    // swallowed by a .catch right here — so one transient error (a storage
+    // backend that was not ready yet, a hard-drive root that did not exist)
+    // left the profile permanently marked as "already offered" and the user
+    // never got the demos, on this or any later start.
     return installOnFresh.then(() => storage.set('preinstall_info', {
       ...(info || {}),
       askedVersions: [...askedVersions, thisVersion]
     }))
+  })
+}
+
+// The macro set above is written into ONE storage backend — whichever is
+// current when it runs, which on a fresh install is always browser storage.
+// Installing the FileAccess XModule and switching Storage Mode to "File
+// system (on hard drive)" therefore drops the user into a backend nobody
+// ever seeded: empty macro tree, no welcome tour, no demos, no csv/vision
+// resources for the demos to find. That is the "XModules installed, no demo
+// macros" report — nothing failed, the demos were simply written somewhere
+// else. So seed a backend the first time it is selected, and remember it in
+// preinstall_info.seededModes so this happens at most once per backend.
+//
+// The install only fires while the backend's macro tree is still EMPTY, so
+// an existing hard-drive library is never written into; a backend that
+// already holds macros is just recorded as seeded.
+function ensureStorageModeSeeded (type) {
+  if (type !== StorageStrategyType.Browser && type !== StorageStrategyType.XFile) {
+    return Promise.resolve()
+  }
+
+  const markSeeded = () => storage.get('preinstall_info')
+  .then(cur => storage.set('preinstall_info', {
+    ...(cur || {}),
+    seededModes: [...new Set([...((cur && cur.seededModes) || []), type])]
+  }))
+
+  return storage.get('preinstall_info')
+  .then(info => {
+    const seededModes = (info && info.seededModes) || []
+    if (seededModes.indexOf(type) !== -1) return
+
+    // listR throws when the backend is not usable at all (hard-drive mode
+    // with no reachable root dir) — that is not the moment to seed it
+    return getStorageManager().getMacroStorage().listR()
+    .then(entryNodes => {
+      if (entryNodes && entryNodes.length > 0) return markSeeded()
+
+      log(`seeding demo macros into '${type}' storage`)
+      return installFreshMacroSet().then(markSeeded)
+    })
+  })
+  .catch(e => {
+    log.warn(`could not seed '${type}' storage: ${e && e.message}`)
   })
 }
 
@@ -1241,6 +1294,9 @@ function bindStorageModeChanged () {
       })()
 
       p
+      // seed BEFORE reloading, so a backend selected for the first time
+      // shows its starter macros in the very first tree render
+      .then(() => ensureStorageModeSeeded(type))
       .then(reloadResources)
       .then(() => {
         store.dispatch(Actions.selectInitialMacro(type))
@@ -1303,6 +1359,9 @@ function init () {
   .catch((e) => {
     log.warn('Error in preinstall', e)
   })
+  // covers the profile that STARTS in hard-drive mode (the mode is
+  // persisted, so no StrategyTypeChanged fires on a later start)
+  .then(() => ensureStorageModeSeeded(getStorageManager().getCurrentStrategyType()))
   .then(() => {
     reloadResources()
   })
@@ -1335,6 +1394,21 @@ function init () {
   })
 }
 
+// getStorageManager is a singleton getter: the FIRST call fixes the storage
+// strategy, and its no-argument fallback is XFile. So reaching init() without
+// having called it here put the whole app into hard-drive mode no matter what
+// the config said — macros written and read somewhere the user never chose.
+// Both paths below therefore configure it, the failure path with the same
+// browser default a fresh config carries.
+const initStorageManager = (storageMode) => {
+  getStorageManager(storageMode || StorageStrategyType.Browser, {
+    getConfig: () => store.getState().config,
+    // no macro/folder cap on any storage strategy (the XFile licence limit
+    // was retired 2026-07-26)
+    getMaxMacroCount: () => Promise.resolve(Infinity)
+  })
+}
+
 Promise.all([
   restoreConfig(),
   getXFile().getConfig(),
@@ -1342,12 +1416,10 @@ Promise.all([
 ])
 .then(([config, xFileConfig]) => {
   // Note: This is the first call of getStorageManager
-  getStorageManager(config.storageMode, {
-    getConfig: () => store.getState().config,
-    // no macro/folder cap on any storage strategy (the XFile licence limit
-    // was retired 2026-07-26)
-    getMaxMacroCount: () => Promise.resolve(Infinity)
-  })
-
+  initStorageManager(config.storageMode)
   init()
-}, init)
+}, (e) => {
+  log.warn('startup config failed, falling back to browser storage', e)
+  initStorageManager(StorageStrategyType.Browser)
+  init()
+})

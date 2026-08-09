@@ -14,12 +14,18 @@ import 'codemirror/addon/hint/show-hint.css'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faImage } from '@fortawesome/free-regular-svg-icons/faImage'
 import { faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons/faMagnifyingGlass'
+// scope badges: a monitor for the screen, a browser window for the page
+import { faDesktop } from '@fortawesome/free-solid-svg-icons/faDesktop'
+import { faWindowMaximize } from '@fortawesome/free-regular-svg-icons/faWindowMaximize'
 import { faPlay } from '@fortawesome/free-solid-svg-icons/faPlay'
 import { faStop } from '@fortawesome/free-solid-svg-icons/faStop'
 
 import * as actions from '@/actions'
 import { selectableCommands } from '@/common/command'
 import * as C from '@/common/constant'
+import { isCVTypeForDesktop } from '@/common/cv_utils'
+import { delay } from '@/common/utils'
+import { selectAreaOnDesktop } from '@/ext/common/desktop_vision'
 import csIpc from '@/common/ipc/ipc_cs'
 import { MenuItemType, showContextMenu } from '@/components/context_menu'
 import getSaveTestCase from '@/components/save_test_case'
@@ -61,9 +67,16 @@ const UIV_METHODS = [
   { text: 'browser.click(', displayText: "browser.click('css=locator' | match | x, y) - TRUSTED click via CDP, no XModule; visual = browser.click(uiv.findImage(..))" },
   { text: 'browser.type(', displayText: "browser.type('text') - trusted keystrokes into the FOCUSED element; key codes like '${KEY_ENTER}' work. A navigating ENTER wants {nav: true} - waits for the page it triggers" },
   { text: 'browser.move(', displayText: "browser.move('css=locator' | match | x, y) - trusted mouse-over" },
+  { text: 'browser.down(', displayText: 'browser.down(match | x, y) - trusted mouse BUTTON DOWN; pair with browser.up for a drag' },
+  { text: 'browser.up(', displayText: 'browser.up(match | x, y) - trusted mouse BUTTON UP; the other half of a browser.down drag' },
   { text: 'desktop.click(', displayText: "desktop.click(match | x, y) - real OS click in SCREEN pixels (XModule); reaches OS dialogs. Needs a desktop-scope match: uiv.findImage(f, {scope:'desktop'})" },
   { text: 'desktop.type(', displayText: 'desktop.type(text) - real OS keystrokes (XModule); works outside the browser too' },
   { text: 'desktop.move(', displayText: 'desktop.move(match | x, y) - real OS mouse-move in SCREEN pixels (XModule)' },
+  { text: 'desktop.down(', displayText: 'desktop.down(match | x, y) - real OS mouse BUTTON DOWN; pair with desktop.up for a drag' },
+  { text: 'desktop.up(', displayText: 'desktop.up(match | x, y) - real OS mouse BUTTON UP; the other half of a desktop.down drag' },
+  { text: 'window.focus(', displayText: 'window.focus() - bring the BROWSER WINDOW to the front. A PRECONDITION for uiv.desktop.*: OS input goes to whatever window is frontmost, so call it before uiv.open in a desktop macro' },
+  { text: 'window.resize(', displayText: 'window.resize(1280, 900) -> the ACHIEVED viewport {width, height} - pins the layout a macro was written for; a narrow window flips responsive sites to their mobile layout' },
+  { text: 'window.minimize(', displayText: 'window.minimize() - minimize the browser AND the IDE, to automate an application sitting behind them' },
   { text: 'shot.viewport(', displayText: "shot.viewport('name') -> file name; screenshot of the VISIBLE page. Pipe it: uiv.ocr.read({image: uiv.shot.viewport()})" },
   { text: 'shot.page(', displayText: "shot.page('name') -> file name; screenshot of the WHOLE page (scroll-stitched)" },
   { text: 'shot.element(', displayText: "shot.element('css=#logo', 'name') -> file name; screenshot of ONE element (locator string, not a match)" },
@@ -76,9 +89,18 @@ const UIV_METHODS = [
   { text: 'csv.append(', displayText: "csv.append('log.csv', [ts, value]) - add one row (or an array of rows); creates the file if new" },
   { text: 'csv.write(', displayText: "csv.write('data.csv', rows) - OVERWRITE with a 2D array" },
   { text: 'csv.exists(', displayText: "csv.exists('data.csv') -> true/false, without throwing" },
-  { text: 'exportToDownloads(', displayText: "exportToDownloads('x.png' | 'x.csv' | 'log') - copy a file out of Ui.Vision storage into the browser's Downloads folder" },
+  { text: 'exportToDownloads(', displayText: "exportToDownloads('x.png' | 'x.csv' | 'log') - copy a file out of Ui.Vision storage into the browser's Downloads folder. Also uiv.files.exportToDownloads" },
+  { text: 'files.remove(', displayText: "files.remove('x.png' | 'x.csv' | 'x.txt') - DELETE a file from Ui.Vision storage. Takes any stored name, so it pairs with exportToDownloads: export it, then remove it" },
+  { text: 'files.list(', displayText: 'files.list() -> names of EVERY stored file, screenshots and CSV/TXT alike (csv.list() is the CSV/TXT tab only)' },
+  { text: 'files.exists(', displayText: "files.exists('x.png') -> true/false for any stored file, without throwing" },
   { text: 'download(', displayText: "download('css=a.installer' | url | function, {as: 'name.ext', timeout, wait}) - download from the WEB, returns the on-disk file name; a locator grabs its href/src without clicking, a function runs as the trigger for click-only downloads" },
   { text: 'csv.list(', displayText: 'csv.list() -> names of all stored CSV files' },
+  { text: 'text.read(', displayText: "text.read('prompts.csv') -> the file's RAW text, no CSV parsing - the fix for one-per-line lists saved as .csv that the strict csv.read can never parse. Split it yourself: .split(/\\r?\\n/)" },
+  { text: 'text.write(', displayText: "text.write('notes.txt', string) - write raw text; any known extension is kept as given" },
+  { text: 'clipboard.read(', displayText: 'clipboard.read() -> the system clipboard as a string' },
+  { text: 'clipboard.write(', displayText: 'clipboard.write(text) - put text on the system clipboard' },
+  { text: 'exit(', displayText: "exit('reason') - end the run EARLY and GREEN (a precondition is missing, nothing to do). Not an error: throw for that" },
+  { text: 'findElement(', displayText: "findElement('css=#buy') - alias of uiv.$, the FIRST DOM match" },
   { text: 'open(', displayText: 'open(url) - navigate the tab, waits for page load' },
   { text: 'tabs.select(', displayText: 'tabs.select(2) - switch to tab #2 (ABSOLUTE, 1-based, left to right); returns {index, title, url, active, current} so the script can verify where it landed' },
   { text: 'tabs.list(', displayText: 'tabs.list() -> all tabs of the window as [{index, title, url, active, current}, ...]; current: true = the tab the script acts on (the position read - !CURRENT_TAB_NUMBER is table-macros-only)' },
@@ -137,6 +159,50 @@ function uivHint (cm) {
 // the optional tier segment matters: a tier call is uiv.page.click('css=..'),
 // and the old flat pattern silently stopped matching every one of them
 const FIND_RE = /uiv\.(?:(?:page|browser|desktop|ocr)\.)?(findElements|findElement|findImages|findImage|findTexts|findText|\$\$|\$|click|move)\(\s*(['"])((?:\\.|(?!\2).)*?)\2/
+// The OPTIONS on the same line, for the ones that change what "find" means.
+// Without these the Find button answered a different question from the script
+// it is sitting in: {scope: 'desktop'} searches the SCREEN, and probing it
+// against the browser viewport reported "no matches" for an image that is
+// plainly there — the whole point of the button is to tell those two apart.
+// minScore/engine/language matter for the same reason: a probe run at the
+// default threshold or the configured OCR engine is not the call on the line.
+// Same-line literals only; the target already has that constraint.
+const FIND_OPT_SCOPE = /\bscope\s*:\s*(['"])(desktop|browser)\1/
+const FIND_OPT_MIN_SCORE = /\bminScore\s*:\s*(\d*\.?\d+)/
+const FIND_OPT_ENGINE = /\bengine\s*:\s*(['"])(\w+)\1/
+const FIND_OPT_LANGUAGE = /\blanguage\s*:\s*(['"])(\w+)\1/
+
+const parseFindOptions = (line) => {
+  const opts = {}
+  const scope = FIND_OPT_SCOPE.exec(line)
+  if (scope) opts.scope = scope[2]
+  const minScore = FIND_OPT_MIN_SCORE.exec(line)
+  if (minScore) opts.minScore = Number(minScore[1])
+  const engine = FIND_OPT_ENGINE.exec(line)
+  if (engine) opts.engine = engine[2]
+  const language = FIND_OPT_LANGUAGE.exec(line)
+  if (language) opts.language = language[2]
+  return opts
+}
+
+// Where a tool will act, as a small badge next to its label: a monitor for the
+// SCREEN, a browser window for the page. Screen and page captures look
+// identical until the crop comes back showing the wrong thing, and a "no
+// matches" from the wrong surface reads exactly like a real miss — so the
+// three tools say which one they mean before they are clicked, rather than
+// after. null renders nothing (the cursor is on a line with no finder at all).
+const scopeBadge = (scope) => {
+  if (scope !== 'desktop' && scope !== 'browser') return null
+  const onDesktop = scope === 'desktop'
+  return (
+    <FontAwesomeIcon
+      icon={onDesktop ? faDesktop : faWindowMaximize}
+      className={`script-scope-badge script-scope-${scope}`}
+      title={onDesktop ? 'Searches the SCREEN (desktop scope)' : 'Searches the browser page'}
+    />
+  )
+}
+
 // probe engine per call name (click/move strings are DOM locators)
 const FIND_KIND = {
   '$': 'elementSearch',
@@ -158,6 +224,10 @@ const KNOWN_UIV = new Set([
   // the input tiers themselves — `const b = uiv.browser` is a legitimate use
   // of the bare namespace, and the overlay must not flag it as a typo
   'page', 'browser', 'desktop', 'csv', 'ocr', 'ai', 'shot',
+  // the rest of the namespaces, same reason (`const t = uiv.tabs`)
+  'tabs', 'window', 'text', 'clipboard',
+  // not a call: the "am I the top-level macro, or included?" flag
+  'main',
   // aliases kept in the polyfill (log/sleep synonyms)
   'echo', 'pause'
 ])
@@ -185,7 +255,10 @@ class ScriptView extends React.Component {
     toolsOpen: false, // dev-mode "Script tools" drawer (Find/Select/...)
     // thumbnail of the vision image named on the cursor's line (drawer only)
     imagePreviewUrl: null,
-    imagePreviewName: null
+    imagePreviewName: null,
+    // 'desktop' | 'browser' | null — where the finder on the CURSOR's line
+    // would search, shown as a badge on Find
+    lineScope: null
   }
 
   _lastPreviewFile = null
@@ -558,21 +631,28 @@ class ScriptView extends React.Component {
     }
     const kind = FIND_KIND[m[1]]
     const target = m[3].replace(/\\(.)/g, '$1')
+    const opts = parseFindOptions(line)
+    const onDesktop = opts.scope === 'desktop'
 
     this.setState({ finding: true })
     // highlight the probed line while the search runs (visual link between
     // the code line and the flashing matches on the page)
     this.editor.addLineClass(lineNo, 'background', 'script-find-line')
     try {
-      const r = await probeFind(kind, target)
+      const r = await probeFind(kind, target, opts)
       if (!r.ok) {
         message.error(`Find: ${r.error}`, 3)
       } else if (r.count === 0) {
         message.warning(
           `Find: no matches for ${kind}('${target}')` +
+          (onDesktop ? ' on the SCREEN' : '') +
           (r.hiddenCount ? ` — ${r.hiddenCount} hidden match(es) exist; reveal the element first (click its toggle/icon)` : ''),
           3.5
         )
+      } else if (onDesktop) {
+        // a screen search cannot be flashed inside the page — the matches are
+        // drawn on the capture itself, in the desktop screenshot viewer
+        message.success(`Find: ${r.count} match(es) on the SCREEN — shown on the screenshot`, 2.5)
       } else {
         message.success(`Find: ${r.count} match(es) — highlighted on the page`, 2)
       }
@@ -594,18 +674,29 @@ class ScriptView extends React.Component {
   }
 
   // kind: 'dom' (locator string) | 'image' (vision file) — the snippets keep
-  // the DOM vs visual separation visible
-  insertFinderSnippet (kind, arg, label) {
+  // the DOM vs visual separation visible.
+  //
+  // A DESKTOP capture has to produce a desktop-scoped line. The image was
+  // cropped from the SCREEN, so uiv.findImage without {scope: 'desktop'} would
+  // search the browser viewport for it and never match — and the click has to
+  // be the desktop tier too, because a screen-pixel match is refused by the
+  // browser tier outright (deliberately: viewport pixels and screen pixels are
+  // not interchangeable). Inserting the browser form after a screen capture
+  // handed the user a line that could not work.
+  insertFinderSnippet (kind, arg, label, onDesktop) {
     if (!this.editor) return
     const escaped = String(arg).replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    const finder = onDesktop
+      ? `uiv.findImage('${escaped}', { scope: 'desktop' })`
+      : `uiv.findImage('${escaped}')`
     // browser tier for the inserted click: trusted CDP input is what works on
     // sites that ignore synthetic events, and a picked element is usually one
     // the user wants actually pressed (uiv.page.click is the faster alternative)
     const statement = kind === 'image'
-      ? `uiv.browser.click(uiv.findImage('${escaped}'));`
+      ? `${onDesktop ? 'uiv.desktop' : 'uiv.browser'}.click(${finder});`
       : `uiv.browser.click('${escaped}');`
     const expression = kind === 'image'
-      ? `uiv.findImage('${escaped}')`
+      ? finder
       : `uiv.$('${escaped}')`
 
     const cur = this.editor.getCursor()
@@ -629,16 +720,32 @@ class ScriptView extends React.Component {
     this.insertFinderSnippet('dom', locator, 'Locator')
   }
 
-  // Select image: drag a rectangle on the page — the crop is saved to the
-  // vision storage (with the usual rename prompt) and an imageSearch for it
-  // lands at the cursor
+  // Select image: drag a rectangle — the crop is saved to the vision storage
+  // (with the usual rename prompt) and an imageSearch for it lands at the
+  // cursor.
+  //
+  // WHERE the rectangle is dragged follows the app's Vision scope setting
+  // (config.cvScope), the same one the classic edit form, the header and the
+  // dev toolbar already obey. This view used to crop from the page and nowhere
+  // else, so a user working on a desktop macro — scope already set to desktop
+  // — could not capture anything outside the browser, and the tool silently
+  // did something other than what the rest of the UI said it would.
   onClickSelectImage = async () => {
     if (this.state.running || this.state.finding) return
+    const onDesktop = isCVTypeForDesktop(this.props.config.cvScope)
     try {
-      const res = await csIpc.ask('PANEL_SELECT_AREA_ON_CURRENT_PAGE')
+      // a desktop capture covers the whole screen INCLUDING this panel, so
+      // honour the configured delay that lets the user get out of the way
+      if (onDesktop && this.props.config.waitBeforeDesktopScreenCapture && this.props.config.secondsBeforeDesktopScreenCapture > 0) {
+        message.info(`About to take desktop screenshot in ${this.props.config.secondsBeforeDesktopScreenCapture} seconds`)
+        await delay(() => {}, this.props.config.secondsBeforeDesktopScreenCapture * 1000)
+      }
+      const res = onDesktop
+        ? await selectAreaOnDesktop({ width: screen.availWidth, height: screen.availHeight })
+        : await csIpc.ask('PANEL_SELECT_AREA_ON_CURRENT_PAGE')
       // second arg false: name prompt + save only, no edit-form coupling
       const finalName = await this.props.renameVisionImage(res.fileName, false)
-      if (finalName) this.insertFinderSnippet('image', finalName, 'Image')
+      if (finalName) this.insertFinderSnippet('image', finalName, 'Image', onDesktop)
     } catch (e) {
       message.error(`Select image: ${(e && e.message) || e}`, 2.5)
     }
@@ -857,6 +964,14 @@ class ScriptView extends React.Component {
   // table's image hover preview
   onCursorActivity = (cm) => {
     const line = cm.getLine(cm.getCursor().line) || ''
+
+    // Which scope would Find use on THIS line? Find reads the line, not the
+    // app's Vision scope, so the answer changes as the cursor moves — and the
+    // badge on the button is where it becomes visible BEFORE clicking. null
+    // when the line holds no finder at all, and the badge disappears.
+    const lineScope = FIND_RE.test(line) ? (parseFindOptions(line).scope || 'browser') : null
+    if (lineScope !== this.state.lineScope) this.setState({ lineScope })
+
     const m = /['"]([^'"]*\.png)['"]/i.exec(line)
     const file = m ? m[1].split('@')[0] : null
 
@@ -922,8 +1037,12 @@ class ScriptView extends React.Component {
   // dev-mode drawer with the script helpers — same collapsed-header pattern
   // as the table's command editor / Logs & Variables panels
   renderToolsDrawer () {
-    const { running, finding, toolsOpen } = this.state
+    const { running, finding, toolsOpen, lineScope } = this.state
     const busy = running || finding
+    // the Image tool captures wherever the app's Vision scope points, so the
+    // button has to say which — a screen grab and a page grab look identical
+    // until the crop comes back showing the wrong thing
+    const onDesktopScope = isCVTypeForDesktop(this.props.config.cvScope)
 
     return (
       <div className="script-tools-drawer">
@@ -955,25 +1074,30 @@ class ScriptView extends React.Component {
             <Button
               disabled={busy}
               onClick={this.onClickFind}
-              title="Test the finder on the current line against the page — matches flash on the page, the result lands as a comment below the line"
+              title={"Test the finder on the current line — the LINE decides where it looks, so {scope: 'desktop'} searches the screen and anything else the page. Browser matches flash on the page; screen matches are drawn on the desktop screenshot."}
             >
               <FontAwesomeIcon icon={faMagnifyingGlass} />
               <span> Find</span>
+              {scopeBadge(lineScope)}
             </Button>
             <Button
               disabled={busy}
               onClick={this.onClickSelect}
-              title="Pick an element on the page — its locator is inserted at the cursor"
+              title="Pick an ELEMENT on the page — its locator is inserted at the cursor. Always the browser: the desktop has no elements to pick, only pixels, so capture an image of it instead."
             >
               {this.props.status === C.APP_STATUS.INSPECTOR ? 'Cancel' : 'Select'}
+              {scopeBadge('browser')}
             </Button>
             <Button
               disabled={busy}
               onClick={this.onClickSelectImage}
-              title="Select an image area on the page — an imageSearch for the saved crop is inserted at the cursor"
+              title={onDesktopScope
+                ? 'Vision scope is DESKTOP: drag a rectangle on the SCREEN — the crop is saved and a desktop-scoped imageSearch for it is inserted at the cursor'
+                : 'Vision scope is BROWSER: drag a rectangle on the page — the crop is saved and an imageSearch for it is inserted at the cursor'}
             >
               <FontAwesomeIcon icon={faImage} />
               <span> Image</span>
+              {scopeBadge(onDesktopScope ? 'desktop' : 'browser')}
             </Button>
             {/* The preview is a screenshot of a UI control sitting in a row of
                 UI controls, so without a label it reads as one more button —
@@ -1108,7 +1232,9 @@ export default connect(
     status: state.status,
     pickedLocator: state.ui.scriptPickedLocator,
     hasUnsaved: hasUnsavedMacro(state),
-    devMode: !!state.config.sidebarDevMode
+    devMode: !!state.config.sidebarDevMode,
+    // the Vision scope + desktop-capture delay the Select image tool obeys
+    config: state.config
   }),
   dispatch => bindActionCreators({ ...actions }, dispatch)
 )(ScriptView)

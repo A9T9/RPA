@@ -3075,6 +3075,24 @@ export const CLASSIC_PREINSTALL = Object.keys(preinstallMacros).reduce((acc, key
 // fromJSONString.
 // `path` mirrors the classic folder structure for the ported macros
 // (Core/DemoAutofill.js next to the classic Core/DemoAutofill).
+// Demos that changed folders: restore also REMOVES the copy at the old path,
+// otherwise the tree shows the same demo twice after a layout change.
+export const MOVED_JS_PREINSTALL_PATHS = [
+  // desktop-tier demo, moved out of the CDP folder 2026-08 (v10.0.57)
+  'Browser Vision (Chrome, Edge)/DemoPDFTest_with_OCR.js',
+  // ...and moved BACK 2026-08-09, renamed "PDF Automation", once the demo
+  // stopped using the desktop tier at all: the XClick that focused the viewer
+  // and the XType that paged through the document are gone (page 2 by URL,
+  // link clicked through CDP), so "XModules" no longer described it. Both old
+  // paths stay listed — an install may hold either one.
+  'XModules/DemoPDFTest_with_OCR.js',
+  // RETIRED, not moved: the computer-use loop hangs on the contact form's
+  // select box and never returns (v10.0.83). Listed here so a restore deletes
+  // the copy existing installs already have, instead of leaving a demo that
+  // hangs the side panel.
+  'LLM AI Commands/CU_FillForm.js'
+]
+
 export const JS_PREINSTALL = JS_DEMOS.reduce((acc, demo) => {
   acc[`${PREINSTALL_ROOT_FOLDER}/${demo.path || demo.fileName}`] = {
     CreationDate: '2026-07-24',

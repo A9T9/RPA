@@ -42,8 +42,8 @@ class LogsBottomBar extends React.Component {
 
       return Promise.all(ps).then(() => this.props.listCSV())
       .then(() => {
-        message.info(`${list.length} csv files imported`)
-        this.props.addLog('info', `${list.length} csv files imported: ${names.join(', ')}`)
+        message.info(`${list.length} file(s) imported`)
+        this.props.addLog('info', `${list.length} file(s) imported: ${names.join(', ')}`)
       })
     })
     .catch(e => {
@@ -54,7 +54,7 @@ class LogsBottomBar extends React.Component {
   onClickImportCSV = () => {
     if (getStorageManager().isXFileMode()) {
       Modal.info({
-        title: 'In hard-drive mode, there is no need to import CSV files.',
+        title: 'In hard-drive mode, there is no need to import CSV/TXT files.',
         content: 'To view the latest /datasource folder content, press the "Refresh" icon next to the word "Storage mode" in the Files tab.'
       })
     } else {
@@ -176,11 +176,11 @@ class LogsBottomBar extends React.Component {
   renderCSVControls () {
     return (
       <Button style={{ marginLeft: 'auto' }} onClick={this.onClickImportCSV}>
-        Import CSV
+        Import CSV/TXT
         <input
           multiple
           type="file"
-          accept=".csv"
+          accept=".csv,.txt"
           onChange={this.onCSVFileChange}
           style={{ display: 'none' }}
           ref={ref => { this.csvFileInput = ref }}

@@ -54,23 +54,16 @@ export const withVisualHighlightHidden = (fn: any) => {
     )
 }
 
-export const getSidePanelWidth = async (args: any) => {
-  // sidepanel has a padding around it's content
-  const sidePanelPadding = 20
-  let config = await store.getState().config
-  if (config && !config.sidePanelOnLeft) {
-    return Promise.resolve([0, args])
-  } else {
-    return getState().then((globalState: any) => {
-      return Ext.tabs.get(globalState.tabIds.toPlay).then((playTab: any) =>
-        Ext.windows.get(playTab.windowId).then((playWindow: any) => {
-          let sidePanelWidth = playWindow.width - playTab.width - sidePanelPadding
-          return [sidePanelWidth, args]
-        })
-      )
-    })
-  }
-}
+// (getSidePanelWidth and the "Side Panel is on the left" correction are GONE.
+// They compensated for Chrome's DERIVED viewport origin (screenLeft + 8),
+// which is blind to a left-docked panel. Since v10.0.76 the origin is
+// MEASURED from trusted mouse events — screenX - clientX includes whatever
+// sits left of the viewport — so the correction became a double-count when
+// checked: verified 10.0.78 on Chrome, panel LEFT, box UNCHECKED, 9/9 hits at
+// both 100% and 125% scaling. Firefox never needed it: mozInnerScreenX is
+// exact. The rare 'derived' fallback (probe failed, W372 logged) loses the
+// correction, but that path's origin was measured 64px wrong in y anyway —
+// the checkbox never made it right.)
 
 export const replaceEscapedChar = (str:string, command:any, field:string, shouldEscape = true) => {
   if (!shouldEscape) {

@@ -27,7 +27,7 @@ import { getXFile } from '@/services/xmodules/xfile'
 // AUTHORING-time helper, deliberately NOT used to switch engines at runtime:
 // the engine a macro runs with is exactly the configured/requested one, so
 // runs stay predictable. The probe feeds the environment info the AI macro
-// author sees, so it can SUGGEST the best reader ({engine: 99} when the
+// author sees, so it can SUGGEST the best reader ({engine: 'xmodule'} when the
 // XModule is installed) while the macro is being written. Cached: a hit for
 // the session, a miss for 60s (a freshly installed XModule is picked up
 // without a reload).
@@ -58,12 +58,13 @@ export const getOcrResponse = async ({
   store,
   lang,
   engine,
+  engineExplicit,
   scale,
   isTable,
   isDesktop,
   isLog,
   imageDataUrl
-}) => {
+}: any) => {
   const ocrScale = scale
 
   // DESKTOP SCOPE ONLY: the Javascript OCR (98) is never the right default
@@ -76,13 +77,23 @@ export const getOcrResponse = async ({
   // Local OCR ships for Windows and macOS only — on Linux the JS engine
   // stays the default (the availability probe alone would not catch that,
   // since the XModule itself does exist there).
+  //
+  // "did not ask for a specific engine" is now the CALLER's word (engineExplicit),
+  // not the guess `config.ocrEngine === 98` — which was wrong for the one case
+  // the log message promises: a user configured to 98 who passes {engine: 98}
+  // got silently upgraded to 99 anyway. DesktopClickAccuracyRange part 2 tests
+  // the Javascript OCR by name, so that silent swap would make it test the
+  // wrong engine and report the other one's accuracy.
   const localOcrOs = !/linux/i.test(window.navigator.userAgent) || /(windows|mac os|macintosh)/i.test(window.navigator.userAgent)
-  if (isDesktop && localOcrOs && Number(engine) === 98 && Number(store.getState().config.ocrEngine) === 98) {
+  const askedForEngine = engineExplicit !== undefined
+    ? !!engineExplicit
+    : Number(store.getState().config.ocrEngine) !== 98 // legacy callers: old proxy
+  if (isDesktop && localOcrOs && Number(engine) === 98 && !askedForEngine) {
     if (await isXModuleOcrAvailable()) {
       if (!loggedDesktopEngine) {
         loggedDesktopEngine = true
         store.dispatch(
-          act.addLog('info', 'Desktop OCR: using the XModule Local OCR (engine 99) — it reads native UI far better than the Javascript OCR. Pass {engine: 98} to force the Javascript engine.')
+          act.addLog('info', "Desktop OCR: using the XModule Local OCR ({engine: 'xmodule'}) — it reads native UI far better than the Javascript OCR. Pass {engine: 'javascript'} to force the Javascript engine.")
         )
       }
       engine = 99
@@ -515,15 +526,30 @@ export const ocrViewport = ({ store, isDesktop }) => {
     )
 }
 
-export const guardOcrSettings = ({ store }) => {
+// "OCR disabled" means "no OCR.Space account configured" — it is a statement
+// about the CLOUD engines. The two LOCAL readers (98 Javascript, 99 XModule)
+// need no account, no key and no network, so they are exempt.
+//
+// `engine` is the reader THIS call asked for. A JS script names its engine per
+// call — uiv.ocr.read({engine: 'xmodule'}) — instead of setting !ocrEngine, and
+// without this argument that call was refused with "OCR feature disabled." on
+// exactly the install the local engine exists for: XModule present, no cloud
+// key. Callers that pass nothing (the classic commands) are unchanged: the
+// configured engine and the !ocrEngine variable still decide.
+export const guardOcrSettings = ({ store, engine }: any = {}) => {
+  const isLocal = (v: any) => v == 98 || v == 99
   const vars = getVarsInstance()
   if (
     store.getState().config.ocrMode === 'disabled' &&
-    store.getState().config.ocrEngine != 99 &&
-    vars.get('!ocrEngine') != 99 &&
-    store.getState().config.ocrEngine != 98 &&
-    vars.get('!ocrEngine') != 98
+    !isLocal(engine) &&
+    !isLocal(store.getState().config.ocrEngine) &&
+    !isLocal(vars.get('!ocrEngine'))
   ) {
-    throw new Error('OCR feature disabled.')
+    throw new Error(
+      'OCR feature disabled — Settings > OCR has no OCR.Space API key, so the cloud OCR engines cannot run. ' +
+      'Either get a free key at https://ocr.space/ocrapi and enter it there, or use a reader that needs no account: ' +
+      "the XModule Local OCR (engine 99, {engine: 'xmodule'} in a JS script) or the built-in Javascript OCR " +
+      "(engine 98, {engine: 'javascript'})."
+    )
   }
 }

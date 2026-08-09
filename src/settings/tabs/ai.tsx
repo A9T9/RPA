@@ -12,8 +12,22 @@ import { message } from 'antd'
 // Provider ids stored in config.aiProvider
 export type AIProvider = 'anthropic' | 'openrouter' | 'local' | 'uivision'
 
+// What the AI Provider dropdown offers: the provider ids, plus PRO as its own
+// entry. PRO is NOT a provider id — it is the 'uivision' provider with
+// config.uivisionTier = 'pro' (see uivision_free_tier.ts for why).
+type ProviderSelection = AIProvider | 'uivision-pro'
+
 import { ANTHROPIC, MCP_BRIDGE, OPENAI_COMPAT } from '@/common/constant'
-import { getInstallId, mapUIVisionFreeTierError } from '@/services/ai/uivision_free_tier'
+import {
+  getInstallId,
+  getProKey,
+  isProKeyFormat,
+  isProTier,
+  mapUIVisionFreeTierError,
+  PRO_KEY_CONFIG_NAME,
+  PRO_KEY_FORMAT_ERROR,
+  uivInstallHeader
+} from '@/services/ai/uivision_free_tier'
 import { testMcpBridge } from '@/services/mcp_bridge'
 import { normalizeApiKey } from '@/services/ai/computer_use/service'
 
@@ -101,6 +115,35 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
     return this.props.config.aiProvider || 'uivision'
   }
 
+  // PRO tier picked in the dropdown (with or without a key entered yet)
+  isPro(): boolean {
+    return isProTier(this.props.config)
+  }
+
+  // PRO picked AND a key saved. The tier on its own still runs on free quota,
+  // so this is what error texts and the test call must key off.
+  hasProKey(): boolean {
+    return this.isPro() && !!getProKey(this.props.config)
+  }
+
+  // The dropdown lists the two Ui.Vision tiers separately; everything else
+  // maps 1:1 to a provider id.
+  getProviderSelection(): ProviderSelection {
+    const provider = this.getProvider()
+    return provider === 'uivision' && this.isPro() ? 'uivision-pro' : provider
+  }
+
+  onSelectProvider = (selection: ProviderSelection) => {
+    if (selection === 'uivision' || selection === 'uivision-pro') {
+      // one provider, two tiers — written together so the pair is never
+      // half-updated (PRO selected with the free tier still recorded)
+      this.props.updateConfig({ aiProvider: 'uivision', uivisionTier: selection === 'uivision-pro' ? 'pro' : 'free' })
+    } else {
+      this.props.updateConfig({ aiProvider: selection })
+    }
+    this.setState({ apiKeyInput: '', promptResponse: '' })
+  }
+
   // Which config key stores the API key of the currently selected provider
   getApiKeyConfigName(): string | null {
     switch (this.getProvider()) {
@@ -111,13 +154,23 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
       case 'local':
         return null // local endpoints usually need no key
       case 'uivision':
-        return null // free tier authenticates with a generated install ID
+        // The FREE tier has no key entry at all — it authenticates with a
+        // generated install ID. Only PRO shows a field.
+        return this.isPro() ? PRO_KEY_CONFIG_NAME : null
     }
   }
 
   saveApiKey = () => {
     const configName = this.getApiKeyConfigName()
     if (!configName) return
+
+    // Checked here rather than left to the server: the shape is fixed, and a
+    // typo that only surfaces as a rejected AI call minutes later reads as
+    // "the key I paid for does not work".
+    if (configName === PRO_KEY_CONFIG_NAME && !isProKeyFormat(this.state.apiKeyInput)) {
+      message.error(PRO_KEY_FORMAT_ERROR)
+      return
+    }
 
     const doSave = () => {
       // strip paste artifacts (whitespace, auto-capitalized "Sk-") that make
@@ -174,8 +227,11 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
         : isLocal
           ? (this.props.config.localAIModel || '')
           : (this.props.config.openRouterModel || DEFAULT_OPENROUTER_MODEL)
+      // on PRO the purchased key is the bearer token; the install ID rides in
+      // X-UIV-Install below. Tier picked but no key yet = still the free tier.
+      const proKey = this.hasProKey() ? getProKey(this.props.config) : ''
       const apiKey = isUIVision
-        ? await getInstallId()
+        ? proKey || (await getInstallId())
         : isLocal ? '' : normalizeApiKey(this.props.config.openRouterAPIKey || '')
 
       if (provider === 'openrouter' && !apiKey) {
@@ -190,6 +246,8 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
       if (!isLocal) headers['X-Title'] = 'Ui.Vision RPA'
+      // device id — our proxy only; on PRO the Bearer header is the account key
+      Object.assign(headers, uivInstallHeader(baseURL))
 
       const res = await fetch(`${baseURL.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
@@ -213,7 +271,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
       this.setState({ promptResponse: text, error: '' })
     } catch (error: any) {
       console.error('Error getting response:', error)
-      const freeTierMessage = mapUIVisionFreeTierError(error?.message || '')
+      const freeTierMessage = mapUIVisionFreeTierError(error?.message || '', this.hasProKey())
       message.error(freeTierMessage || error.message)
     } finally {
       this.setState({ testing: false })
@@ -226,6 +284,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
     }
 
     const provider = this.getProvider()
+    const isPro = this.isPro()
     const apiKeyConfigName = this.getApiKeyConfigName()
     const hasSavedKey = !!(apiKeyConfigName && this.props.config[apiKeyConfigName])
     const isPromptOverridden = ((this.props.config.aiMacroAgentSystemPrompt || '') as string).trim().length > 0
@@ -245,13 +304,13 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
           <span className="label-text">AI Provider:</span>
           <Select
             style={{ minWidth: 320 }}
-            value={provider}
-            onChange={(val: AIProvider) => {
-              onConfigChange('aiProvider', val)
-              this.setState({ apiKeyInput: '', promptResponse: '' })
-            }}
+            value={this.getProviderSelection()}
+            onChange={this.onSelectProvider}
             options={[
               { value: 'uivision', label: 'Ui.Vision AI (Free Beta) — no API key needed' },
+              // a ratio, not a number: the daily limits are server settings
+              // and change without an extension release
+              { value: 'uivision-pro', label: 'Ui.Vision AI PRO (Beta) - 10x the free limit' },
               { value: 'anthropic', label: 'Anthropic Claude — best overall results' },
               { value: 'openrouter', label: 'OpenRouter — many models, one key' },
               { value: 'local', label: 'Local — OpenAI-compatible (e.g. Ollama), no key' }
@@ -261,10 +320,19 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
 
         {apiKeyConfigName && (
           <div className="ai-settings-item">
-            <span className="label-text">API Key{hasSavedKey ? ' (saved)' : ''}:</span>
+            <span className="label-text">
+              {isPro ? 'PRO Key' : 'API Key'}
+              {hasSavedKey ? ' (saved)' : ''}:
+            </span>
             <Input
               type="password"
-              placeholder={hasSavedKey ? '••••••••  (enter a new key to replace it)' : 'Enter API key'}
+              placeholder={
+                hasSavedKey
+                  ? '••••••••  (enter a new key to replace it)'
+                  : isPro
+                    ? 'Paste your PRO key'
+                    : 'Enter API key'
+              }
               value={this.state.apiKeyInput}
               onChange={(e) => {
                 this.setState({ apiKeyInput: e.target.value })
@@ -273,6 +341,11 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
             <Button type="primary" disabled={!this.state.apiKeyInput} onClick={this.saveApiKey}>
               Save
             </Button>
+            {isPro && (
+              <a href="https://go.ui.vision/?help=apiprogetkey" target="_blank" style={{ marginLeft: '10px', whiteSpace: 'nowrap' }}>
+                Get a PRO key
+              </a>
+            )}
           </div>
         )}
 
@@ -328,10 +401,25 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
           </>
         )}
 
-        {provider === 'uivision' && (
+        {provider === 'uivision' && !isPro && (
           <div className="row" style={{ marginBottom: '10px', fontSize: '12px' }}>
             Free beta: no API key needed, but there is a daily request limit per installation and no uptime guarantee.
             For unlimited and reliable use, select another provider and add your own API key.
+          </div>
+        )}
+
+        {provider === 'uivision' && isPro && (
+          <div className="row" style={{ marginBottom: '10px', fontSize: '12px' }}>
+            {hasSavedKey ? (
+              <>
+                PRO beta: 10x the free daily limit. Use "Test Prompt" below to check the key.
+              </>
+            ) : (
+              // the silent-downgrade warning: PRO is selected, so the free
+              // tier's own limit notice above is hidden — without this the tab
+              // would say nothing about which quota the requests are spending
+              <>No PRO key saved yet, so requests still run on the free daily limit. Paste your key above and click Save.</>
+            )}
           </div>
         )}
 

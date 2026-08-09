@@ -28,7 +28,7 @@ const path = require('path')
 const crypto = require('crypto')
 const { WebSocketServer } = require('ws')
 
-const VERSION = '1.1.1'
+const VERSION = '1.2.0'
 const DEFAULT_PORT = 50888
 // MCP protocol revisions this bridge knows; echo the client's if recognized
 const KNOWN_PROTOCOL_VERSIONS = ['2024-11-05', '2025-03-26', '2025-06-18']
@@ -440,6 +440,10 @@ const TOOLS = [
 // ---------------------------------------------------------------------------
 
 let extensionSocket = null // the (single) authenticated extension connection
+// version the extension reported in its hello — bridge_status shows it so a
+// stale loaded build (dist/dist_ff rebuilt but never reloaded in the browser)
+// is visible instead of being mistaken for a code bug
+let extensionVersion = ''
 const pendingCalls = new Map() // id -> { resolve, timer }
 
 const wss = new WebSocketServer({ host: '127.0.0.1', port })
@@ -487,6 +491,7 @@ wss.on('connection', (ws) => {
           try { extensionSocket.close(4002, 'replaced by new connection') } catch (e) { /* already gone */ }
         }
         extensionSocket = ws
+        extensionVersion = msg.version || ''
         ws.send(JSON.stringify({ type: 'hello_ok', bridgeVersion: VERSION }))
         log(`Ui.Vision extension connected (${msg.client || 'unknown'} ${msg.version || ''})`)
       } else {
@@ -508,6 +513,7 @@ wss.on('connection', (ws) => {
     clearTimeout(authTimer)
     if (extensionSocket === ws) {
       extensionSocket = null
+      extensionVersion = ''
       log('Ui.Vision extension disconnected')
       // fail pending calls rather than letting them hang to timeout
       for (const [id, pending] of pendingCalls) {
@@ -588,7 +594,7 @@ const handleToolsCall = async (rpcId, params) => {
 
   if (name === 'bridge_status') {
     const text = extensionSocket
-      ? `Bridge v${VERSION} on port ${port}: Ui.Vision extension is CONNECTED. All tools are available.`
+      ? `Bridge v${VERSION} on port ${port}: Ui.Vision extension v${extensionVersion || '?'} is CONNECTED. All tools are available. (That version is the build the browser has LOADED — after a rebuild it only changes once the extension is reloaded.)`
       : `Bridge v${VERSION} on port ${port}: Ui.Vision extension is NOT connected. ${NOT_CONNECTED_TEXT}`
     writeResult(rpcId, { content: [{ type: 'text', text }], isError: false })
     return

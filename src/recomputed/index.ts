@@ -298,13 +298,23 @@ export const getMacroFileNodeData = createSelector(
         return (extra as any).folded
       }
 
-      // Never-toggled folders default to open — EXCEPT the shipped demo
-      // folders, which start collapsed so a fresh install (which writes the
+      if (!data.isDirectory) {
+        return false
+      }
+
+      const relPath = String(data.relativePath || '').replace(/\\/g, '/')
+
+      // Sub folders always start collapsed: opening a folder should reveal its
+      // own macros, not cascade every level below it open at once.
+      if (relPath.indexOf('/') !== -1) {
+        return true
+      }
+
+      // Never-toggled TOP-LEVEL folders default to open — EXCEPT the shipped
+      // demo folders, which start collapsed so a fresh install (which writes the
       // whole JS demo set) still opens with the user's own macros in view.
       // The first manual toggle persists a folded value and wins from then on.
-      const relPath = String(data.relativePath || '').replace(/\\/g, '/')
-      return data.isDirectory &&
-        (relPath === PREINSTALL_ROOT_FOLDER || relPath === PREINSTALL_CLASSIC_ROOT_FOLDER)
+      return relPath === PREINSTALL_ROOT_FOLDER || relPath === PREINSTALL_CLASSIC_ROOT_FOLDER
     }
 
     return macroFolderStructure.map((node) => {

@@ -2,10 +2,12 @@ import * as act from '@/actions'
 import { CaptureScreenshotService } from '@/common/capture_screenshot'
 import clipboard from '@/common/clipboard'
 import { parseFromCSV, stringifyToCSV } from '@/common/csv'
-import { getStorageManager } from '@/services/storage'
+import { isCVTypeForDesktop } from '@/common/cv_utils'
+import { getStorageManager, StorageStrategyType } from '@/services/storage'
 import csIpc from '@/common/ipc/ipc_cs'
 import { getPlayer, Player } from '@/common/player'
-import { milliSecondsToStringInSecond, safeUpdateIn } from '@/common/ts_utils'
+import { milliSecondsToStringInSecond, safeUpdateIn, isMac as isMacOS } from '@/common/ts_utils'
+import { getNativeFileSystemAPI } from '@/services/filesystem'
 import { getVarsInstance, getDeprecatedVariable } from '@/common/variables'
 import Interpreter from '@/common/vendor/js-interpreter'
 import Ext from '@/common/web_extension'
@@ -27,7 +29,9 @@ import { hasUnsavedMacro } from '@/recomputed'
 import { store } from '@/redux'
 import { searchVision } from '@/search_vision'
 import { ocrMatchRect, searchTextInOCRResponse } from '@/services/ocr'
-import { delayMs, setIn, dataURItoBlob } from '@/common/utils'
+import { delayMs, setIn, dataURItoBlob, ensureExtName } from '@/common/utils'
+import * as C from '@/common/constant'
+import { DesktopScreenshot } from '@/desktop_screenshot_editor/types'
 import { captureImage } from '@/modules/helper'
 import getSaveTestCase from '@/components/save_test_case'
 
@@ -89,18 +93,25 @@ uiv.__xy = function (x, y, fn) {
   if (x === null || x === undefined) {
     throw new Error(fn + ": the finder found no match, so there is nothing to act on. {required: false} makes a miss return null INSTEAD of throwing, which means the result has to be CHECKED: var m = uiv.findImage('file.png', {required: false, timeout: 2}); if (m) { " + fn + "(m); }");
   }
+  var offscreen = false
   if (x !== null && typeof x === 'object') {
     frameId = x.frameId || 0
     frameLocal = !!x.frameLocal
     scope = x.scope || ''
     tag = x.tag || ''
+    offscreen = !!x.offscreen
     y = x.y
     x = x.x
   }
   if (typeof x !== 'number' || typeof y !== 'number' || !isFinite(x) || !isFinite(y)) { throw new Error(fn + ': need finite (x, y) numbers or a match object from a finder'); }
   // tag travels with the point so the click can skip the navigation watch for
-  // elements that cannot navigate (text fields) - see settleAfterClick
-  return { x: x, y: y, frameId: frameId, frameLocal: frameLocal, scope: scope, tag: tag };
+  // elements that cannot navigate (text fields) - see settleAfterClick.
+  // offscreen marks a match the finder could NOT scroll into the viewport
+  // (position:fixed container larger than the window) - the DOM point
+  // actions refuse it with the real reason instead of clicking blind.
+  var r = { x: x, y: y, frameId: frameId, frameLocal: frameLocal, scope: scope, tag: tag };
+  if (offscreen) { r.offscreen = true; }
+  return r;
 };
 uiv.open = function (url) { return uiv.__bridge('open', { url: String(url) }); };
 uiv.eval = function (code) { return uiv.__bridge('eval', { code: String(code) }); };
@@ -177,11 +188,11 @@ uiv.$$ = uiv.findElements;
 uiv.findElement = uiv.$;
 uiv.findImage = function (image, opts) { return uiv.__first(uiv.findImages(image, opts)); };
 uiv.ocr.findText = function (text, opts) { return uiv.__first(uiv.ocr.findTexts(text, opts)); };
-// pre-release rename (2026-07): the OCR finder moved into the uiv.ocr
-// namespace, next to uiv.ocr.read — same engine, same quality rules. The old
-// top-level names fail loudly with the new spelling instead of "undefined".
-uiv.findText = function () { throw new Error('uiv.findText was renamed: use uiv.ocr.findText(text, opts) — it is the OCR finder and lives next to uiv.ocr.read'); };
-uiv.findTexts = function () { throw new Error('uiv.findTexts was renamed: use uiv.ocr.findTexts(text, opts)'); };
+// (The 2026-07 rename of the OCR finder into uiv.ocr.* kept top-level
+// uiv.findText/findTexts as shims that threw the new spelling. Dropped: the
+// API is still in its breaking-changes window, no demo, doc or prompt uses the
+// old names, and carrying them meant the editor had to treat two identifiers
+// as "known" purely to mark them red.)
 
 // OCR proper: pixels IN, text OUT. The only way to read text that is not in
 // the DOM — canvas, a PDF in the browser viewer, an image, the desktop. For
@@ -215,6 +226,29 @@ uiv.tabs.select = function (n) {
 };
 uiv.tabs.open = function (url) { return uiv.__bridge('tabsOpen', { url: String(url) }); };
 uiv.tabs.close = function () { return uiv.__bridge('tabsClose', {}); };
+// WINDOW: uiv.window.resize(width, height) sets the PAGE VIEWPORT size by
+// resizing the browser window (window chrome and the side panel's width are
+// accounted for). Returns the ACHIEVED viewport {width, height} — verify it,
+// a screen smaller than the request clamps the result. Use it to PIN the
+// layout a macro was written for: a narrow window flips responsive sites to
+// their mobile layout (tables hidden behind cards, filter bars turned into
+// position:fixed overlays), the #1 cause of "works sometimes" macros.
+uiv.window = {};
+uiv.window.resize = function (width, height) {
+  if (typeof width !== 'number' || typeof height !== 'number' || !isFinite(width) || !isFinite(height) || width < 100 || height < 100) { throw new Error('uiv.window.resize: needs the viewport width and height in CSS pixels, both >= 100 — e.g. uiv.window.resize(1280, 900)'); }
+  return uiv.__bridge('windowResize', { width: Math.round(width), height: Math.round(height) });
+};
+// uiv.window.focus() brings the browser window to the FRONT. Not a nicety for
+// desktop macros — a PRECONDITION: uiv.desktop.* is real OS input, and the OS
+// delivers it to whatever window is frontmost, so a background browser means
+// the clicks land in another application. Browser-scope X commands front the
+// window by themselves; DESKTOP scope deliberately does not, because a desktop
+// macro may be aiming at another app on purpose. So the macro says when.
+// Call it first, before the uiv.open.
+uiv.window.focus = function () { return uiv.__bridge('windowFocus', {}); };
+// The opposite: minimize the browser AND the IDE, e.g. to automate an
+// application sitting behind them.
+uiv.window.minimize = function () { return uiv.__bridge('windowMinimize', {}); };
 uiv.__domTarget = function (s, fn) {
   if (/\.png\s*$/i.test(s) || /^\s*(img|image|ocr|text)\s*=/i.test(s)) {
     throw new Error(fn + ": '" + s + "' looks like a VISUAL target - locator strings are DOM only (css= id= name= link= xpath=); use " + fn + "(uiv.findImage('file.png')) or " + fn + "(uiv.ocr.findText('word')) for visual targets");
@@ -524,14 +558,51 @@ uiv.csv.append = function (file, rows) {
 uiv.csv.exists = function (file) { return uiv.__bridge('csvExists', { file: String(file) }); };
 uiv.csv.list = function () { return uiv.__bridge('csvList', {}); };
 
+// Plain-text files — the RAW view of the SAME store (the CSV/TXT tab):
+// no CSV parsing, no quoting rules, commas and quotes stay literal. THE way
+// to read a list the user pasted one-per-line (prompts, keywords, URLs):
+//   var lines = uiv.text.read('prompts.txt').split(/\\r?\\n/)
+//     .map(function (s) { return s.trim(); }).filter(Boolean);
+// (split on /\\r?\\n/, not plain LF — Windows files end lines with CRLF — and
+// filter(Boolean) drops the ghost entry a trailing newline creates.)
+// read() takes .txt and .csv alike (a "csv" that is really a plain list reads
+// fine here); an extension-less name tries name.txt, then name.csv.
+// write(file, text) stores the string as-is; no extension defaults to .txt.
+uiv.text = {};
+uiv.text.read = function (file) { return uiv.__bridge('textRead', { file: String(file) }); };
+uiv.text.write = function (file, text) { return uiv.__bridge('textWrite', { file: String(file), text: text === undefined || text === null ? '' : String(text) }); };
+
+// The file STORE itself. uiv.csv.* and uiv.text.* DECODE a file (as rows, as
+// a string) and uiv.shot.* CAPTURES one — listing, testing and deleting do
+// none of that. They take a NAME and do not care what is inside it, so they
+// live together here instead of being copied into every format namespace.
+// That is also what lets a name FLOW: uiv.shot.viewport() hands back a name
+// and uiv.files.remove(name) accepts it without the caller ever working out
+// which kind of file it was.
+//   uiv.files.list()                    every stored file, both tabs
+//   uiv.files.exists('article.png')     true/false, never throws
+//   uiv.files.remove('results.csv')     delete it from Ui.Vision storage
+//   uiv.files.exportToDownloads(name)   copy it to the browser's Downloads
+// .csv and .txt are the CSV/TXT tab, .png the Screenshots tab; a name with no
+// extension is looked up as .txt, then .csv, then .png.
+uiv.files = {};
+uiv.files.list = function () { return uiv.__bridge('filesList', {}); };
+uiv.files.exists = function (name) { return uiv.__bridge('filesExists', { name: String(name) }); };
+uiv.files.remove = function (name) { return uiv.__bridge('filesRemove', { name: String(name) }); };
+
 // Copy a file OUT of Ui.Vision's own storage into the browser's Downloads
 // folder. File-type agnostic on purpose — a screenshot, a CSV and the log are
 // the same operation, and splitting it across uiv.shot and uiv.csv would have
 // made the caller pick a namespace for something that does not care.
 //   uiv.exportToDownloads('article.png')
 //   uiv.exportToDownloads('results.csv')
+//   uiv.exportToDownloads('notes.txt')    raw text from the CSV/TXT tab
 //   uiv.exportToDownloads('log')          the run log as a text file
+// Also reachable as uiv.files.exportToDownloads — same function, and the
+// spelling that reads right next to list/exists/remove. 'log' works only on
+// this verb: the run log has no entry to list or delete.
 uiv.exportToDownloads = function (name) { return uiv.__bridge('exportToDownloads', { name: String(name) }); };
+uiv.files.exportToDownloads = uiv.exportToDownloads;
 
 // Download a file from the WEB the way the user would, and get the name it
 // got on disk back (the browser's Downloads folder). Three forms, one verb:
@@ -553,6 +624,11 @@ uiv.download = function (what, opts) {
     uiv.__bridge('downloadArm', base);
     what(); // the script's own trigger — usually a click
     return uiv.__bridge('downloadWait', base);
+  }
+  // a finder MATCH is none of the three forms — stringified it becomes
+  // '[object Object]', which then times out as a locator that can never match
+  if (what !== null && typeof what === 'object') {
+    throw new Error("uiv.download takes a locator STRING, a URL, or a trigger function - not a finder match. To download an element picked by position, pass the position AS a locator: uiv.download('xpath=(//img)[4]')");
   }
   var s = String(what);
   if (/^(https?|file):/i.test(s)) { base.url = s; } else { base.locator = s; }
@@ -866,10 +942,15 @@ function rememberScriptScopeOverride (name, value) {
 }
 
 async function getTargetTab () {
+  let lostPinReason = null
   if (scriptTabId !== null) {
     const pinned = await Ext.tabs.get(scriptTabId).catch(() => null)
     if (isWebTab(pinned)) return pinned
-    scriptTabId = null // pinned tab was closed — re-resolve below
+    // re-resolve below — and SAY so: the fallback lands on the focused
+    // window's active tab, i.e. whatever the user is looking at, and a run
+    // that silently switches tabs mid-flight is a debugging trap
+    lostPinReason = pinned ? 'previous pinned tab left the web (browser-internal page)' : 'previous pinned tab was closed'
+    scriptTabId = null
   }
 
   // prefer the focused window's active tab (query without lastFocusedWindow
@@ -891,8 +972,34 @@ async function getTargetTab () {
     tab = all.length ? all[0] : null
   }
 
-  if (tab) scriptTabId = tab.id
+  if (tab) {
+    scriptTabId = tab.id
+    if (lostPinReason) {
+      store.dispatch(act.addLog('info', `script tab → #${(tab.index || 0) + 1} "${(tab.title || tab.url || '').slice(0, 50)}" (${lostPinReason})`))
+    }
+  }
   return tab
+}
+
+// Restore the run's base tab right before a command runs — bg rebases
+// firstPlay whenever a player run (or the script session) STOPS, so the
+// restore must happen after every stop that can still fire. If the base tab
+// is gone (the script closed it via tab=close), the current tab becomes the
+// new base — same as a classic run, where closing the start tab leaves the
+// survivor as base.
+async function restoreRunTabStateFor (tab) {
+  if (!tab) return
+  if (scriptBaseTabId !== null) {
+    const baseAlive = await Ext.tabs.get(scriptBaseTabId).then(() => true, () => false)
+    if (!baseAlive) scriptBaseTabId = null
+  }
+  if (scriptBaseTabId === null) scriptBaseTabId = tab.id
+
+  const baseTabId = scriptBaseTabId
+  await updateState(state => ({
+    ...state,
+    tabIds: { ...state.tabIds, toPlay: tab.id, firstPlay: baseTabId }
+  }))
 }
 
 // Starting tab for `open` / `openBrowser`. Unlike every other command these
@@ -935,6 +1042,145 @@ async function createTabForOpen (url) {
     await delayMs(200)
   }
   return tab
+}
+
+// ---------------------------------------------------------------------------
+// uiv.open — native implementation
+// ---------------------------------------------------------------------------
+// Navigates the pinned tab with tabs.update and waits on the browser's own
+// load state. The classic pipeline ran `open` THROUGH the page: the old
+// page's content script scheduled the navigation (CS_LOAD_URL) and the panel
+// then INFERRED completion from a changed content-script ipc secret — but the
+// baseline it compared against stores the PRE-navigation secret
+// (run_command.ts, lastCsIpcSecret), so on a reused tab the check could pass
+// before the navigation even started. The script then drove the PREVIOUS page
+// and the late reload wiped its work mid-run (seen live 2026-08-07: a
+// pj-ranking macro filled its filters on the stale page, the delayed load
+// reset them, tbody>tr never appeared). The background needs no old page and
+// no inference: tabs.update starts the load, tab.status says when it is done.
+// uiv.run('open', url) still takes the classic player path — the escape hatch.
+
+// How long "tab says complete" keeps being treated as the OLD page's status.
+// Right after tabs.update the tab still reports the previous page's
+// 'complete' for a beat, so completion only counts once this navigation has
+// been SEEN starting — or after this grace, which covers navigations that
+// never produce load events at all (a pure #fragment move, a url that turns
+// into a download).
+const OPEN_NAV_DETECT_MS = 1500
+
+async function waitForOpenLoad (tabId, url, navSeqBefore, seenLoading) {
+  const capMs = (parseFloat(store.getState().config.timeoutPageLoad) || 60) * 1000
+  const start = Date.now()
+  let last = null
+  while (Date.now() - start < capMs) {
+    if (stopRequested) return { ok: false, error: 'Script stopped' }
+    const t = await Ext.tabs.get(tabId).catch(() => null)
+    if (!t) return { ok: false, error: 'uiv.open: the tab was closed while the page was loading' }
+    last = t
+    // three detectors, because each can miss alone: status polling (misses
+    // sub-50ms loads), pendingUrl (Chrome only), the run watcher's event
+    // counter (absent when tabs.onUpdated is unavailable)
+    if (t.status === 'loading' || t.pendingUrl || navSeq !== navSeqBefore) seenLoading = true
+    if (t.status === 'complete' && !t.pendingUrl && (seenLoading || Date.now() - start >= OPEN_NAV_DETECT_MS)) {
+      navPending = false
+      return { ok: true }
+    }
+    await delayMs(50)
+  }
+  return { ok: false, error: `Error #230: Page load ${Math.round(capMs / 1000)} seconds time out — ${url} did not finish loading (tab status '${(last && last.status) || 'unknown'}')` }
+}
+
+async function nativeOpen (url, timing) {
+  if (store.getState().player.status !== Player.C.STATUS.STOPPED) {
+    return { ok: false, error: E900_PLAYER_BUSY }
+  }
+
+  // The classic path variable-rendered ${...} in the target on the way out;
+  // this path takes the url as the JS value it already is. Refuse the syntax
+  // rather than navigating to it literally.
+  if (/\$\{[^}]*\}/.test(url)) {
+    return { ok: false, error: `uiv.open: '${url}' contains a \${...} token — a JS script passes values directly, e.g. uiv.open('https://example.com/page/' + n)` }
+  }
+
+  let tab = await getTargetTab()
+  let navigated = false // tab created ON the target url — no tabs.update needed
+
+  // No usable web tab — create one on the target URL and let the common wait
+  // below watch it load (same do-the-thing-that-cannot-get-stuck reasoning as
+  // the classic prologue's createTabForOpen).
+  if (!tab) {
+    try {
+      const created = await Ext.tabs.create({ url })
+      if (created) {
+        tab = created
+        scriptTabId = created.id
+        navigated = true
+        store.dispatch(act.addLog('info', `No web tab open — created one for ${url}`))
+      }
+    } catch (e) { /* invalid url or no window — the paths below report it */ }
+  }
+  if (!tab) {
+    tab = await getStartTabForOpen()
+    if (tab) {
+      scriptTabId = tab.id
+      store.dispatch(act.addLog('info', `Starting from browser-internal page ${tab.url || '(no url)'}`))
+    }
+  }
+  if (!tab) return { ok: false, error: E901_NO_TAB }
+
+  // open's job is to SHOW a page — and Chrome throttles loading in background
+  // tabs, so fronting the tab is also what keeps the load from crawling
+  try {
+    const t = await Ext.tabs.get(tab.id)
+    if (!t.active) {
+      await activateTab(t.id, true)
+      store.dispatch(act.addLog('info', `script tab → #${(t.index || 0) + 1} brought to front for open`))
+    }
+  } catch (e) { /* tab may be gone — the wait below reports it */ }
+
+  await restoreRunTabStateFor(tab)
+  timing.tabResolved = Date.now()
+
+  // CS_LOAD_URL resolved relative urls against the current page; keep that
+  const finalUrl = (() => {
+    try { return new URL(url, tab.url || undefined).toString() } catch (e) { return url }
+  })()
+
+  const navSeqBefore = navSeq
+  let seenLoading = navigated // a freshly created tab is already loading it
+  timing.dispatched = Date.now()
+  timing.startedAt = timing.dispatched
+
+  if (!navigated) {
+    let updated = null
+    try {
+      updated = await Ext.tabs.update(tab.id, { url: finalUrl })
+    } catch (e) {
+      return { ok: false, error: `uiv.open: the browser rejected '${finalUrl}' — ${(e && e.message) || e}` }
+    }
+    // Chrome usually marks the pending navigation on the answer already —
+    // seed the detector so an ultra-fast (cached) load cannot slip past the
+    // first poll and pay the OPEN_NAV_DETECT_MS grace for nothing
+    if (updated && (updated.status === 'loading' || updated.pendingUrl)) seenLoading = true
+  }
+
+  const r = await waitForOpenLoad(tab.id, finalUrl, navSeqBefore, seenLoading)
+  if (!r.ok) return r
+
+  // Give the new page's content script a beat to register before the first
+  // page-touching command probes it. Best-effort and bounded: a page that
+  // cannot host one (file: without access, the web store) lets the NEXT
+  // command report the real problem. On a reused tab id the bg ipc cache
+  // answers from the old entry anyway — the wait only earns its keep on a
+  // brand-new tab.
+  if (/^(https?|file):/i.test(finalUrl)) {
+    await csIpc.ask('PANEL_CS_IPC_READY', { tabId: tab.id, timeout: 10000 }, 12000)
+      .catch(() => { /* see above */ })
+  }
+
+  const loaded = await Ext.tabs.get(tab.id).catch(() => null)
+  if (loaded) getVarsInstance().set({ '!URL': loaded.url || '' }, true)
+  return { ok: true }
 }
 
 // same capture plumbing the panel app uses (index.js)
@@ -1100,6 +1346,12 @@ function pageElementSearch (locator, opts) {
         }
         break
       }
+      // Selenium-IDE spellings, NOT script strategies — without these cases
+      // they fall through to querySelectorAll('linkText=...'), which fails
+      // as an invalid CSS selector after burning the whole auto-wait
+      case 'linktext':
+      case 'partiallinktext':
+        throw new Error("'" + strategy + "=' is not a JS-script locator - use link=... for the exact anchor text, or xpath=//a[contains(normalize-space(.), '...')] for a partial match")
       case 'xpath': {
         // XPath pierces same-origin frame documents but not shadow trees
         // (document.evaluate needs a Document; shadow roots aren't one)
@@ -1167,14 +1419,23 @@ function pageElementSearch (locator, opts) {
     // (coordinates are only click-valid for elements inside the viewport).
     // scrollIntoView propagates through same-origin ancestor frames, so
     // frame offsets change too — a full re-snapshot re-derives them.
+    var scrollDefeated = false
+    var isOut = function (r) {
+      return r.top < 0 || r.left < 0 ||
+        (r.top + r.height) > window.innerHeight || (r.left + r.width) > window.innerWidth
+    }
     if (withRects.length && (!opts || opts.scroll !== false)) {
-      var r0 = withRects[0].rect
-      var out = r0.top < 0 || r0.left < 0 ||
-        (r0.top + r0.height) > window.innerHeight || (r0.left + r0.width) > window.innerWidth
-      if (out) {
+      if (isOut(withRects[0].rect)) {
         withRects[0].el.scrollIntoView({ block: 'center', inline: 'center' })
         snap = snapshot()
         withRects = snap.withRects
+        // scrollIntoView is a spec'd NO-OP for elements in a position:fixed
+        // subtree — seen live on pj-ranking.de's mobile layout, where the
+        // submit button sits in a fixed filter form TALLER than the window:
+        // nothing can ever scroll it into the viewport. Mark the match, so
+        // the click refuses with the real reason instead of scrolling the
+        // window under the fixed overlay and hitting whatever shows through.
+        if (withRects.length && isOut(withRects[0].rect)) scrollDefeated = true
       }
     }
 
@@ -1182,7 +1443,7 @@ function pageElementSearch (locator, opts) {
     for (var k = 0; k < withRects.length; k++) {
       var el = withRects[k].el
       var rc = withRects[k].rect
-      matches.push({
+      var m = {
         x: Math.round(rc.left + rc.width / 2),
         y: Math.round(rc.top + rc.height / 2),
         rect: { left: Math.round(rc.left), top: Math.round(rc.top), width: Math.round(rc.width), height: Math.round(rc.height) },
@@ -1192,40 +1453,13 @@ function pageElementSearch (locator, opts) {
         visible: withRects[k].visible,
         // frame-local coordinates (cross-origin root): click via DOM path
         frameLocal: !isTopRoot
-      })
+      }
+      if (k === 0 && scrollDefeated) m.offscreen = true
+      matches.push(m)
     }
     return { ok: true, matches: matches, hiddenCount: snap.hiddenCount }
   } catch (e) {
     return { ok: false, error: (e && e.message) || String(e) }
-  }
-}
-
-// Serialized into the page (top frame): is something that accepts text
-// input focused? Typing with no focused field is the classic silent no-op —
-// CDP keystrokes land on <body> and nothing happens, no error anywhere.
-// Focus inside ANY iframe makes the top activeElement that iframe — treated
-// as "possibly editable" (cannot inspect across origins), so no false alarm.
-function pageIsEditableFocused () {
-  try {
-    var el = document.activeElement
-    while (el && el.shadowRoot && el.shadowRoot.activeElement) {
-      el = el.shadowRoot.activeElement
-    }
-    var tag = el && el.tagName ? el.tagName.toLowerCase() : ''
-    // focus inside a child frame is invisible to this top-document probe —
-    // benefit of the doubt. This check must come BEFORE the body shortcut:
-    // in a frameset document, document.body IS the <frameset> element, so the
-    // shortcut would swallow it and block typing into framed inputs a trusted
-    // click had just focused (broke DemoFrames on demo/webtest/frames).
-    if (tag === 'iframe' || tag === 'frame' || tag === 'frameset') return { editable: true, tag: tag }
-    if (!el || el === document.body || el === document.documentElement) {
-      return { editable: false, tag: tag || 'nothing' }
-    }
-    if (tag === 'input' || tag === 'textarea' || tag === 'select') return { editable: true, tag: tag }
-    if (el.isContentEditable) return { editable: true, tag: tag }
-    return { editable: false, tag: tag }
-  } catch (e) {
-    return { editable: true, tag: 'unknown' } // fail open — never block typing on a probe error
   }
 }
 
@@ -1284,8 +1518,16 @@ function pageSelectOption (locator, option) {
 // NOTE: pageDomClickAt / pageTypeAt are serialized into the page one at a
 // time (chrome.scripting func injection) — they must stay fully
 // self-contained, hence the duplicated scroll block in both.
-function pageDomClickAt (x, y) {
+function pageDomClickAt (x, y, expectTag, offscreen) {
   try {
+    // A match the finder could not scroll into the viewport (position:fixed
+    // container larger than the window — a broken mobile layout; a human in
+    // this window cannot click it either). Window-scrolling cannot help (the
+    // container is viewport-anchored) and elementFromPoint cannot see outside
+    // the viewport, so say what IS possible instead of clicking blind.
+    if (offscreen && (x < 0 || x > window.innerWidth || y < 0 || y > window.innerHeight)) {
+      return { ok: false, error: 'this match sits outside the viewport in a position:fixed container larger than the window, so it CANNOT be scrolled into view — a coordinate click cannot reach it (a person in this window cannot click it either). Click it by LOCATOR instead, which dispatches on the element itself without coordinates: uiv.page.click(\'css=...\') — or pin a desktop-size viewport right after uiv.open: uiv.window.resize(1280, 900)' }
+    }
     // elementFromPoint sees only the VIEWPORT: a match below the fold
     // (find-time y beyond the window height) resolves to null even though the
     // element is fine. Classic locator clicks auto-scroll their element into
@@ -1327,6 +1569,23 @@ function pageDomClickAt (x, y) {
       break
     }
     if (!el) return { ok: false, error: 'no element at point ' + x + ',' + y + ' any more - the match is STALE: the page scrolled, re-rendered or navigated between the finder and this action. Re-run the finder immediately before acting on it, and never reuse a match across a click, navigation or scroll' }
+    // The finder recorded what it matched (expectTag); if the point now
+    // resolves to something that is neither that element nor inside it, the
+    // page has MOVED between find and click (sticky bars collapse on scroll,
+    // layouts reflow) and this click would silently hit the wrong thing —
+    // the failure mode behind "the macro clicked and nothing happened".
+    if (expectTag) {
+      var want = String(expectTag).toLowerCase()
+      var probe = el
+      var onTarget = false
+      while (probe) {
+        if ((probe.tagName || '').toLowerCase() === want) { onTarget = true; break }
+        probe = probe.parentElement || (probe.getRootNode && probe.getRootNode().host) || null
+      }
+      if (!onTarget) {
+        return { ok: false, error: 'the point ' + x + ',' + y + ' now resolves to <' + (el.tagName || '?').toLowerCase() + '>, not the <' + want + '> the finder matched - the page moved or re-rendered between the find and this click (sticky/collapsing bars do this when the page scrolls). Re-run the finder IMMEDIATELY before acting, or click by locator instead - uiv.page.click(\'css=...\') dispatches on the element itself, coordinates not involved' }
+      }
+    }
     if (el.focus) el.focus()
     var opts = { bubbles: true, cancelable: true, composed: true, view: win, clientX: x, clientY: y }
     el.dispatchEvent(new MouseEvent('mousedown', opts))
@@ -1346,8 +1605,12 @@ function pageDomClickAt (x, y) {
 // Value setting goes through the prototype's native setter before the events
 // are fired: React (and anything else tracking its own value) ignores a plain
 // `el.value = x` assignment and would re-render the field back to empty.
-function pageTypeAt (x, y, text) {
+function pageTypeAt (x, y, text, offscreen) {
   try {
+    // unreachable-match refusal — see pageDomClickAt (self-contained copy)
+    if (offscreen && (x < 0 || x > window.innerWidth || y < 0 || y > window.innerHeight)) {
+      return { ok: false, error: 'this match sits outside the viewport in a position:fixed container larger than the window, so it CANNOT be scrolled into view - a coordinate action cannot reach it. Type by LOCATOR instead: uiv.page.type(\'css=...\', text) - or pin a desktop-size viewport right after uiv.open: uiv.window.resize(1280, 900)' }
+    }
     // same viewport-scroll correction as pageDomClickAt (self-contained on
     // purpose — these functions are injected into the page one at a time)
     if (x < 0 || x > window.innerWidth || y < 0 || y > window.innerHeight) {
@@ -1464,6 +1727,18 @@ function elementContentCheck (args) {
   return { test, label }
 }
 
+// Selenium-IDE locator spellings that are NOT script strategies. The injected
+// resolver throws on them too, but that error only surfaces when the search
+// times out — this check fails the call IMMEDIATELY instead of burning the
+// whole auto-wait first (seen in production: classic-macro locators pasted
+// into scripts).
+function scriptLocatorError (locator) {
+  const m = /^\s*(linkText|partialLinkText)\s*=\s*([\s\S]*)$/i.exec(String(locator || ''))
+  if (!m) return null
+  const text = m[2].trim().slice(0, 60)
+  return `'${m[1]}=' is not a JS-script locator — use link=${text} for the exact anchor text, or xpath=//a[contains(normalize-space(.), '${text}')] for a partial match`
+}
+
 async function elementSearchOnce (tab, args) {
   const results = await chrome.scripting.executeScript({
     target: { tabId: tab.id, allFrames: true },
@@ -1517,8 +1792,9 @@ function effectiveMinScore (args) {
 async function describeImageMiss (args) {
   const min = effectiveMinScore(args)
   let best = null
+  let probe = []
   try {
-    const probe = await imageSearchOnce({ ...args, minScore: 0.1 })
+    probe = await imageSearchOnce({ ...args, minScore: 0.1 })
     best = probe.reduce((top, m) => (top === null || m.score > top ? m.score : top), null)
   } catch (e) {
     return '' // probe failed (file gone, tab closed) — the plain miss stands
@@ -1526,16 +1802,38 @@ async function describeImageMiss (args) {
 
   const seen = 'Ui.Vision searched the image it was given against what is on screen right now; the exact capture it compared is saved as "__lastscreenshot" in screenshot storage — open it to see what the search actually looked at.'
 
+  // STALE XMODULE DPI, the failure that is otherwise invisible. Desktop-scope
+  // search rescales the pattern from its file name's dpi to the screen dpi the
+  // XModule reports — and the native host reads that ONCE, at startup. Change
+  // Windows display scaling without restarting the browser and every template
+  // is scaled by the OLD factor forever: nothing matches, no message mentions
+  // scale, and the natural response (re-capture the images, lower minScore)
+  // makes it worse. Seen live 2026-08-08: 125% -> 100% with no restart scaled a
+  // 101x38 template to 126x47, 0/3 matches; restarting the browser restored
+  // 3/3 at score 1.00.
+  //
+  // The size is taken from the probe's own candidates, which report the rect
+  // the SCALED pattern occupies — no extra call, no guess. Deliberately NOT
+  // derived from getScalingFactor(): that is devicePixelRatio /
+  // screenBackingScaleFactor, which tracks the BROWSER's view, so comparing it
+  // against devicePixelRatio always agrees and would never fire.
+  const searchedAtNote = (probeMatches) => {
+    if (args.scope !== 'desktop' || !probeMatches || !probeMatches.length) return ''
+    const r = probeMatches[0].rect
+    if (!r || !r.width) return ''
+    return ` It searched for a ${Math.round(r.width)}x${Math.round(r.height)} pattern: desktop scope rescales the image from the dpi in its FILE NAME to the screen dpi the XModule reports. If that is not the size '${args.image}' actually is, the XModule's dpi is stale — it reads the display DPI once when it starts, so changing Windows display scaling WITHOUT restarting the browser leaves every '_dpi_' image matched at the wrong size, and nothing can hit. Restart the browser (which restarts the XModule) BEFORE re-capturing any image.`
+  }
+
   if (best === null) {
-    return `nothing on the page resembled '${args.image}' even at the lowest confidence (0.1), so the target is NOT ON SCREEN — it has not rendered yet, is scrolled out of the viewport, or something covers it (cookie banner, overlay, popup). Scroll it into view or dismiss the overlay first. If it IS visible to you, the image file itself is wrong or stale: re-capture it with save_element_image / uiv.shot.area. A longer timeout cannot fix either case. ${seen}`
+    return `nothing on the page resembled '${args.image}' even at the lowest confidence (0.1), so the target is NOT ON SCREEN — it has not rendered yet, is scrolled out of the viewport, or something covers it (cookie banner, overlay, popup). Scroll it into view or dismiss the overlay first. If it IS visible to you, the image file itself is wrong or stale: re-capture it with save_element_image / uiv.shot.area. A longer timeout cannot fix either case.${searchedAtNote(probe)} ${seen}`
   }
 
   const pct = (n) => Number(n).toFixed(2)
   if (best >= min - 0.15) {
-    return `the closest candidate scored ${pct(best)}, just under the required ${pct(min)} — the element is almost certainly THERE but renders slightly differently than when the image was captured: page zoom other than 100%, a different screen DPI, a theme/dark-mode change, or plain antialiasing. Either lower the bar for this call — uiv.findImage('${args.image}', {minScore: ${pct(Math.max(0.1, Math.floor(best * 100) / 100))}}) — or re-capture the image on this page at 100% zoom, which is the more durable fix. ${seen}`
+    return `the closest candidate scored ${pct(best)}, just under the required ${pct(min)} — the element is almost certainly THERE but renders slightly differently than when the image was captured: page zoom other than 100%, a different screen DPI, a theme/dark-mode change, or plain antialiasing. Either lower the bar for this call — uiv.findImage('${args.image}', {minScore: ${pct(Math.max(0.1, Math.floor(best * 100) / 100))}}) — or re-capture the image on this page at 100% zoom, which is the more durable fix.${searchedAtNote(probe)} ${seen}`
   }
 
-  return `the closest candidate scored only ${pct(best)} against a required ${pct(min)} — that is not a near miss, it is a different element, so lowering minScore would only buy a confident click on the wrong thing. Either the image is from another page or another state of this one (re-capture it here with save_element_image / uiv.shot.area), or the target is not visible right now. When the target carries readable text, uiv.ocr.findText survives redesigns that break a pixel match; when it is in the DOM, uiv.$ is exact and free. ${seen}`
+  return `the closest candidate scored only ${pct(best)} against a required ${pct(min)} — that is not a near miss, it is a different element, so lowering minScore would only buy a confident click on the wrong thing. Either the image is from another page or another state of this one (re-capture it here with save_element_image / uiv.shot.area), or the target is not visible right now. When the target carries readable text, uiv.ocr.findText survives redesigns that break a pixel match; when it is in the DOM, uiv.$ is exact and free.${searchedAtNote(probe)} ${seen}`
 }
 
 async function imageSearchOnce (args) {
@@ -1666,10 +1964,10 @@ async function prepareRunMacro (code) {
 // script has its own control flow; it needs no flow-logic preprocessing).
 //
 // Commands that move the play tab or drive macro control flow are NOT on this
-// path: they rely on the player's prepare/stop lifecycle, and `open` in
-// particular has a dedicated prepare branch (see getStartTabForOpen). They keep
-// using the player and cost what they always did — a script runs them once,
-// not once per loop iteration.
+// path: they rely on the player's prepare/stop lifecycle. They keep using the
+// player and cost what they always did — a script runs them once, not once
+// per loop iteration. (`uiv.open` used to be the prime example; it is native
+// now — see nativeOpen — and only uiv.run('open', …) still takes the player.)
 //
 // TWO gates, deliberately. A caller must ASK for the fast path ({fast: true}),
 // and the command must also be on this list. Only the tier ops ask: they build
@@ -1697,6 +1995,9 @@ const findBlockedVarInText = (text) => {
   }
   return null
 }
+
+// Shared by the classic path (runOneCommand) and nativeOpen.
+const E900_PLAYER_BUSY = 'E900: another macro is already running, so this command cannot start — press Stop in the side panel and run the script again. If nothing looks like it is running, a previous run was interrupted and left the player busy: reload the side panel (close and reopen it) to clear that state'
 
 // One text for the whole runner. This used to be the bare "E901: no browser
 // tab available" in nine places and the explaining version in exactly one —
@@ -1929,7 +2230,7 @@ async function runOneCommand (cmd, target, value, cmdFields, opts) {
   const state = store.getState()
 
   if (state.player.status !== Player.C.STATUS.STOPPED) {
-    return { ok: false, error: 'E900: another macro is already running, so this command cannot start — press Stop in the side panel and run the script again. If nothing looks like it is running, a previous run was interrupted and left the player busy: reload the side panel (close and reopen it) to clear that state' }
+    return { ok: false, error: E900_PLAYER_BUSY }
   }
 
   // Every command a script issues gets its target/value variable-rendered on
@@ -1956,7 +2257,34 @@ async function runOneCommand (cmd, target, value, cmdFields, opts) {
   // desktop-scope scripts must be able to run it before any web tab exists
   // (demanding a tab here killed every desktop demo started from a fresh
   // browser with E901 on its first line).
-  const isTabFreeCmd = /^(store|echo|comment|pause|throwError|XDesktopAutomation)$/i.test(cmd)
+  //
+  // The X input family joins them WHEN IT IS IN DESKTOP SCOPE. Those commands
+  // are real OS input: the XModule sends them to the screen, and the finders
+  // that produced their coordinates already run tab-free ({scope: 'desktop'}
+  // skips getTargetTab everywhere). Demanding a tab only for the click was the
+  // XDesktopAutomation bug one level down — a script could FIND on the desktop
+  // but not CLICK there, so the ClearSidebarLogViaGUI demos (which automate
+  // the side panel itself and need no web page at all) died with E901 on their
+  // first click whenever the browser showed only internal pages.
+  // BROWSER-scope X commands still need the tab: their coordinates are
+  // viewport pixels the XModule path converts using the tab's window geometry.
+  const isXInputCmd = /^(XType|XClick|XClickText|XMove|XMoveText|XMoveTextRelative|XClickRelative|XClickTextRelative|XMoveRelative|XMouseWheel)$/i.test(cmd)
+  // the tier ops pin the space in spExtra.isDesktop; anything else (uiv.run of
+  // a bare XClick) follows the run's !CVSCOPE, same as run_command does
+  const spExtra = (cmdFields && cmdFields.spExtra) || {}
+  const isDesktopScope = typeof spExtra.isDesktop === 'boolean'
+    ? spExtra.isDesktop
+    : isCVTypeForDesktop(getVarsInstance().get('!CVSCOPE'))
+
+  // bringBrowserToForeground / bringIDEandBrowserToBackground are the same
+  // shape as XDesktopAutomation: one IPC ask to the panel, byPass: true, no
+  // content script and no tab. They are also the FIRST line of every desktop
+  // demo, so demanding a tab made a freshly started browser fail before it
+  // could reach the uiv.open that would have created one — E901 on line 30 of
+  // DesktopClickAccuracyRange, which is precisely the failure the desktop
+  // exemption below was added to stop.
+  const isTabFreeCmd = /^(store|echo|comment|pause|throwError|XDesktopAutomation|bringBrowserToForeground|bringIDEandBrowserToBackground)$/i.test(cmd) ||
+    (isXInputCmd && isDesktopScope)
 
   const isOpenCmd = /^(open|openBrowser)$/i.test(cmd)
 
@@ -2023,28 +2351,15 @@ async function runOneCommand (cmd, target, value, cmdFields, opts) {
       `${cmd} starts on a non-web tab: #${(tab.index || 0) + 1} "${tab.url || '(no url)'}" (${tab.status || 'unknown'})`
     ))
   }
-  // Restore the run's base tab right before the command runs — bg rebases
-  // firstPlay whenever a player run (or the script session) STOPS, so the
-  // restore must happen after every stop that can still fire. If the base tab
-  // is gone (the script closed it via tab=close), the current tab becomes the
-  // new base — same as a classic run, where closing the start tab leaves the
-  // survivor as base.
-  const restoreRunTabState = async () => {
-    if (!tab) return
-    if (scriptBaseTabId !== null) {
-      const baseAlive = await Ext.tabs.get(scriptBaseTabId).then(() => true, () => false)
-      if (!baseAlive) scriptBaseTabId = null
-    }
-    if (scriptBaseTabId === null) scriptBaseTabId = tab.id
+  const restoreRunTabState = () => restoreRunTabStateFor(tab)
 
-    const baseTabId = scriptBaseTabId
-    await updateState(state => ({
-      ...state,
-      tabIds: { ...state.tabIds, toPlay: tab.id, firstPlay: baseTabId }
-    }))
-  }
-
-  const logCountBefore = store.getState().logs.length
+  // Mark the run's start by the last log entry's id, NOT by logs.length: the
+  // store keeps only the last 500 entries, so once that cap is reached the
+  // length stays pinned and slice(lengthBefore) is [] for every later run —
+  // which here means a failing command's error log goes unseen and the
+  // command reports ok:true.
+  const logsBeforeRun = store.getState().logs
+  const runLogMarker = logsBeforeRun.length ? logsBeforeRun[logsBeforeRun.length - 1].id : null
   timing.tabResolved = Date.now()
 
   // The session path: no playerPlay, no start/stop lifecycle, no polling for a
@@ -2060,12 +2375,13 @@ async function runOneCommand (cmd, target, value, cmdFields, opts) {
 
   // Anything else keeps the full player pipeline. CLOSE the session first: the
   // player expects to drive the app through NORMAL -> PLAYER -> NORMAL itself,
-  // and `open` in particular relies on that teardown to invalidate the content
-  // script's IPC. Leaving our session open across it left the old connection
-  // cached, so the page-load probe kept seeing the same ipc secret after the
-  // navigation and failed with #210/#220 on the SECOND open of a script.
-  // Cost is one stop per player-path command — and those are the rare ones
-  // (open, uiv.run), not the per-loop-iteration ones.
+  // and a classic `open` (reachable here via uiv.run('open', …)) relies on
+  // that teardown to invalidate the content script's IPC. Leaving our session
+  // open across it left the old connection cached, so the page-load probe kept
+  // seeing the same ipc secret after the navigation and failed with #210/#220
+  // on the SECOND open of a script. Cost is one stop per player-path command —
+  // and those are the rare ones (uiv.run, ai.*), not the per-loop-iteration
+  // ones.
   await endScriptSession()
   scriptSessionStale = true
 
@@ -2164,7 +2480,11 @@ async function runOneCommand (cmd, target, value, cmdFields, opts) {
     } catch (e) { /* keep the current pin */ }
   }
 
-  const newLogs = store.getState().logs.slice(logCountBefore)
+  // a vanished marker (evicted past the 500 cap, or a cleared log) means
+  // everything still in the store is newer — take it all
+  const logsNow = store.getState().logs
+  const markerIdx = runLogMarker === null ? -1 : logsNow.findIndex(l => l.id === runLogMarker)
+  const newLogs = logsNow.slice(markerIdx + 1)
   const errorLog = newLogs.filter(l => l.type === 'error').pop()
   if (errorLog) {
     return { ok: false, error: String(errorLog.text) }
@@ -2435,6 +2755,10 @@ function bannerEndOfRun (ok) {
 }
 
 let navPending = false
+// Counts navigation STARTS on the pinned tab. waitForOpenLoad snapshots it
+// before navigating: navPending alone can flip true and back false between
+// two of its polls (a fast load), the counter cannot.
+let navSeq = 0
 let navListener = null
 
 function armNavigationWatcher () {
@@ -2451,7 +2775,7 @@ function armNavigationWatcher () {
       }).catch(() => { /* mid-navigation limbo — the 'complete' pass follows */ })
     }
     if (scriptTabId === null || tabId !== scriptTabId) return
-    if (changeInfo.status === 'loading') navPending = true
+    if (changeInfo.status === 'loading') { navPending = true; navSeq++ }
     else if (changeInfo.status === 'complete') navPending = false
   }
   try {
@@ -2568,6 +2892,49 @@ async function runAiCommand (cmd, promptText) {
 }
 
 // ---------------------------------------------------------------------------
+// OCR engine NAMES — a JS script names its reader, it does not number it.
+// ---------------------------------------------------------------------------
+// 98/99/1/2/3 are a Settings/OCR.Space implementation detail that says nothing
+// about which reader you get: "engine 2" and "engine 99" read the same to
+// anyone who has not memorised the table. Classic table macros keep the
+// numbers; scripts get the names.
+//
+// A number is REFUSED here rather than quietly accepted. Silently taking both
+// would leave every macro, doc and log free to keep using numbers, which is
+// the state this replaces — and a macro pasted over from the classic side
+// would run with a reader nobody chose. The error names the replacement, so
+// the fix is the next thing you read.
+const OCR_ENGINE_NAMES = {
+  javascript:       98, // built in, no install
+  xmodule:          99, // XModule Local OCR — Windows/macOS only
+  ocrspace_engine1:  1,
+  ocrspace_engine2:  2,
+  ocrspace_engine3:  3
+}
+const OCR_ENGINE_BY_NUMBER = { 98: 'javascript', 99: 'xmodule', 1: 'ocrspace_engine1', 2: 'ocrspace_engine2', 3: 'ocrspace_engine3' }
+const OCR_ENGINE_LIST = Object.keys(OCR_ENGINE_NAMES).map(n => `'${n}'`).join(', ')
+
+// undefined when the caller passed nothing — the difference between "no engine
+// asked for" and "this engine asked for" decides the desktop-scope default
+// (see getOcrResponse), so it must survive as undefined rather than a fallback.
+const resolveOcrEngine = (value, where) => {
+  if (value === undefined || value === null || value === '') return undefined
+
+  const key = String(value).trim().toLowerCase()
+  if (Object.prototype.hasOwnProperty.call(OCR_ENGINE_NAMES, key)) {
+    return OCR_ENGINE_NAMES[key]
+  }
+
+  const named = OCR_ENGINE_BY_NUMBER[key]
+  if (named) {
+    throw new Error(
+      `${where}: {engine: ${JSON.stringify(value)}} — engine NUMBERS are classic-macro syntax. A JS script names its reader: {engine: '${named}'}. Valid: ${OCR_ENGINE_LIST}`
+    )
+  }
+  throw new Error(`${where}: unknown OCR engine ${JSON.stringify(value)}. Valid: ${OCR_ENGINE_LIST}`)
+}
+
+// ---------------------------------------------------------------------------
 // OCR reader — uiv.ocr.read()
 // ---------------------------------------------------------------------------
 // The counterpart to ocr.findText: instead of searching the recognised words for
@@ -2581,10 +2948,14 @@ async function runAiCommand (cmd, promptText) {
 //                                        OCRExtractScreenshot)
 // Returns the text as a string. Options {engine, language} match the finders.
 async function ocrReadText (args) {
-  guardOcrSettings({ store })
-
   const state = store.getState()
-  const engine = args.engine !== undefined ? args.engine : state.config.ocrEngine
+  const engineAsked = resolveOcrEngine(args.engine, 'uiv.ocr.read')
+  const engine = engineAsked !== undefined ? engineAsked : state.config.ocrEngine
+  // AFTER the engine is resolved, not before: {engine: 'xmodule'} needs no
+  // OCR.Space account, so the "OCR disabled" guard must see which reader this
+  // call asked for.
+  guardOcrSettings({ store, engine })
+
   const lang = String(args.language || state.config.ocrLanguage || 'eng').toLowerCase()
 
   if (args.image) {
@@ -2611,6 +2982,7 @@ async function ocrReadText (args) {
     store,
     lang,
     engine,
+    engineExplicit: engineAsked !== undefined,
     scale: 'true',
     isTable: false,
     isDesktop,
@@ -2690,11 +3062,11 @@ function ocrSpaceUpgradeNote () {
   if ([1, 2, 3].includes(cfg.ocrEngine)) return '' // already reading with OCR.Space
   const xmoduleHint = cfg.ocrEngine == 99
     ? ''
-    : " If the RealUser XModule is installed, retry with {engine: 99} (XModule Local OCR) — it reads native UI and screenshots far better than the Javascript OCR."
+    : " If the RealUser XModule is installed, retry with {engine: 'xmodule'} (XModule Local OCR) — it reads native UI and screenshots far better than the Javascript OCR."
   const aiHint = " uiv.ai.ask('what does ... say?', {images: [uiv.shot.viewport()]}) (uiv.shot.desktop() for screen reads) or uiv.ai.find('the <target>') read what OCR cannot" + (cfg.aiProvider === 'local' ? ' — and with the LOCAL model configured here, at no per-call cost.' : ' (one billable model call each).')
   return cfg.ocrSpaceApiKey
-    ? ' BETTER READER AVAILABLE:' + xmoduleHint + ' An OCR.Space API key is configured in this install — the cloud OCR (run by the Ui.Vision team) reads far more than the local engines, especially light-on-dark text: {engine: 2} for finders/anything that clicks (accurate coordinates); {engine: 3} for pure uiv.ocr.read (best text; coordinates less accurate). Both auto-detect the text language.' + aiHint
-    : ' BETTER READER AVAILABLE:' + xmoduleHint + aiHint + ' Alternatively the OCR.Space cloud OCR reads far more than the local engines — it needs a FREE API key from https://ocr.space/ocrapi, entered under Settings > OCR ({engine: 2} for finders/clicking, {engine: 3} for pure reads; both auto-detect the language): ASK the user whether they want the free account — do not silently settle for the bad read.'
+    ? ' BETTER READER AVAILABLE:' + xmoduleHint + " An OCR.Space API key is configured in this install — the cloud OCR (run by the Ui.Vision team) reads far more than the local engines, especially light-on-dark text: {engine: 'ocrspace_engine2'} for finders/anything that clicks (accurate coordinates); {engine: 'ocrspace_engine3'} for pure uiv.ocr.read (best text; coordinates less accurate). Both auto-detect the text language." + aiHint
+    : ' BETTER READER AVAILABLE:' + xmoduleHint + aiHint + " Alternatively the OCR.Space cloud OCR reads far more than the local engines — it needs a FREE API key from https://ocr.space/ocrapi, entered under Settings > OCR ({engine: 'ocrspace_engine2'} for finders/clicking, {engine: 'ocrspace_engine3'} for pure reads; both auto-detect the language): ASK the user whether they want the free account — do not silently settle for the bad read."
 }
 
 // Why an OCR search matched nothing, in one line for the Find probe's log.
@@ -2775,6 +3147,83 @@ async function csvWriteRows (name, rows) {
   return fileName
 }
 
+// uiv.text.* — the RAW view of the same store. An explicit .txt/.csv is used
+// as-is; an extension-less name resolves to whichever exists (.txt first),
+// and defaults to .txt for a new file — so text.read('prompts') finds either
+// prompts.txt or prompts.csv without the caller caring which one was saved.
+async function textFileName (name) {
+  const n = String(name || '').trim()
+  if (!n) throw new Error('text: a file name is required')
+  if (/\.(txt|csv)$/i.test(n)) return n
+  const txt = `${n}.txt`
+  if (await getCsvStorage().exists(txt)) return txt
+  const csv = `${n}.csv`
+  if (await getCsvStorage().exists(csv)) return csv
+  return txt
+}
+
+async function textReadRaw (name) {
+  const fileName = await textFileName(name)
+  const exists = await getCsvStorage().exists(fileName)
+  if (!exists) {
+    throw new Error(`text: file '${fileName}' does not exist — uiv.csv.list() shows the CSV/TXT tab's files, uiv.csv.exists('${fileName}') tests without throwing`)
+  }
+  return getCsvStorage().read(fileName, 'Text')
+}
+
+async function textWriteRaw (name, text) {
+  const fileName = await textFileName(name)
+  await getCsvStorage().overwrite(fileName, new Blob([String(text)]))
+  store.dispatch(act.listCSV()) // the CSV/TXT tab mirrors the file list
+  return fileName
+}
+
+// uiv.files.* — the store verbs. They route by EXTENSION, not by namespace,
+// on the same split localStorageExport has always used, so exporting and
+// removing the same name can never mean two different files.
+const FILE_STORES = [
+  { ext: /\.(csv|txt)$/i, get: () => getStorageManager().getCSVStorage(), refresh: () => act.listCSV() },
+  { ext: /\.png$/i, get: () => getStorageManager().getScreenshotStorage(), refresh: () => act.listScreenshots() }
+]
+
+const fileStoreFor = (fileName) => FILE_STORES.find(s => s.ext.test(fileName)) || null
+
+// Resolve a name to {fileName, fileStore}. `soft` is for the predicate:
+// uiv.files.exists must answer false rather than throw, or it cannot be used
+// to guard the calls that do throw.
+async function resolveStoredFile (name, fn, soft) {
+  const n = String(name || '').trim()
+  if (!n) throw new Error(`${fn}: a file name is required`)
+
+  // Bare 'log' is the one target exportToDownloads accepts that is not a
+  // file: it is rendered from the log state on the spot, so there is nothing
+  // to list, test or delete. Only the BARE word is reserved — a stored file
+  // really can be called log.txt, and shadowing it here would make a file the
+  // user can see in the tab impossible to delete.
+  if (/^log$/i.test(n)) {
+    if (soft) return null
+    throw new Error(`${fn}: 'log' is the run log, not a stored file — uiv.exportToDownloads('log') saves it to the Downloads folder, and that is the only verb it has. A stored file named log needs its extension: ${fn}('log.txt')`)
+  }
+
+  const direct = fileStoreFor(n)
+  if (direct) return { fileName: n, fileStore: direct }
+
+  if (/\.[a-z0-9]+$/i.test(n)) {
+    if (soft) return null
+    throw new Error(`${fn}: Ui.Vision does not store '${n}' — .csv and .txt live in the CSV/TXT tab, .png in the Screenshots tab`)
+  }
+
+  // no extension: probe in the order text.read resolves, widened to shots
+  for (const ext of ['.txt', '.csv', '.png']) {
+    const candidate = n + ext
+    const fileStore = fileStoreFor(candidate)
+    if (await fileStore.get().exists(candidate)) return { fileName: candidate, fileStore }
+  }
+  // nothing matched — fall back to the .txt default so the caller reports one
+  // concrete missing name instead of three maybes
+  return soft ? null : { fileName: `${n}.txt`, fileStore: FILE_STORES[0] }
+}
+
 // ---------------------------------------------------------------------------
 // bridge dispatcher — every op resolves { ok, error?, value?: JSON string }
 // ---------------------------------------------------------------------------
@@ -2796,12 +3245,13 @@ const buttonValue = ({ button }) => (button ? `#${button}` : '')
 const PAGE_OPS = /^(eval|elementSearch|imageSearch|textSearch|domClickLocator|domClickAt|domType|domTypeAt|domSelect|bClick|bMove|bDown|bUp|bType|banner)$/
 
 // One "Executing:" line per uiv call, like the classic player writes per
-// command. Ops routed through the player (open, run, ai.*, ocr, shot.*,
+// command. Ops routed through the player (run, ai.*, ocr, shot.*,
 // exportToDownloads) already log there — they are NOT in this map, or they
 // would log twice. Pure reads (tabs.list, csv.read/exists/list) stay quiet.
 // Long runs: the log reducer keeps only the last 500 lines, so an hours-long
 // loop rotates the log instead of growing it.
 const BRIDGE_OP_LOG_NAMES = {
+  open: 'uiv.open',
   eval: 'uiv.eval',
   elementSearch: 'uiv.$',
   imageSearch: 'uiv.findImage',
@@ -2824,8 +3274,11 @@ const BRIDGE_OP_LOG_NAMES = {
   tabsSelect: 'uiv.tabs.select',
   tabsOpen: 'uiv.tabs.open',
   tabsClose: 'uiv.tabs.close',
+  windowResize: 'uiv.window.resize',
   csvWrite: 'uiv.csv.write',
   csvAppend: 'uiv.csv.append',
+  textWrite: 'uiv.text.write',
+  filesRemove: 'uiv.files.remove',
   shotArea: 'uiv.shot.area',
   banner: 'uiv.banner',
   download: 'uiv.download',
@@ -2915,12 +3368,20 @@ async function dispatchBridge (op, args) {
       const tick = setInterval(() => {
         emit('wait', { label: `open ${String(args.url).slice(0, 60)}`, remainingS: Math.ceil((capMs - (Date.now() - openStart)) / 1000) })
       }, 500)
+      const timing = { begin: openStart }
       try {
-        const r = await runOneCommand('open', args.url, '')
+        const r = await nativeOpen(String(args.url), timing)
         return r.ok ? asValue(undefined) : r
       } finally {
         clearInterval(tick)
         emit('wait', null)
+        firstCommandDone = true
+        // perf only for opens that got past tab resolution — an E900/E901
+        // refusal says nothing about where run time goes
+        if (timing.tabResolved) {
+          timing.ended = Date.now()
+          perfRecord('open', timing)
+        }
       }
     }
 
@@ -2994,6 +3455,8 @@ async function dispatchBridge (op, args) {
     case 'elementSearch': {
       const tab = await getTargetTab()
       if (!tab) return { ok: false, error: E901_NO_TAB }
+      const locErr = scriptLocatorError(args.locator)
+      if (locErr) return { ok: false, error: `findElements: ${locErr}` }
       const content = elementContentCheck(args)
       let hiddenCount = 0
       let contentMissCount = 0
@@ -3117,7 +3580,7 @@ async function dispatchBridge (op, args) {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id, frameIds: [args.frameId || 0] },
         func: pageTypeAt,
-        args: [Math.round(args.x), Math.round(args.y), String(args.text)]
+        args: [Math.round(args.x), Math.round(args.y), String(args.text), !!args.offscreen]
       })
       const r = results && results[0] && results[0].result
       if (!r) return { ok: false, error: `uiv.page.type: frame ${args.frameId} did not answer — it was removed or navigated between the finder and this call, so the match is stale. Re-run the finder right before typing (a match from before a click or navigation cannot be used afterwards)` }
@@ -3135,7 +3598,7 @@ async function dispatchBridge (op, args) {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id, frameIds: [args.frameId || 0] },
         func: pageDomClickAt,
-        args: [Math.round(args.x), Math.round(args.y)]
+        args: [Math.round(args.x), Math.round(args.y), args.tag || '', !!args.offscreen]
       })
       const r = results && results[0] && results[0].result
       if (!r) return { ok: false, error: `uiv.page.click: frame ${args.frameId} did not answer — it was removed or navigated between the finder and this call, so the match is stale. Re-run the finder right before clicking (a match from before a click or navigation cannot be used afterwards)` }
@@ -3240,30 +3703,11 @@ async function dispatchBridge (op, args) {
     }
 
     case 'bType': {
-      // literal text (anything beyond ${KEY_...}/${var} tokens) into a page
-      // with no focused input is a silent no-op — fail loudly instead.
-      // Pure key sequences (ENTER, ESC, TAB) stay allowed: pages handle
-      // those at document level legitimately.
-      const hasLiteralText = String(args.text).replace(/\$\{[^}]*\}/g, '').trim().length > 0
-      if (hasLiteralText) {
-        const tab = await getTargetTab()
-        if (tab) {
-          try {
-            const results = await chrome.scripting.executeScript({
-              target: { tabId: tab.id },
-              func: pageIsEditableFocused
-            })
-            const focus = results && results[0] && results[0].result
-            if (focus && !focus.editable) {
-              return {
-                ok: false,
-                error: `uiv.browser.type: no input field is focused (focus is on <${focus.tag}>) — the text would go nowhere. Either focus the field first (uiv.browser.click(uiv.$('id=email'))), or skip the focus dance entirely with uiv.page.type('id=email', text). (If the page really captures keystrokes globally, bypass this check with uiv.run('BType', text).)`
-              }
-            }
-          } catch (e) { /* probe is best-effort — never block typing on probe failure */ }
-        }
-      }
-
+      // NO focus guard here (removed 2026-08): keystrokes go to whatever the
+      // page has focused, exactly like the classic BType. Where the typed text
+      // ends up is for the MACRO to verify — read the field/result back and
+      // throw on mismatch ("a script must prove its own success"); a
+      // background probe cannot outguess pages with erratic focus handling.
       const r = await runOneCommand('BType', args.text, '', { spExtra: { isDesktop: false } }, { fast: true })
       if (!r.ok) return r
       // {nav: true}: a keyboard submit (ENTER) navigates but, unlike a click,
@@ -3402,6 +3846,150 @@ async function dispatchBridge (op, args) {
       const idx = Math.max(0, tabs.findIndex(x => x.id === next.id))
       store.dispatch(act.addLog('info', `script tab → #${idx + 1} "${(next.title || next.url || '').slice(0, 50)}" (previous tab closed)`))
       return asValue(info(next, idx, next.id))
+    }
+
+    // Resize the browser window so the PAGE VIEWPORT reaches the given size —
+    // the JS form of the classic resize/setWindowSize commands, same bg
+    // plumbing (PANEL_RESIZE_PLAY_TAB → resizeViewportOfTab). Returns the
+    // achieved viewport, because a screen smaller than the request clamps it
+    // and the macro should get to check what it actually runs in.
+    case 'windowResize': {
+      const tab = await getTargetTab()
+      if (!tab) return { ok: false, error: E901_NO_TAB }
+      await restoreRunTabStateFor(tab) // bg resolves the window from toPlay
+      const r = await csIpc.ask('PANEL_RESIZE_PLAY_TAB', {
+        viewportSize: { width: args.width, height: args.height },
+        screenAvailableRect: {
+          x: window.screen.availLeft,
+          y: window.screen.availTop,
+          width: window.screen.availWidth,
+          height: window.screen.availHeight
+        }
+      })
+      const actual = (r && r.actual) || { width: args.width, height: args.height }
+      if (r && r.diff && r.diff.length) {
+        store.dispatch(act.addLog('warning', `W367: only able to resize the viewport to ${actual.width}x${actual.height}, asked for ${args.width}x${args.height} (screen limit)`))
+      }
+      return asValue({ width: actual.width, height: actual.height })
+    }
+
+    // Window focus, both directions. Unlike windowResize these need NO tab:
+    // they are one IPC ask to the panel, which is the whole point — they are
+    // the first line of a desktop macro, run before any page exists. (The
+    // classic bringBrowserToForeground is tab-free in runOneCommand for the
+    // same reason; these go straight to the panel and skip it entirely.)
+    // Bring the browser to the front — and CONFIRM it actually came, because
+    // everything a desktop macro does next lands on whatever window is really
+    // in front. windows.update({focused:true}) raises the window inside the
+    // browser, but it does not always raise the BROWSER above another
+    // application: macOS restricts that, and on any platform the user clicking
+    // elsewhere takes focus straight back.
+    //
+    // Unconfirmed, that failure is silent and dangerous. Measured on macOS with
+    // a chat window in front: OpenBrowserDevTools called focus, believed it,
+    // and typed  document.title = 'Hello from Ui.Vision'  into the CHAT, which
+    // sent it as a message. A macro that types into an unknown application can
+    // hit an editor, a terminal or a message box, and the run log will only
+    // ever say the command "never reached the page".
+    //
+    // document.hasFocus() in the play tab is the honest check: it is false
+    // whenever the browser is not the active application. Retry the activation
+    // a few times (focus can take a moment, and a transient steal is worth one
+    // more attempt), then FAIL LOUDLY rather than let the keystrokes escape.
+    case 'windowFocus': {
+      const vars = getVarsInstance()
+      const deadline = Date.now() + 3000
+      let attempt = 0
+      let triedOsActivate = false
+
+      // macOS ONLY: when the browser is not the active application, no
+      // extension API can raise it — the OS reserves app activation. The
+      // FileAccess XModule can, though, because `open -b <bundle-id>` is
+      // exactly the supported way to activate an app, so try that once before
+      // giving up. Bundle ids are tried in order per browser family (release,
+      // dev/beta, nightly/canary); `open -b` exits non-zero on an id that is
+      // not installed, so the wrong ones simply fall through. Silently skipped
+      // when the XModule is absent — the caller still gets the honest error.
+      const osActivateOnMac = async () => {
+        if (triedOsActivate || !isMacOS()) return
+        triedOsActivate = true
+
+        const browser = String(getVarsInstance().get('!BROWSER') || '').toLowerCase()
+        const ids = /chrome/.test(browser)
+          ? ['com.google.Chrome', 'com.google.Chrome.beta', 'com.google.Chrome.canary']
+          : /edge/.test(browser)
+            ? ['com.microsoft.edgemac', 'com.microsoft.edgemac.Beta']
+            : ['org.mozilla.firefox', 'org.mozilla.firefoxdeveloperedition', 'org.mozilla.nightly']
+
+        for (const id of ids) {
+          try {
+            const res = await getNativeFileSystemAPI().runProcess({
+              fileName: '/usr/bin/open',
+              arguments: `-b ${id}`,
+              waitForExit: true
+            })
+            if (res && res.exitCode === 0) {
+              await delayMs(400)
+              return true
+            }
+          } catch (e) {
+            return false // XModule not installed / not reachable — nothing more to try
+          }
+        }
+        return false
+      }
+
+      for (;;) {
+        await csIpc.ask('PANEL_BRING_PLAYING_WINDOW_TO_FOREGROUND')
+        attempt++
+
+        // Ask BOTH documents. The question is "is the browser the active
+        // application", and either surface answering yes settles it — but
+        // neither answers it alone. The side panel runs this code, and while
+        // IT holds the keyboard focus the play tab's hasFocus() is false even
+        // with the browser frontmost; that false negative failed every
+        // panel-driving demo (ClearSidebarLogViaGUI_*, which click the panel
+        // itself) while OpenBrowserDevTools, whose focus sits in the page,
+        // passed in the same run. When another APPLICATION is in front, both
+        // are false — which is the case this guard exists for.
+        if (document.hasFocus()) return asValue(undefined)
+
+        const r = await runOneCommand('executeScript', 'return document.hasFocus()', '__uiv_focus', null, { fast: true })
+        if (r.ok && vars.get('__uiv_focus') === true) return asValue(undefined)
+
+        // One OS-level attempt, after the cheap path has visibly failed. A
+        // zero exit from `open -b` means macOS ACTIVATED the app, and that is
+        // a stronger answer than hasFocus() can give: focus may legitimately
+        // sit somewhere neither document can see — DevTools being the case
+        // that bit here, where the browser is plainly frontmost (its console
+        // had just accepted typed input) yet page and panel both report false.
+        // Accept the OS's word for it.
+        if (attempt >= 2 && await osActivateOnMac()) return asValue(undefined)
+
+        if (Date.now() >= deadline) {
+          return {
+            ok: false,
+            error: `uiv.window.focus(): the browser did not come to the front after ${attempt} attempts — another application still has it. ` +
+              `Real OS input (uiv.desktop.click / .type, XClick / XType) goes to the FOCUSED window, so continuing would send clicks and keystrokes into that other application instead of the browser. ` +
+              `Click the browser window once and re-run, and keep it uncovered while a desktop macro runs. ` +
+              // WHY it could not be raised differs by platform, and the wrong
+              // explanation sends the user looking in the wrong place. macOS
+              // reserves app activation outright; Windows and Linux let only
+              // the current foreground app hand focus over, so the request
+              // flashes the taskbar entry instead of raising the window.
+              (isMacOS()
+                ? `(On macOS an extension cannot always raise the browser above another app — the operating system reserves that.)`
+                : `(An application that is not in the foreground cannot take focus for itself — the request only flashes the browser's taskbar entry.)`)
+          }
+        }
+
+        await delayMs(250)
+      }
+    }
+
+    case 'windowMinimize': {
+      await csIpc.ask('PANEL_MINIMIZE_ALL_WINDOWS')
+      return asValue(undefined)
     }
 
     // storage -> the browser's Downloads folder, whatever the file is
@@ -3571,6 +4159,43 @@ async function dispatchBridge (op, args) {
       return asValue((files || []).map(f => f.name).filter(Boolean))
     }
 
+    // --- the file store: the verbs that take a name, whatever the file is ---
+    case 'filesList': {
+      // both stores, one flat list of FILE names — folders are entries too
+      // (Entry carries isDirectory), and a folder is not something the other
+      // uiv.files verbs can act on
+      const lists = await Promise.all(FILE_STORES.map(s => s.get().list()))
+      const names = lists.reduce((all, files) => {
+        return all.concat((files || []).filter(f => !f.isDirectory).map(f => f.name))
+      }, [])
+      return asValue(names.filter(Boolean).sort())
+    }
+
+    case 'filesExists': {
+      const hit = await resolveStoredFile(args.name, 'uiv.files.exists', true)
+      return asValue(hit ? await hit.fileStore.get().exists(hit.fileName) : false)
+    }
+
+    case 'filesRemove': {
+      const { fileName, fileStore } = await resolveStoredFile(args.name, 'uiv.files.remove')
+      if (!(await fileStore.get().exists(fileName))) {
+        throw new Error(`uiv.files.remove: '${fileName}' does not exist — uiv.files.list() shows what is there, uiv.files.exists('${fileName}') tests without throwing`)
+      }
+      // awaited, unlike the classic #DeleteAfterExport, which fires the remove
+      // and returns: a script that deletes a file and asks for it on the next
+      // line must not still find it
+      await fileStore.get().remove(fileName)
+      store.dispatch(fileStore.refresh())
+      return asValue(fileName)
+    }
+
+    // raw text over the same store — see textFileName for the name rules
+    case 'textRead':
+      return asValue(await textReadRaw(args.file))
+
+    case 'textWrite':
+      return asValue(await textWriteRaw(args.file, args.text))
+
     default:
       return { ok: false, error: `unknown uiv bridge op '${op}'` }
   }
@@ -3583,7 +4208,10 @@ async function dispatchBridge (op, args) {
 // ---------------------------------------------------------------------------
 
 async function textSearchOnce (args) {
-  guardOcrSettings({ store })
+  // Resolved before the guard: {engine: 'xmodule'} needs no OCR.Space account,
+  // so the "OCR disabled" guard must see which reader this call asked for.
+  const engineAsked = resolveOcrEngine(args.engine, 'uiv.ocr.findText')
+  guardOcrSettings({ store, engine: engineAsked })
 
   // {scope: 'desktop'} OCRs the whole screen instead of the viewport — the
   // matches come back in SCREEN pixels, tagged scope: 'desktop', so they feed
@@ -3600,7 +4228,7 @@ async function textSearchOnce (args) {
   }
 
   const state = store.getState()
-  const engine = args.engine !== undefined ? args.engine : state.config.ocrEngine
+  const engine = engineAsked !== undefined ? engineAsked : state.config.ocrEngine
   const lang = String(args.language || state.config.ocrLanguage || 'eng').toLowerCase()
 
   // {area: match | rect} limits THIS search to one region — same option and
@@ -3614,6 +4242,7 @@ async function textSearchOnce (args) {
     store,
     lang,
     engine,
+    engineExplicit: engineAsked !== undefined,
     scale: 'true',
     isTable: false,
     isDesktop,
@@ -3688,31 +4317,52 @@ function pageFlashRects (rects) {
 
 // Single finder attempt (no auto-wait retry — Find should answer NOW).
 // Never rejects; logs the outcome either way.
-export async function probeFind (kind, target) {
+// `opts` carries the options read off the probed line — above all {scope}.
+// Without it this probed the browser viewport whatever the line said, so
+// {scope: 'desktop'} reported "no matches" for an image sitting on the screen
+// in plain view, and the button that exists to answer "why didn't it match?"
+// was itself the reason. minScore/engine/language are passed for the same
+// reason: probing at a different threshold or with a different OCR engine
+// answers a question the script never asked.
+export async function probeFind (kind, target, opts = {}) {
   if (running) return { ok: false, error: SCRIPT_ALREADY_RUNNING }
+
+  const onDesktop = opts.scope === 'desktop'
 
   try {
     // Find always targets the tab the user is looking at right now — never
-    // a tab pinned by a previous script run
+    // a tab pinned by a previous script run. A DESKTOP search needs no tab at
+    // all (the XModule captures the screen), and demanding one made the probe
+    // fail with E901 on a browser showing nothing but a chrome:// page — the
+    // exact situation a desktop macro is usually written in.
     scriptTabId = null
-    const tab = await getTargetTab()
-    if (!tab) return { ok: false, error: E901_NO_TAB }
+    let tab = null
+    if (!onDesktop) {
+      tab = await getTargetTab()
+      if (!tab) return { ok: false, error: E901_NO_TAB }
+    }
 
     let matches = []
     let hiddenCount = 0
     let ocrText = ''
     switch (kind) {
       case 'elementSearch': {
+        if (onDesktop) {
+          return {
+            ok: false,
+            error: "a DOM locator has no meaning on the desktop — {scope: 'desktop'} searches the screen, where there are no elements, only pixels. Find an image (uiv.findImage) or OCR text (uiv.ocr.findText) there instead."
+          }
+        }
         const r = await elementSearchOnce(tab, { locator: target })
         matches = r.matches
         hiddenCount = r.hiddenCount
         break
       }
       case 'imageSearch':
-        matches = await imageSearchOnce({ image: target })
+        matches = await imageSearchOnce({ image: target, scope: opts.scope, minScore: opts.minScore })
         break
       case 'textSearch': {
-        const r = await textSearchOnce({ text: target })
+        const r = await textSearchOnce({ text: target, scope: opts.scope, engine: opts.engine, language: opts.language })
         matches = r.matches
         ocrText = r.text
         break
@@ -3721,21 +4371,62 @@ export async function probeFind (kind, target) {
         return { ok: false, error: `unknown finder '${kind}'` }
     }
 
-    // flash the matches, grouped by frame (frame-local rects stay local)
-    const byFrame = {}
-    for (const m of matches) {
-      const fid = m.frameId || 0
-      if (!byFrame[fid]) byFrame[fid] = []
-      byFrame[fid].push(m.rect)
-    }
-    for (const fid of Object.keys(byFrame)) {
+    // SHOW the matches. Two different surfaces, because the coordinates live
+    // in two different spaces.
+    //
+    // Screen search: the rects are SCREEN pixels, so drawing them inside the
+    // page would point at an unrelated spot. The desktop screenshot editor is
+    // the surface that CAN show them — it opens the capture the search just
+    // took (searchVision saves it as __lastdesktopscreenshot) and draws the
+    // boxes on it, which is the same thing the classic visual commands show in
+    // debug mode. Best match first, so it is the one highlighted.
+    if (onDesktop && matches.length) {
       try {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id, frameIds: [parseInt(fid, 10)] },
-          func: pageFlashRects,
-          args: [byFrame[fid]]
+        // Where the capture actually IS depends on the storage strategy — with
+        // XFile it lives on disk, not in extension storage, and asking for the
+        // wrong one opens the viewer on nothing. This is the same check the
+        // desktop OCR overlay makes in bg.js.
+        const source = getStorageManager().getCurrentStrategyType() === StorageStrategyType.XFile
+          ? DesktopScreenshot.ImageSource.HardDrive
+          : DesktopScreenshot.ImageSource.Storage
+        await csIpc.ask('PANEL_HIGHLIGHT_DESKTOP_RECTS', {
+          imageInfo: {
+            source,
+            path: ensureExtName('.png', C.LAST_DESKTOP_SCREENSHOT_FILE_NAME)
+          },
+          screenAvailableSize: { width: screen.availWidth, height: screen.availHeight },
+          selectedIndex: 0,
+          scoredRects: matches.map((m, i) => ({
+            type: i === 0 ? DesktopScreenshot.RectType.BestMatch : DesktopScreenshot.RectType.Match,
+            index: i,
+            x: m.rect.left,
+            y: m.rect.top,
+            width: m.rect.width,
+            height: m.rect.height,
+            score: m.score
+          }))
         })
-      } catch (e) { /* flashing is best-effort */ }
+      } catch (e) { /* showing the result is best-effort — the log still has it */ }
+    }
+
+    // Browser search: flash the matches in the page, grouped by frame
+    // (frame-local rects stay local).
+    const byFrame = {}
+    if (!onDesktop) {
+      for (const m of matches) {
+        const fid = m.frameId || 0
+        if (!byFrame[fid]) byFrame[fid] = []
+        byFrame[fid].push(m.rect)
+      }
+      for (const fid of Object.keys(byFrame)) {
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id, frameIds: [parseInt(fid, 10)] },
+            func: pageFlashRects,
+            args: [byFrame[fid]]
+          })
+        } catch (e) { /* flashing is best-effort */ }
+      }
     }
 
     const first = matches[0]
@@ -3755,9 +4446,13 @@ export async function probeFind (kind, target) {
           (first.frameLocal ? ` [frame ${first.frameId}, frame-local]` : '')
         : hiddenNote)
     const displayName = { elementSearch: 'findElements', imageSearch: 'findImages', textSearch: 'ocr.findTexts' }[kind] || kind
+    // name the scope in the log: "no matches" means something different on the
+    // screen than in the viewport, and the coordinates below are in different
+    // spaces too (screen pixels vs viewport CSS pixels)
+    const where = onDesktop ? ", {scope: 'desktop'}" : ''
     store.dispatch(act.addLog(
       matches.length ? 'echo' : 'warning',
-      `Find ${displayName}('${target}'): ${summary}`
+      `Find ${displayName}('${target}'${where}): ${summary}${onDesktop && matches.length ? ' [SCREEN pixels]' : ''}`
     ))
     return { ok: true, count: matches.length, hiddenCount, summary }
   } catch (e) {

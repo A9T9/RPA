@@ -1,6 +1,5 @@
 import { FolderAddOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Button, Dropdown, Input, Modal, message } from 'antd';
-import JSZip from 'jszip';
 import keycode from 'keycode';
 import React from 'react';
 import { connect } from 'react-redux';
@@ -11,12 +10,10 @@ import { Actions as simpleActions } from '@/actions/simple_actions';
 import { createBookmarkOnBar } from '@/common/bookmark';
 import * as C from '@/common/constant';
 import {
-  toBookmarkData,
-  toJSONString
+  toBookmarkData
 } from '@/common/convert_utils';
 import log from '@/common/log';
 import { uid } from '@/common/ts_utils';
-import FileSaver from '@/common/lib/file_saver';
 import M from '@/common/messages';
 import { getPlayer } from '@/common/player';
 import { waitForRenderComplete } from '@/common/utils';
@@ -31,7 +28,6 @@ import {
   getFilteredMacroFileNodeData,
   getMacroFileNodeData,
   getMacroFileNodeList,
-  getShouldIgnoreTargetOptions,
   getShouldLoadResources,
   isFocusOnSidebar,
   isMacroFolderNodeListEmpty,
@@ -750,46 +746,28 @@ class Files extends React.Component {
           break
         }
 
-        case 'export_all_json': {
-          const macroStorage = getStorageManager().getMacroStorage()
-          const path = macroStorage.getPathLib()
-          const zip = new JSZip()
-          const getFolder = (relativePath, zipRoot) => {
-            const dirs = relativePath.split(/\/|\\/g)
-
-            return dirs.reduce((prev, dir) => {
-              return prev.folder(dir)
-            }, zipRoot)
-          }
-
+        case 'export_all_backup': {
+          // same full backup as Settings > Backup > "Run Backup Now":
+          // macros + vision images + CSVs + screenshots in one ZIP
+          // (the macros-only "Export All (JSON)" zip it replaced had little use)
           if (this.props.macros.length === 0) {
             return message.error('No saved macros to export', 1.5)
           }
 
-          return Promise.all(
-            this.props.macros.map(macroNode => {
-              const dirPath   = path.dirname(macroNode.relativePath)
-              const fileName  = path.basename(macroNode.relativePath)
-              const folder    = getFolder(dirPath, zip)
-
-              return getStorageManager().getMacroStorage().read(macroNode.fullPath, 'Text')
-              .then(macro => {
-                folder.file(fileName, toJSONString({
-                  name:     macro.name,
-                  commands: macro.data.commands,
-                  // script: keep JS script macros intact (undefined for table macros)
-                  script:   macro.data.script
-                }, {
-                  ignoreTargetOptions: this.props.ignoreTargetOptions
-                }))
-              })
-            })
-          )
-          .then(() => {
-            return zip.generateAsync({ type: 'blob' })
-            .then(function (blob) {
-              FileSaver.saveAs(blob, 'all_test_cases.zip');
-            })
+          return Promise.resolve(this.props.runBackup())
+          .then(count => {
+            const parts = count
+              ? [`${count.macro} macros`, `${count.csv} csvs`, `${count.screenshot} screenshots`, `${count.vision} vision images`]
+              : []
+            message.success(
+              parts.length
+                ? `Backup created: uivision_backup.zip (${parts.join(', ')}) — check your downloads`
+                : 'Backup created: uivision_backup.zip — check your downloads',
+              6
+            )
+          })
+          .catch(e => {
+            message.error('Backup failed: ' + (e && e.message ? e.message : String(e)), 6)
           })
         }
 
@@ -815,10 +793,10 @@ class Files extends React.Component {
         }
       },
       {
-        key: 'export_all_json',
-        label: 'Export All (JSON)',
+        key: 'export_all_backup',
+        label: 'Export All (Backup)',
         onClick: () => {
-          onClickMenuItem({ key: 'export_all_json' })
+          onClickMenuItem({ key: 'export_all_backup' })
         }
       },
       {
@@ -936,7 +914,6 @@ export default connect(
     editing: state.editor.editing,
     player: state.player,
     config: state.config,
-    ignoreTargetOptions: getShouldIgnoreTargetOptions(state),
     searchText: state.macroQuery,
     filteredMacroFileNodeData: getFilteredMacroFileNodeData(state),
     canUseKeyboardShortcuts: isFocusOnSidebar(state)

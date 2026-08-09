@@ -19,7 +19,16 @@ getLangs (osType:any) {
         return fsAPI.getSpecialFolderPath({ folder: SpecialFolder.UserProfile })
         .then(profilePath => {
           const uivision = osType == "mac"?'/Library/uivision-xmodules/2.2.2/xmodules/': path.join(profilePath, '\\AppData\\Roaming\\Ui.Vision\\XModules\\ocr');
-          return fsAPI.ensureDir({ path: uivision })
+          // ensureDir the directory we WRITE to, not the one we read the
+          // binary from. It used to ensure `uivision` — the XModules install
+          // folder, which by definition already exists — while the output went
+          // to <rootDir>/logs, which on a fresh profile does not. The OCR
+          // binary does NOT create a missing output directory and still exits
+          // 0 when the write fails, so the exitCode check below passed, the
+          // read of the absent file failed, and Settings reported the module as
+          // "Not Installed" on a machine where it was installed and working.
+          const logsDir = osType == "mac" ? rootDir + "/logs" : rootDir + "\\logs"
+          return fsAPI.ensureDir({ path: logsDir })
           .then(Opath => {
            let path =uivision;
            let outputpath = rootDir;
@@ -30,7 +39,7 @@ getLangs (osType:any) {
 						Arguments = " --in get-installed-lng --out "+outputpath+"/logs/ocrlang.json";
 						ocrOutputJson = outputpath+"/logs/ocrlang.json";
           }else{
-            filepath = path+'\\ocrexe\\ocrcl1.exe';	
+            filepath = path+'\\ocrexe\\ocrcl1.exe';
 						Arguments = "get-installed-lng "+outputpath+"\\logs\\ocrlang.json";
 						ocrOutputJson = outputpath+"\\logs\\ocrlang.json";
           }

@@ -21,7 +21,40 @@ export default {
     // collapsed); the "JS" level is gone — its sub-folders sit directly below
     // "Demo and QA Test Scripts" — and the classic set moved to its own
     // top-level "Demo and QA Test Scripts (Classic)" folder (button-only).
-    version: '9.9.13',
+    // 9.9.14: DesktopClickAccuracyRange demo — existing installs need the
+    // re-offer to receive the three range_*_dpi_96 word images its image-
+    // search part searches for.
+    // 9.9.15: that demo's parts 2+3 moved to desktop scope — the browser-scope
+    // version passed on machines where every desktop macro missed, so existing
+    // installs need the corrected macro, not just the images.
+    // 9.9.16: its part 2 reads with the XModule OCR (what desktop scope really
+    // uses) instead of the Javascript one, which missed words and made the
+    // coordinate measurement inconclusive; OCR engines are named, not numbered.
+    // 9.9.17: the demos call uiv.window.focus() instead of
+    // uiv.run('bringBrowserToForeground') — existing installs need the migrated
+    // macros, since the old form is the first line of every desktop demo.
+    // 9.9.18: range demo cosmetics — title says desktop.Click (the JS API
+    // name, not the classic XClick), targets numbered left to right.
+    // 9.9.19: range demo waits for stable window geometry after the CDP
+    // self-test — Chrome's debugger notice auto-hiding mid-run slid the
+    // viewport 55px between an OCR capture and its click.
+    // 9.9.20: parts 2+3 search inside the browser window's own screen rect
+    // (whole-screen OCR matched a word shown in ANOTHER window and clicked
+    // there); sighting retry aims at page center so a transient origin shift
+    // cannot push it off the bottom edge; title casing Ui.Vision.
+    // 9.9.21: verdict thresholds scale with dpr — one quantization-wobbled
+    // shot at 125% (6-8px, everything else perfect) read as a scaling-bug
+    // FAIL; tolerance is now ~5*dpr and the slope alarm 0.05 (real bug: 0.2).
+    // 9.9.22: wait for the debugger notice to be GONE, not merely stable —
+    // it is perfectly stable while up, so the settle loop exited with the bar
+    // showing and the detach 3s later shifted the first scored shot by 8px.
+    // 9.9.23: macOS variants of the side-panel anchors
+    // (sidebar_{datatab,logstab,clearlog}_mac_dpi_96.png). searchVision prefers
+    // a '_mac' image on macOS and falls back to the base one everywhere else,
+    // so existing installs need the re-offer to receive the new files — the
+    // Windows captures scored 0.55-0.59 against the 0.60 bar on macOS, where
+    // the OS draws the same controls with different fonts and corner radii.
+    version: '9.9.23',
     macroFolder: '/'
   },
   nativeMessaging: {

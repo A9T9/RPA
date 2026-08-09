@@ -103,8 +103,8 @@ Basics of the JS API (details in the AI system prompt and
     the anchor's **centre**, the same origin the classic commands use, so
     numbers copied from a table macro carry over unchanged.
 
-    (A DOM locator is better than both where one exists; another engine,
-    `{engine: 2}` or the XModule/cloud engines in Settings, sometimes rescues
+    (A DOM locator is better than both where one exists; another reader —
+    `{engine: 'xmodule'}` or `{engine: 'ocrspace_engine2'}` — sometimes rescues
     it.) The built-in **Javascript OCR** loses
     light-on-dark button labels ("Accept all" white on blue) and small glyphs
     most often — which is why cookie banners and consent dialogs are image work,
@@ -188,6 +188,7 @@ Basics of the JS API (details in the AI system prompt and
 | `uiv.findImages(image, opts)` | all matches: `{minScore: 0.1–1, timeout, required, relative, scope}` |
 | **relative images** | a green anchor + pink target image needs `{relative: true}` — it is auto-detected ONLY when the file name ends in `_relative.png`. Without it the whole picture (boxes included) is matched as a plain pattern and simply never found |
 | `uiv.ocr.findTexts(text, opts)` | all matches: `{engine, language, timeout, required, scope}` — `{scope: 'desktop'}` searches the **screen** and returns screen-pixel matches for `uiv.desktop.*` (the composed `XClickText`) |
+| **OCR engine** | scripts NAME the reader, they never number it: `'javascript'` (built in), `'xmodule'` (XModule Local OCR, Windows/macOS, best on native UI), `'ocrspace_engine1'` / `'ocrspace_engine2'` / `'ocrspace_engine3'` (cloud, API key required). Engine NUMBERS are classic-macro syntax and are rejected with the name to use. Omit `engine` to use the one configured in Settings > OCR — except `{scope: 'desktop'}`, which upgrades an unpinned Javascript OCR to `'xmodule'` when it is installed |
 | `uiv.offset(match, dx, dy)` | a match shifted by dx/dy — the JS form of `word#R8,-14`. Measured from the match's point (its **centre**), so offsets from a table macro carry over unchanged. Returns a **match**, so `scope`/`frameId` travel with it |
 | `uiv.browser.click(uiv.findImage('buy.png'))` | a visual click is always explicit — never a bare string |
 | **optional click** | `const m = uiv.findImage('close.png', {required: false, timeout: 2}); if (m) uiv.browser.click(m);` — the finder returns `null` when it is absent, so the result is **checked**, never passed straight to the click |
@@ -237,7 +238,9 @@ Three or more calls of one tier in a row read better aliased —
 | `uiv.shot.viewport(name)` / `uiv.shot.page(name)` | screenshot of the visible page / the whole page — **returns the file name** |
 | `uiv.shot.element(locator, name)` | screenshot of one element (classic `storeImage`) |
 | `uiv.shot.desktop(name)` | screenshot of the whole screen (XModule) |
-| `uiv.exportToDownloads(name)` | copy a file out of UI.Vision storage into the browser's **Downloads** folder — `.png`, `.csv` or `log` |
+| `uiv.files.list()` / `uiv.files.exists(name)` | **every** stored file (screenshots *and* CSV/TXT) / test one, without throwing. `uiv.csv.list()` is the CSV/TXT tab alone |
+| `uiv.files.remove(name)` | **delete** a file from UI.Vision storage. Takes any stored name, so the export-then-clean-up pair is two plain lines: `uiv.exportToDownloads(f); uiv.files.remove(f);` (the export copies the bytes out before the download starts, so removing next is safe) |
+| `uiv.exportToDownloads(name)` | copy a file out of UI.Vision storage into the browser's **Downloads** folder — `.png`, `.csv`, `.txt` or `log`. Also spelled `uiv.files.exportToDownloads` — same function, the spelling that reads right beside `list`/`exists`/`remove`. `log` works on this verb only: the run log is rendered on the spot, so there is nothing to list or delete |
 | `uiv.download(what[, opts])` | download a file from the **web** into the browser's Downloads folder and **return the name it got on disk**. Three forms: a locator (`uiv.download('css=a.installer')` — "save link as": the element's `href`/`src`, no click; also the way to download images), a plain URL, or a **function** for downloads only a click can start (JS blobs, POST exports): `uiv.download(function () { uiv.page.click('id=export'); }, {as: 'report.csv'})` — the trigger runs between arming and waiting, so its download is captured, renamed and awaited. Options: `{as: 'name.ext'}` rename, `{timeout: 60}` seconds for completion (default `!TIMEOUT_DOWNLOAD`), `{wait: false}` fire-and-forget. Replaces the classic `onDownload`/`saveItem` pair and reading `!LAST_DOWNLOADED_FILE_NAME` by hand |
 | `uiv.ai.ask(prompt, {images})` | one round trip — text (+images) in, text out. Answers a question; **touches nothing**. `{json: true}` returns a **parsed object/array** instead of prose: the model is told to answer JSON-only and the reply is parsed with one corrective retry — use it whenever the answer feeds code, not a log line |
 | `uiv.ai.find(question[, opts])` | screenshot + question → a **match** — the fourth finder, alongside `$` / `findImage` / `ocr.findText`. Does **not** auto-wait: each attempt is a model call. `{scope: 'desktop'}` sends the model a **whole-screen** shot and returns screen coordinates — the way to ai.find native UI (OS dialogs, menus); per call, no `XDesktopAutomation` toggle needed |
@@ -275,8 +278,8 @@ them in new scripts.
 | `refresh` | `uiv.run('refresh')` |
 | `selectWindow` (tab=N / tab=open / tab=close / title=…) | **native:** `uiv.tabs.select(n)` / `uiv.tabs.open(url)` / `uiv.tabs.close()` — indexes are **absolute** (1..N left to right, what the tab bar shows), *not* start-tab-relative like the classic command, and every call returns `{index, title, url, active, current}` so the script can **verify** where it landed; `uiv.tabs.list()` shows all tabs, with `current: true` on the tab the script acts on — the position read that replaces `!CURRENT_TAB_NUMBER`. A click that opens a new tab still does **not** switch to it — select it explicitly. (`uiv.run('selectWindow', …)` remains for `title=…` matching) |
 | `setWindowSize` | `uiv.run('setWindowSize', '1366x768')` |
-| `bringBrowserToForeground` | `uiv.run('bringBrowserToForeground', 'true')` |
-| `bringIDEandBrowserToBackground` | `uiv.run('bringIDEandBrowserToBackground')` |
+| `bringBrowserToForeground` | **`uiv.window.focus()`** — a PRECONDITION for `uiv.desktop.*`, not a nicety: OS input goes to whatever window is frontmost, so a background browser sends the clicks into another application. Browser-scope X commands front the window themselves; desktop scope deliberately does not (a desktop macro may be aiming at another app), so call it first, before `uiv.open`. Needs no tab — it works on a browser showing no web page yet |
+| `bringIDEandBrowserToBackground` | **`uiv.window.minimize()`** — the opposite: minimizes the browser AND the IDE, to automate an application sitting behind them |
 | `selectFrame` | **not needed** — the DOM finders pierce same-origin *and* cross-origin frames by themselves. (Do not use via `uiv.run`: its state does not persist between bridge calls.) |
 
 ## Clicking, typing & form input

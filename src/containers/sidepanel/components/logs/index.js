@@ -331,8 +331,9 @@ class DataTab extends React.Component {
               children: this.renderScreenshots()
             },
             {
+              // key stays 'CSV' — ui.dataTab and the bottom bar switch on it
               key: 'CSV',
-              label: this.prefixHardDisk('CSV'),
+              label: this.prefixHardDisk('CSV/TXT'),
               children: this.renderCSV()
             },
             {

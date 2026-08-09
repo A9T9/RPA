@@ -138,7 +138,9 @@ export class StorageManager extends EventEmitter implements IStorageManager {
           case StorageTarget.CSV:
             return getBrowserFileSystemStandardStorage({
               baseDir:        'spreadsheets',
-              extensions:     ['csv'],
+              // one store, two views: .csv is parsed tabular data (uiv.csv.*),
+              // .txt is raw text (uiv.text.*) — both live in the CSV/TXT tab
+              extensions:     ['csv', 'txt'],
               shouldKeepExt:  true,
               transformFileName: (path: string) => {
                 return path.toLowerCase()
@@ -222,7 +224,9 @@ export class StorageManager extends EventEmitter implements IStorageManager {
             return getNativeFileSystemStandardStorage({
               rootDir,
               baseDir: 'datasources',
-              extensions: ['csv'],
+              // .csv = parsed tabular data (uiv.csv.*), .txt = raw text
+              // (uiv.text.*); the /datasources folder holds both
+              extensions: ['csv', 'txt'],
               shouldKeepExt: true,
               allowAbsoluteFilePath: true,
               encode: ((text: string, fileName: string) => {

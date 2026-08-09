@@ -40,6 +40,9 @@ export const STARTER_SCRIPT = `// Ui.Vision JS script - modern JavaScript
 // MISC: uiv.log(msg, 'green')   uiv.sleep('1s')   uiv.getVar('!LASTCOMMANDOK')   uiv.setVar('n', 1)
 //       uiv.exit('reason')  -> end the run EARLY AS A SUCCESS (guard clauses;
 //       a failed check still uses throw new Error(...))
+// FILES (the CSV/TXT tab): uiv.csv.read/write/append   parsed rows as 2D arrays
+//        uiv.text.read/write   the same files RAW - one-per-line lists:
+//        uiv.text.read('prompts.txt').split(/\\r?\\n/).map(s => s.trim()).filter(Boolean)
 // Long forms with options: uiv.findElements / findImages / ocr.findTexts
 // LEGACY bridge (any classic command): uiv.run(command, target, value)
 
@@ -402,6 +405,15 @@ uiv.page.type('xpath=//input[@type="text"]', 'This is a single line test...');
 uiv.page.type('xpath=//textarea', '...and this a multiline test:\\nLine2\\nLine3');
 uiv.shot.viewport('AutoFillJS_page2');
 uiv.page.click('xpath=//*[@id="mG61Hd"]/div/div/div[3]/div[1]/div[1]/div[2]/span/span');
+
+// Wait until the form is really SUBMITTED before navigating away: the
+// confirmation page has no form element. Leaving while the submission is
+// still in flight triggers the browser's native "Leave this form?" dialog,
+// which freezes the tab for every later command (#210/#102) until a human
+// clicks it — no extension-tier input can reach a native dialog.
+for (let i = 0; i < 15 && uiv.findElements('css=form#mG61Hd', { required: false, timeout: 1 }).length; i++) {
+  uiv.sleep('1s'); // pacing the submitted-yet poll
+}
 uiv.log('DemoAutofill (JS) completed!', '#shownotification');
 
 // assertTitle, the JS way
@@ -591,9 +603,9 @@ uiv.shot.viewport('article2_just_viewport');
 const titleShot = uiv.shot.element('xpath=//a[contains(normalize-space(.), "Blog")]', 'blogtitle');
 
 // the shot's file name feeds straight into the reader — no engine pin: this
-// read uses the engine configured in Settings > OCR. ({engine: 99}, the
-// XModule Local OCR, reads best when installed; {engine: 2}/{engine: 3} are
-// the cloud engines.)
+// read uses the engine configured in Settings > OCR. ({engine: 'xmodule'}, the
+// XModule Local OCR, reads best when installed; {engine: 'ocrspace_engine2'} /
+// {engine: 'ocrspace_engine3'} are the cloud engines.)
 uiv.setVar('!OCRLANGUAGE', 'eng');
 const ocrResult = uiv.ocr.read({ image: titleShot });
 uiv.log(\`OCR Result = \${ocrResult}\`, 'blue');
@@ -603,6 +615,14 @@ if (String(ocrResult).includes('RPA')) {
 } else {
   throw new Error(\`OCR did not find "RPA" in the element screenshot: \${ocrResult}\`);
 }
+
+// What did this macro leave behind? uiv.files.list() spans BOTH stores —
+// screenshots and the CSV/TXT tab — so filter when you want one kind. The
+// other two file verbs are uiv.files.exists(name) and uiv.files.remove(name),
+// which take a .png exactly like they take a .csv. The shots stay here on
+// purpose: open the Data > Screenshots tab and look at them.
+const shots = uiv.files.list().filter(n => /\\.png$/i.test(n));
+uiv.log(\`Screenshots stored: \${shots.join(', ')}\`, 'blue');
 `
   },
   {
@@ -825,6 +845,85 @@ if (myCSV[0][2] !== 'Hello World') {
   throw new Error(\`round-trip failed: expected 'Hello World', got '\${myCSV[0][2]}'\`);
 }
 uiv.log('DemoCsvReadArray (JS) completed', 'green');
+`
+  },
+  {
+    fileName: 'DemoTextReadWrite.js',
+    path: 'Core/DemoTextReadWrite.js',
+    title: 'DemoTextReadWrite (JS)',
+    code: `// uiv.text.read / uiv.text.write — the RAW side of the file API. Same
+// storage as uiv.csv.* (the Data > CSV/TXT tab), but NO parsing: commas
+// and quotes stay literal characters. That makes it the right tool for
+// one-per-line lists (prompts, keywords, URLs) — files that LOOK like CSV
+// to a parser but are really just lines of text.
+
+// A typical list: image prompts, one per line. The commas are PUNCTUATION,
+// not column separators — and the lines have different comma counts. Saved
+// under a .csv name, which is exactly how such files arrive in the wild:
+const prompts = [
+  'a red panda, watercolor style',
+  'a lighthouse at night, oil painting, dramatic sky',
+  'a mountain village in winter'
+];
+uiv.text.write('demo_prompts.csv', prompts.join('\\n'));
+
+// The CSV parser rejects this file ON PURPOSE: uiv.csv.read is STRICT
+// (equal column counts, valid quoting), and a plain list is not CSV. When
+// a "csv" throws "Invalid Record Length", the fix is usually not to repair
+// the quoting — it is to STOP PARSING and read the file with uiv.text.read.
+try {
+  uiv.csv.read('demo_prompts.csv');
+  throw new Error('expected the strict CSV parser to reject the plain-text list');
+} catch (e) {
+  if (String(e.message).indexOf('expected the strict CSV parser') !== -1) { throw e; }
+  uiv.log(\`uiv.csv.read rejects the list, as expected: \${e.message}\`, 'brown');
+}
+
+// uiv.text.read returns the same bytes uiv.text.write stored. THE pattern
+// for consuming a list: split on /\\r?\\n/ (files made on Windows end lines
+// with CRLF), trim each line, and filter(Boolean) drops the ghost entry a
+// trailing newline would create.
+const items = uiv.text.read('demo_prompts.csv').split(/\\r?\\n/).map(s => s.trim()).filter(Boolean);
+uiv.log(\`demo_prompts.csv has \${items.length} lines\`, 'blue');
+items.forEach((item, i) => uiv.log(\`  line \${i + 1}: \${item}\`));
+
+if (items.length !== prompts.length || items[0] !== prompts[0]) {
+  throw new Error('round-trip failed: the file does not hold what was written');
+}
+
+// UPDATE = read, modify, write back (there is no text append — a list file
+// is small, and rewriting it whole keeps the contract simple). Written to a
+// .txt name here — the honest extension for a list. A name with NO
+// extension defaults to .txt on write; on read it resolves to whichever of
+// name.txt / name.csv exists.
+const updated = items.concat('a lighthouse keeper reading, cozy interior');
+uiv.text.write('demo_prompts.txt', updated.join('\\n'));
+
+const after = uiv.text.read('demo_prompts.txt').split(/\\r?\\n/).filter(Boolean);
+if (after.length !== items.length + 1) {
+  throw new Error(\`update failed: expected \${items.length + 1} lines, found \${after.length}\`);
+}
+uiv.log(\`demo_prompts.txt written with \${after.length} lines — see the Data > CSV/TXT tab (the eye icon opens it in the text editor)\`, 'green');
+
+// files from the CSV/TXT store can land in the browser's Downloads folder
+uiv.exportToDownloads('demo_prompts.txt');
+
+// EXPORTING DOES NOT DELETE — the file now exists in BOTH places, and the
+// copy in Ui.Vision storage stays until something removes it. That is what
+// uiv.files.* is for: the verbs that take a NAME (list, exists, remove)
+// rather than a format, because deleting does not care whether the file is a
+// .txt, a .csv or a .png. demo_prompts.csv has served its purpose — it exists
+// only to show the strict parser rejecting a plain list — so tidy it away and
+// keep the .txt version:
+uiv.files.remove('demo_prompts.csv');
+if (uiv.files.exists('demo_prompts.csv')) {
+  throw new Error('uiv.files.remove did not remove demo_prompts.csv');
+}
+
+// uiv.csv.list() is the CSV/TXT tab alone; uiv.files.list() spans that tab
+// AND the screenshots, since a file name is a file name
+uiv.log(\`CSV/TXT tab now holds: \${uiv.csv.list().join(', ')}\`, 'blue');
+uiv.log('DemoTextReadWrite (JS) completed', 'green');
 `
   },
   {
@@ -1068,13 +1167,37 @@ uiv.shot.viewport('AutoFillJS_page1');
 uiv.browser.click('xpath=//*[@id="mG61Hd"]/div/div/div[3]/div/div/div/span/span');
 
 // page 2: trusted keystrokes for both fields — in uiv.browser.type a \\n in
-// the string is a real ENTER keystroke, which is a new line inside a textarea
-uiv.browser.click('xpath=//input[@type="text"]');
-uiv.browser.type('This is a single line test...');
-uiv.browser.click('xpath=//textarea');
-uiv.browser.type('...and this a multiline test:\\nLine2\\nLine3');
+// the string is a real ENTER keystroke, which is a new line inside a textarea.
+// TYPE WITH PROOF: keystrokes go to whatever is focused, and this form
+// erratically swallows the focus a trusted click just set (its page
+// transition re-mounts the fields) — typed text then vanishes silently.
+// So click, type, READ THE FIELD BACK, and retry until the text really
+// arrived: the check-your-result pattern every script should use after
+// uiv.browser.type.
+const typeVerified = (locator, text) => {
+  for (let i = 0; i < 3; i++) {
+    uiv.browser.click(locator);
+    uiv.browser.type(text);
+    const v = String(uiv.$(locator).value || '');
+    if (v.includes(text.split('\\n')[0])) return;
+    uiv.log(\`field \${locator} does not hold the typed text yet - retrying\`, 'orange');
+    uiv.sleep('1s'); // let the form's page transition settle before the retry
+  }
+  throw new Error('typed text never arrived in ' + locator);
+};
+typeVerified('xpath=//input[@type="text"]', 'This is a single line test...');
+typeVerified('xpath=//textarea', '...and this a multiline test:\\nLine2\\nLine3');
 uiv.shot.viewport('AutoFillJS_page2');
 uiv.browser.click('xpath=//*[@id="mG61Hd"]/div/div/div[3]/div[1]/div[1]/div[2]/span/span');
+
+// Wait until the form is really SUBMITTED before navigating away: the
+// confirmation page has no form element. Leaving while the submission is
+// still in flight triggers the browser's native "Leave this form?" dialog,
+// which freezes the tab for every later command (#210/#102) until a human
+// clicks it — no extension-tier input can reach a native dialog.
+for (let i = 0; i < 15 && uiv.findElements('css=form#mG61Hd', { required: false, timeout: 1 }).length; i++) {
+  uiv.sleep('1s'); // pacing the submitted-yet poll
+}
 uiv.log('DemoAutofillChrome (JS) completed!', '#shownotification');
 
 // assertTitle, the JS way
@@ -1197,7 +1320,7 @@ uiv.open('https://ui.vision/demo/draw');
 uiv.page.click('link=calculator');
 
 // no engine pin: these reads use the engine configured in Settings > OCR
-// ({engine: 99} — the XModule Local OCR — reads best when installed)
+// ({engine: 'xmodule'} — the XModule Local OCR — reads best when installed)
 uiv.setVar('!OCRLANGUAGE', 'eng');
 
 // Anchors: mc (top-left key) and R2 (bottom row, 3rd column). Both are
@@ -1255,7 +1378,7 @@ const x = uiv.desktop;
 
 // the keystrokes go to whatever window has focus, so the browser must be in
 // front — that is a browser-level action, not something page JS can do
-uiv.run('bringBrowserToForeground');
+uiv.window.focus();
 uiv.open('https://ui.vision/demo/xtype');
 
 // open the browser's save dialog with the platform shortcut
@@ -1304,13 +1427,13 @@ const x = uiv.desktop;
 
 // OS keystrokes go to whatever window is in FRONT — make sure that is the
 // window this macro plays in. Note the order: open the page FIRST —
-// bringBrowserToForeground raises the window of the PLAY tab, and before the
+// uiv.window.focus() raises the window of the PLAY tab, and before the
 // first tab command a run has no play tab yet, so it would raise nothing.
 // (One thing it cannot do is steal focus from a DIFFERENT browser: the OS
 // only lets the focused app hand focus over. With two browsers open, start
 // the macro from the browser you want automated.)
 uiv.open('https://ui.vision/demo/xtype');
-uiv.run('bringBrowserToForeground');
+uiv.window.focus();
 
 // (read AFTER the first uiv command — before it, no special variable is set)
 const os = uiv.getVar('!OS');
@@ -1335,6 +1458,7 @@ uiv.banner('Real OS keystrokes will now open the DevTools console and type into 
 // keystrokes then fall on the page (harmless: this page has no input
 // fields), and the second attempt opens the console fresh.
 const typeIntoConsole = (attempt) => {
+  uiv.window.focus();   // OS input goes to the FOCUSED window, not the browser
   x.type(openConsole);
   // DevTools is not a web page: the extension cannot see into it, so there
   // is no element to wait for — a short sleep is the honest wait here
@@ -1355,11 +1479,53 @@ if (!typeIntoConsole(1) && !typeIntoConsole(2)) {
 }
 uiv.log(\`Proof: real OS keystrokes drove the \${browser} DevTools console on \${os} — the page title is now "\${GREETING}"\`, 'green');
 
-// The console is deliberately left OPEN: the typed line sitting in its
-// history — and the renamed tab title — ARE the demo. The banner tells the
-// person watching what they are looking at and how to close it again.
-const closeChord = isMac ? 'Cmd+Opt+I' : 'Ctrl+Shift+I';
-uiv.banner('<b>Desktop automation demo done:</b> real OS keystrokes opened the DevTools console and typed a command into it — look at the console line it just ran, and at the tab title: "' + GREETING + '". The console stays open so you can see it; press ' + closeChord + ' (or F12) to close it.', { tone: 'green', seconds: 20 });
+// Show the result, then LEAVE THE BROWSER AS WE FOUND IT.
+//
+// The console used to be left open on purpose — the typed line in its history
+// is the nicest proof of the demo. But DevTools SHRINKS the page viewport and
+// shifts every layout beneath it, so any macro run afterwards measures a
+// different window: in a demo sweep that surfaces as unrelated failures
+// elsewhere (a toolbar image that no longer matches, a drawing demo picking
+// the wrong tool), and the person debugging those has no reason to suspect
+// this demo left the browser altered. The renamed tab title is proof enough,
+// and it survives.
+uiv.banner('<b>Desktop automation demo done:</b> real OS keystrokes opened the DevTools console and typed a command into it — look at the line it ran, and at the tab title: "' + GREETING + '". The console closes again in a moment, so the browser is left as it was.', { tone: 'green', seconds: 12 });
+uiv.sleep('10s');   // long enough to actually read the console line
+
+// The same chord toggles it shut. Re-assert focus first, because the banner
+// and the wait give the user time to click elsewhere and this chord must not
+// be fired at another application.
+//
+// But do NOT fail the demo on it. With DevTools open the keyboard focus sits
+// in DevTools, which is neither the page nor the side panel, so focus()'s
+// hasFocus() check reads false on both even though the browser IS frontmost —
+// it cannot tell that apart from another app being in front. Everything this
+// demo set out to prove has already happened by now, so an unconfirmable focus
+// means "leave the console open and say so", not "fail".
+try {
+  uiv.window.focus();
+  // The DevTools TOGGLE, not the open-console chord. openConsole (Cmd+Opt+K /
+  // Ctrl+Shift+K in Firefox, ...+J in Chrome) opens or focuses the console; it
+  // only closes DevTools when focus is already sitting in the console input,
+  // which after the wait above it usually is not. Cmd+Opt+I / Ctrl+Shift+I
+  // toggles the whole panel regardless — the chord this demo has always told
+  // users to press.
+  const toggleDevTools = isMac ? '\${KEY_CMD+KEY_OPTION+KEY_I}' : '\${KEY_CTRL+KEY_SHIFT+KEY_I}';
+  const before = uiv.eval('return window.innerHeight');
+  x.type(toggleDevTools);
+  uiv.sleep('2s');
+  // VERIFY rather than announce: closing DevTools gives the page its space
+  // back, so innerHeight grows. Saying "closed" without checking is how this
+  // step shipped broken once already.
+  const after = uiv.eval('return window.innerHeight');
+  if (after > before) {
+    uiv.log('DevTools console closed again — the browser is back to how the demo found it', 'green');
+  } else {
+    uiv.log('The closing keystroke was sent but the console still looks open (page height ' + before + ' -> ' + after + '). Close it with ' + (isMac ? 'Cmd+Opt+I' : 'Ctrl+Shift+I') + ' — an open console shifts the page layout for later macros.', 'orange');
+  }
+} catch (e) {
+  uiv.log('Could not confirm the browser was in front, so the closing keystroke was NOT sent — it would have gone to whatever window is. Close the console with ' + (isMac ? 'Cmd+Opt+I' : 'Ctrl+Shift+I') + ' (or F12). Note an open console shifts the page layout for later macros.', 'orange');
+}
 uiv.log('OpenBrowserDevTools completed', 'green');
 `
   },
@@ -1383,40 +1549,45 @@ uiv.log('OpenBrowserDevTools completed', 'green');
 uiv.setVar('!CAPTURE_HIDE_GUI', false);
 
 const x = uiv.desktop;
+uiv.window.focus();   // OS input goes to the FOCUSED window, not the browser
 
 // With the cover off, the old danger is back: the words this macro hunts
 // are also in ITS OWN SOURCE, which sits in the editor on screen right now.
 // Build the search terms at runtime, so the source spells them differently
 // than the panel does.
-const CHAT = 'Ch' + 'at';                      // the 'AI Chat' tab
 const DATA = 'Da' + 'ta';                      // the tab this macro clicks
 const LOGS = 'Lo' + 'gs';                      // its Logs sub-tab
-const CLEAR_LOG = 'Cl' + 'ear ' + 'l' + 'og';  // the button
+// The button. The second word is WILDCARDED because macOS OCR reads its
+// lowercase "lo" as the digits "10": the XModule engine returns "Clear 10g"
+// for this button on the system font here, so an exact 'Clear log' matches
+// nothing while the word is plainly on screen. '*g' matches both spellings,
+// and the space keeps it from matching "ClearSidebarLogViaGUI..." in the
+// source shown in the editor behind the panel.
+const CLEAR_LOG = 'Cl' + 'ear ' + '*g';  // the button ("Clear log" / "Clear 10g")
 
-// The sidebar tab row: 'Chat' next to 'Data' is the anchor PAIR. One word
-// alone is not safe — 'Chat' can sit in any other window on the screen (a
-// messenger, an editor showing this text), and anchoring there drags the
-// whole search into the wrong window. So: take every 'Chat' the screen
-// shows, try them from the RIGHT edge leftwards (the side panel docks
-// right), and accept only a candidate with a 'Data' tab in the same row —
-// a pair that only the panel's tab row has. (Desktop-scope OCR upgrades to
-// the XModule Local OCR by itself — the Javascript engine cannot read the
-// panel's small UI font.)
-const chats = uiv.ocr.findTexts(CHAT, { scope: 'desktop', timeout: 15 }).sort((a, b) => b.x - a.x);
-let chat = null;
-let dataTab = null;
-let AREA = null;
-for (let i = 0; i < chats.length && !dataTab; i++) {
-  const c = chats[i];
-  // the panel column around this candidate — reaching past the screen edge
-  // is fine, the capture clips it. Every later search stays inside it.
-  const a = { x: c.x - 260, y: Math.max(0, c.y - 40), width: 500, height: 1200 };
-  const d = uiv.ocr.findTexts(DATA, { scope: 'desktop', area: a, required: false, timeout: 2 })
-    .filter(m => Math.abs(m.y - c.y) < c.rect.height && m.x > c.x)
-    .sort((m1, m2) => m1.x - m2.x)[0];
-  if (d) { chat = c; dataTab = d; AREA = a; }
-}
-if (!dataTab) throw new Error('no AI Chat + Data tab pair found on screen — is the side panel fully visible, not covered by another window?');
+// Search inside the BROWSER WINDOW only, and everything below stays in it.
+// A whole-screen OCR reads every other window too: it used to need an
+// 'AI Chat' + 'Data' anchor PAIR just to work out which 'Data' on screen
+// belonged to the panel. Restricting the area removes that whole problem —
+// and it is also what makes this demo work on macOS, where a screen-wide
+// read starts with the global menu bar ("Firefox Developer Edition File
+// Edit View History ...") that Windows simply does not have.
+//
+// The rect is the window's OWN geometry, straight from the page: screenX /
+// screenY and outerWidth / outerHeight are CSS points and include the
+// browser chrome, so the side panel — which is chrome, not page — is inside
+// it. (The viewport rect would NOT contain the panel.)
+const win = uiv.eval('return { x: window.screenX, y: window.screenY, w: window.outerWidth, h: window.outerHeight };');
+const AREA = { x: win.x, y: win.y, width: win.w, height: win.h };
+
+// One word is enough now. The tab row sits at the TOP of the panel, and the
+// only other 'Data' the window can show is in the log list or this macro's
+// own source below it — so take the topmost match. (Desktop-scope OCR
+// upgrades to the XModule Local OCR by itself — the Javascript engine
+// cannot read the panel's small UI font.)
+const dataTab = uiv.ocr.findTexts(DATA, { scope: 'desktop', area: AREA, timeout: 15 })
+  .sort((a, b) => a.y - b.y)[0];
+if (!dataTab) throw new Error('no ' + DATA + ' tab found in the browser window — is the side panel open and fully visible?');
 x.click(dataTab);
 
 // The Data tab replaces the editor — but its LOG LIST (when the Logs
@@ -1466,6 +1637,7 @@ uiv.log('Log deleted — the side panel pressed its own Clear-log button (local 
 uiv.setVar('!CAPTURE_HIDE_GUI', false);
 
 const x = uiv.desktop;
+uiv.window.focus();   // OS input goes to the FOCUSED window, not the browser
 
 // the Data tab in the sidebar tab row — the image shows the INACTIVE look,
 // so no match usually means the Data tab is already the active one
@@ -1504,6 +1676,7 @@ uiv.log('Log deleted — the side panel pressed its own Clear-log button (image 
 uiv.setVar('!CAPTURE_HIDE_GUI', false);
 
 const x = uiv.desktop;
+uiv.window.focus();   // OS input goes to the FOCUSED window, not the browser
 
 // ai.find does not auto-wait, and the panel has no DOM a script could wait
 // on — give each click a moment to render before the next screenshot. The
@@ -1556,6 +1729,7 @@ const DESKTOP = { scope: 'desktop' };
 
 uiv.open('https://ui.vision/demo/draw');
 uiv.page.click('link=this external website');
+uiv.window.focus();   // OS input goes to the FOCUSED window, not the browser
 
 // --- 2nd slider: classic "@0.75#2" = confidence + which match ---------------
 const handles = uiv.findImages('slider_handle_dpi_96.png', { scope: 'desktop', minScore: 0.75 });
@@ -1641,13 +1815,13 @@ uiv.open('https://ui.vision');
 
 // The browser window must be IN FRONT: a browser-scope OS click is aimed at
 // the window's screen position, so any window covering that spot gets the
-// click instead. bringBrowserToForeground raises the play tab's window, but
+// click instead. uiv.window.focus() raises the play tab's window, but
 // no browser API may steal the foreground from ANOTHER APP (the OS forbids
 // it) — a real OS click may, so click a visible piece of the PAGE itself:
 // the desktop-scope finder only returns what is actually on screen, and the
 // tallest match is the page's big heading, never the same words rendered
 // small in some other window.
-uiv.run('bringBrowserToForeground');
+uiv.window.focus();
 uiv.sleep('500ms'); // settle: let the window reach the foreground
 const onScreen = uiv.ocr.findTexts('Open-Sourc*', {scope: 'desktop', required: false, timeout: 5});
 if (!onScreen.length) {
@@ -1676,11 +1850,11 @@ const OCR_LANG = { ru: 'rus', ja: 'jpn', ko: 'kor', zh: 'chs' }[lang];
 if (OCR_LANG) { uiv.setVar('!OCRLANGUAGE', OCR_LANG); }
 
 // scan with the configured engine, then once more with the XModule Local OCR
-// ({engine: 99}) — explicitly chosen here: the better reader for native UI
+// ({engine: 'xmodule'}) — explicitly chosen here: the better reader for native UI
 const scan = () => {
   let m = uiv.ocr.findTexts(SAVE_WORD, {scope: 'desktop', required: false, timeout: 3});
   if (!m.length) {
-    try { m = uiv.ocr.findTexts(SAVE_WORD, {scope: 'desktop', required: false, timeout: 3, engine: 99}); } catch (e) { /* no XModule Local OCR */ }
+    try { m = uiv.ocr.findTexts(SAVE_WORD, {scope: 'desktop', required: false, timeout: 3, engine: 'xmodule'}); } catch (e) { /* no XModule Local OCR */ }
   }
   return m;
 };
@@ -1820,39 +1994,12 @@ if (!different.includes('false')) {
 uiv.log('ai.ask_CompareImages (JS) completed — both comparisons as expected', 'green');
 `
   },
-  {
-    fileName: 'CU_FillForm.js',
-    path: 'LLM AI Commands/CU_FillForm.js',
-    title: 'CU_FillForm (JS)',
-    code: `// Port of Classic/LLM AI Commands/CU_FillForm.
-// Hand the whole task to the computer-use agent and check what it reports.
-// uiv.ai.computerUse drives the browser with the model in the loop; the classic
-// if/elseif/else over its answer is JS.
-uiv.run('XDesktopAutomation', 'false');   // browser scope, not the desktop
-uiv.open('https://ui.vision/contact');
-uiv.run('bringBrowserToForeground');
-
-const TASK = [
-  'Fill out this web form with artificial data and submit it.',
-  'Two fields need specific values: use "[AI Test]" as the subject,',
-  'and answer the anti-spam question exactly as the page asks.',
-  'Finish your reply with SUCCESS or ERROR.'
-].join(' ');
-
-const result = String(uiv.ai.computerUse(TASK));
-uiv.log(\`Computer Use Result = \${result}\`, 'blue');
-
-if (result.includes('SUCCESS')) {
-  uiv.log('All worked fine', 'green');
-} else if (result.includes('ERROR')) {
-  throw new Error(\`the computer-use agent reported an error: \${result}\`);
-} else {
-  // the classic macro only echoed a warning here; a script should fail, since
-  // "no verdict" means the run cannot be called a success
-  throw new Error(\`no SUCCESS/ERROR verdict in the agent's reply: \${result}\`);
-}
-`
-  },
+  // CU_FillForm.js was here. Retired 2026-08-08: the computer-use loop hangs on
+  // the contact form's select box and never returns, so the demo runs until the
+  // loop cap instead of finishing — and a hung run takes the whole side panel
+  // with it (it killed the MCP bridge connection mid-suite during the macOS demo
+  // sweep, which is how this was caught). Being reworked; its path is listed in
+  // MOVED_JS_PREINSTALL_PATHS so a restore removes the copy already installed.
   {
     fileName: 'ai.find_SearchForum.js',
     path: 'LLM AI Commands/ai.find_SearchForum.js',
@@ -1988,7 +2135,7 @@ const FIND = { scope: 'desktop' };
 const find = (name, minScore) => uiv.findImage(name, minScore ? Object.assign({ minScore: minScore }, FIND) : FIND);
 
 // OS input goes to whatever window is in front
-uiv.run('bringBrowserToForeground');
+uiv.window.focus();
 uiv.open('https://ui.vision/demo/draw');
 uiv.page.click('link=this link');
 
@@ -2072,6 +2219,7 @@ uiv.banner('<b>Ui.Vision drawing demo (XClick)</b> — this macro is not affilia
 
 const c = uiv.$('css=canvas'); // auto-waits until the app has rendered
 const x = uiv.desktop;
+uiv.window.focus();   // OS input goes to the FOCUSED window, not the browser
 const isMac = uiv.getVar('!OS') === 'mac';
 const V = { scope: 'browser' }; // "these numbers are VIEWPORT pixels"
 
@@ -2177,6 +2325,594 @@ uiv.log('Cat + greeting drawn with real OS input: ' + counts.ellipse + ' ellipse
 `
   },
   {
+    // self-test for the desktop-click coordinate pipeline: run it on any
+    // machine where desktop clicks seem to land in the wrong place. Part 1
+    // clicks KNOWN coordinates (isolates the viewport->screen conversion),
+    // part 2 clicks coordinates the Javascript OCR found, part 3 clicks
+    // coordinates image search found on the shipped range_*_dpi_96 images -
+    // parts 2+3 are the ways real macros obtain x,y, and they catch capture-
+    // scaling bugs part 1 cannot see. 3 targets per part, placed diagonally
+    // so the slope fit still separates offset from scaling errors.
+    // Live-tested on Windows + Firefox.
+    fileName: 'DesktopClickAccuracyRange.js',
+    path: 'XModules_Desktop/DesktopClickAccuracyRange.js',
+    title: 'DesktopClickAccuracyRange (JS)',
+    code: `// Desktop Click Accuracy Range - the extension shoots at itself.
+// For systems where desktop clicks (XClick / uiv.desktop.*) seem to miss.
+// PART 1: real OS clicks at five bullseyes with KNOWN viewport coordinates -
+// this isolates the viewport->screen conversion. The verdict names the
+// failure pattern: constant offset -> window chrome/border math wrong; error
+// that GROWS with distance -> display-scaling (DPI) mismatch; shots that
+// never reach the page -> wrong window / second monitor.
+// PART 2: desktop-scope OCR (the XModule Local OCR, {engine: 'xmodule'} — the
+// reader desktop macros really use; Linux falls back to 'javascript') has to FIND three words
+// (black text on white) and the OS clicks are aimed at what OCR returned.
+// PART 3: image search has to find three words from images that SHIP with
+// the extension (range_*_dpi_96.png) and click them. Parts 2+3 are how real
+// macros get their x,y, so a click outside a word's true box means the OCR
+// or vision coordinate path is off even when part 1 passes.
+//
+// Parts 2+3 search in DESKTOP scope ({scope: 'desktop'}) — a screenshot of the
+// whole screen taken by the XModule, which is the capture desktop automation
+// actually runs on. Searching the browser's own page capture instead would
+// test a pipeline no desktop macro uses, and would silently pass on a machine
+// where every desktop macro misses: display scaling other than 100% changes
+// the desktop capture and leaves the page capture untouched. Their matches
+// therefore arrive in SCREEN pixels, and the range's ground truth is in
+// VIEWPORT pixels — the origin that bridges the two is MEASURED from a landed
+// shot (see learnOrigin), never computed, so it cannot inherit the very DPI
+// bug this demo exists to find.
+// Needs the XModule.
+
+let TOL = 5; // px - a shot farther than this from its aim point fails the run
+// (raised to ~5*dpr once the page reports its dpr: at 125% scaling every layer
+// quantizes to the 1.25 grid - sampled origin, aim rounding, the OS cursor on
+// physical pixels, the hit's back-conversion - and worst-case stacking is
+// 5-7px. That is noise, not a coordinate bug: the real bugs this demo exists
+// for measured 55-348px constant or slope 0.2.)
+
+uiv.window.focus(); // OS input goes to whatever window is in front
+uiv.open('https://ui.vision/');
+// pin the layout - the conversion under test uses this window
+uiv.window.resize(1000, 640);
+
+// Build the range in the page: overlay, grid, 5 bullseyes, calibration pad,
+// a mousedown recorder and two painters the macro calls later. Only SVG
+// attributes and CSSOM styling, so no page CSP can interfere.
+const info = uiv.eval(\`
+var d = document, W = window.innerWidth, H = window.innerHeight;
+var old = d.getElementById('uivxr'); if (old) old.remove();
+var ov = d.createElement('div');
+ov.id = 'uivxr';
+ov.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;z-index:2147483647;background:#0b1220;cursor:crosshair;';
+var NS = 'http://www.w3.org/2000/svg';
+var svg = d.createElementNS(NS, 'svg');
+svg.setAttribute('width', W); svg.setAttribute('height', H);
+ov.appendChild(svg); d.body.appendChild(ov);
+function el(n, a, parent, text) {
+  var e = d.createElementNS(NS, n);
+  for (var k in a) e.setAttribute(k, a[k]);
+  (parent || svg).appendChild(e);
+  if (text) e.textContent = text;
+  return e;
+}
+for (var gx = 50; gx < W; gx += 50) el('line', {x1:gx, y1:0, x2:gx, y2:H, stroke:'#141f36'});
+for (var gy = 50; gy < H; gy += 50) el('line', {x1:0, y1:gy, x2:W, y2:gy, stroke:'#141f36'});
+var F = 'Segoe UI,Helvetica,sans-serif';
+el('text', {x:W/2, y:34, fill:'#e2e8f0', 'font-size':22, 'font-weight':'bold', 'font-family':F, 'text-anchor':'middle'}, svg, 'Ui.Vision desktop.Click Accuracy Range');
+el('text', {x:W/2, y:54, fill:'#64748b', 'font-size':12, 'font-family':F, 'text-anchor':'middle'}, svg, 'real OS clicks vs. their aim points - every hit is measured');
+// left to right, so 'target 1/2/3' labels read in screen order; the diagonal
+// spread (different x AND y per target) is what lets the slope fit separate a
+// constant offset from a scaling error, so keep that when moving them
+var pos = [[0.14,0.22],[0.5,0.52],[0.86,0.8]];
+var rings = [[44,'#f8fafc'],[35,'#dc2626'],[26,'#f8fafc'],[17,'#dc2626'],[8,'#f8fafc'],[3,'#dc2626']];
+window.__uivxrTargets = [];
+for (var i = 0; i < pos.length; i++) {
+  var cx = Math.round(pos[i][0] * W), cy = Math.round(pos[i][1] * H);
+  for (var r = 0; r < rings.length; r++) el('circle', {cx:cx, cy:cy, r:rings[r][0], fill:rings[r][1]});
+  el('text', {x:cx, y:cy+62, fill:'#94a3b8', 'font-size':11, 'font-family':F, 'text-anchor':'middle'}, svg, 'target ' + (i+1));
+  window.__uivxrTargets.push({x:cx, y:cy});
+}
+var pad = {x:Math.round(W/2), y:H-42};
+el('rect', {x:pad.x-70, y:pad.y-20, width:140, height:40, rx:8, fill:'#1e293b', stroke:'#334155'});
+el('text', {x:pad.x, y:pad.y-1, fill:'#7dd3fc', 'font-size':12, 'font-family':F, 'text-anchor':'middle'}, svg, 'calibration pad');
+el('text', {x:pad.x, y:pad.y+13, fill:'#475569', 'font-size':10, 'font-family':F, 'text-anchor':'middle'}, svg, 'sighting shots land here');
+window.__uivxrPad = pad;
+window.__uivxrHits = [];
+ov.addEventListener('mousedown', function (e) {
+  window.__uivxrHits.push({x:e.clientX, y:e.clientY, sx:e.screenX, sy:e.screenY, trusted:!!e.isTrusted});
+}, true);
+window.__uivxrMark = function (hx, hy, color, label) {
+  el('line', {x1:hx-14, y1:hy, x2:hx+14, y2:hy, stroke:color, 'stroke-width':1.5});
+  el('line', {x1:hx, y1:hy-14, x2:hx, y2:hy+14, stroke:color, 'stroke-width':1.5});
+  el('circle', {cx:hx, cy:hy, r:5, fill:'none', stroke:color, 'stroke-width':1.5});
+  var p = el('circle', {cx:hx, cy:hy, r:5, fill:'none', stroke:color, 'stroke-width':2});
+  try {
+    var a1 = el('animate', {attributeName:'r', from:5, to:24, dur:'0.8s', begin:'indefinite'}, p);
+    var a2 = el('animate', {attributeName:'opacity', from:0.9, to:0, dur:'0.8s', begin:'indefinite', fill:'freeze'}, p);
+    a1.beginElement(); a2.beginElement();
+  } catch (err) { p.remove(); }
+  el('text', {x:hx+11, y:hy-9, fill:color, 'font-size':11, 'font-family':'Consolas,monospace'}, svg, label);
+};
+window.__uivxrReport = function (text, color) {
+  var box = d.createElement('pre');
+  box.style.cssText = 'position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:2147483647;background:rgba(15,23,42,0.93);border:1.5px solid ' + color + ';border-radius:8px;color:#e2e8f0;font:11px/1.55 Consolas,monospace;padding:10px 14px;margin:0;';
+  box.textContent = text;
+  ov.appendChild(box);
+};
+return {w:W, h:H, dpr:window.devicePixelRatio,
+  chromeX:window.outerWidth-W, chromeY:window.outerHeight-H,
+  left:window.screenLeft, top:window.screenTop,
+  moz:typeof window.mozInnerScreenX !== 'undefined',
+  targets:window.__uivxrTargets, pad:window.__uivxrPad};
+\`);
+
+const browser = uiv.getVar('!BROWSER');
+if (info.dpr && info.dpr > 1) TOL = Math.round(5 * info.dpr);
+uiv.log('Range ' + info.w + 'x' + info.h + ' | ' + browser + ' on ' + uiv.getVar('!OS') + ' | dpr=' + info.dpr + ' | window chrome=' + info.chromeX + 'x' + info.chromeY + 'px | window at ' + info.left + ',' + info.top + ' | tolerance ' + TOL + 'px' + (info.moz ? ' | mozInnerScreen: yes' : ''));
+
+const hits = () => uiv.eval('return window.__uivxrHits');
+
+// SCREEN -> VIEWPORT origin, learned from any shot that lands: the recorder
+// stores both spaces for every hit (clientX/Y and screenX/Y). Parts 2+3 search
+// in DESKTOP scope, so their matches come back in SCREEN pixels while the
+// range's ground truth is in VIEWPORT pixels — this is the bridge between them.
+// Learned rather than computed from window.screenLeft/screenTop on purpose:
+// a measured origin cannot inherit the same DPI bug the demo is testing for.
+let originX = null, originY = null;
+function learnOrigin(h) {
+  if (h && typeof h.sx === 'number' && typeof h.sy === 'number') {
+    originX = h.sx - h.x; originY = h.sy - h.y;
+  }
+}
+// screen point -> viewport point; null while the origin is still unknown
+function toViewport(p) {
+  if (originX === null) return null;
+  return { x: p.x - originX, y: p.y - originY };
+}
+
+// fire one OS click at viewport point (px,py), wait for the page to record it
+const x = uiv.desktop;
+function shoot(a, b) {
+  const before = hits().length;
+  if (typeof a === 'object') { x.click(a); } else { x.click(a, b, {scope: 'browser'}); }
+  for (let i = 0; i < 12; i++) {
+    const h = hits();
+    if (h.length > before) {
+      const hit = h[h.length - 1];
+      learnOrigin(hit);
+      return hit;
+    }
+    uiv.sleep(250);
+  }
+  return null;
+}
+
+// Recorder self-test (Chrome/Edge): a CDP click must register on the pad.
+// Proves the measuring rig itself before the OS clicks that are under test.
+if (browser !== 'firefox') {
+  const before = hits().length;
+  uiv.browser.click(info.pad.x, info.pad.y);
+  uiv.sleep(500);
+  const h = hits();
+  if (h.length === before) throw new Error('recorder self-test failed: a CDP click was not recorded - the range page is broken, XClick accuracy was never tested');
+  uiv.log('Recorder self-test OK - CDP click recorded at ' + h[h.length-1].x + ',' + h[h.length-1].y, 'blue');
+
+  // The CDP click above attaches chrome.debugger, which makes Chrome show its
+  // "is debugging" notice - and that notice TAKES WINDOW SPACE. The engine
+  // detaches DETACH_AFTER_IDLE_MS (3s) after the last CDP event, the notice
+  // goes away, and the viewport slides back down by its height.
+  //
+  // Waiting for the geometry to be STABLE is not enough: the notice is
+  // perfectly stable while it is UP. That mistake cost a run - the settle loop
+  // exited with the bar showing, the detach fired a moment later, and the very
+  // next OS click landed 8px off while every click after it (re-sampled from
+  // its own cursor movement) was fine. Flaky by nature: when the sighting shot
+  // happens to burn more than 3s, the detach lands before the scored shots and
+  // the same code passes.
+  //
+  // So wait for the notice to be GONE: chrome height back to its pre-CDP
+  // baseline, then steady. baseline was measured before any CDP call.
+  const chromeGap = () => uiv.eval('return window.outerHeight - window.innerHeight');
+  const baseGap = info.chromeY;
+  let stableN = 0;
+  for (let i = 0; i < 60 && stableN < 4; i++) {
+    stableN = (chromeGap() <= baseGap) ? stableN + 1 : 0;
+    uiv.sleep(250);
+  }
+  if (stableN < 4) {
+    uiv.log('the debugger notice never went away (chrome gap still ' + chromeGap() + 'px vs ' + baseGap + 'px at start) - measuring anyway, part 1 may show one shot off by the notice height', 'orange');
+  }
+}
+
+// Sighting shot: the first REAL OS click, aimed at the calibration pad. On
+// systems where the browser is not in the foreground, this click also is
+// what brings it there - so it gets one free retry.
+uiv.log('Sighting shot...');
+let sight = shoot(info.pad.x, info.pad.y);
+if (!sight) {
+  // Retry aims at the PAGE CENTER, not the pad: the pad sits near the bottom
+  // edge, so a transient origin error (Chrome's debugger notice hiding between
+  // calibration and click shifts everything ~56px) pushes a pad shot clean off
+  // the page — where it cannot land, so nothing re-teaches the origin and the
+  // same miss repeats. A center shot survives that error margin, lands, and
+  // its own cursor movement recalibrates everything after it.
+  uiv.log('Sighting shot never reached the page - one retry at the page CENTER (the first click may have gone to fronting the window, or a transient origin shift pushed it off the bottom edge)', 'orange');
+  sight = shoot(Math.round(info.w / 2), Math.round(info.h / 2));
+}
+if (!sight) {
+  throw new Error('No OS click ever reached the page. On this system XClick lands somewhere else entirely - typical causes: browser window on a SECOND monitor (XModule input covers the primary display only), another window covering the browser (move chat/editor windows away from the browser), or a remote/virtual display. Fix the window layout and run again.');
+}
+
+// The five scored shots
+const shots = [];
+for (let i = 0; i < info.targets.length; i++) {
+  const t = info.targets[i];
+  const h = shoot(t.x, t.y);
+  if (!h) {
+    shots.push({n:i+1, aim:t, miss:true, dx:0, dy:0, dist:9999, ring:0});
+    uiv.log('Target ' + (i+1) + ': shot never landed on the page', 'red');
+    continue;
+  }
+  const dx = h.x - t.x, dy = h.y - t.y;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  const ring = dist <= 3 ? 10 : dist <= 8 ? 9 : dist <= 17 ? 8 : dist <= 26 ? 7 : dist <= 44 ? 6 : 0;
+  const color = dist <= TOL ? '#4ade80' : dist <= 15 ? '#fbbf24' : '#f87171';
+  const label = (dist <= 3 ? 'BULLSEYE ' : '') + dist.toFixed(1) + 'px';
+  uiv.eval('window.__uivxrMark(' + h.x + ',' + h.y + ',' + JSON.stringify(color) + ',' + JSON.stringify(label) + ')');
+  shots.push({n:i+1, aim:t, hit:{x:h.x, y:h.y}, dx:dx, dy:dy, dist:dist, ring:ring, trusted:h.trusted});
+  uiv.log('Target ' + (i+1) + ': aimed ' + t.x + ',' + t.y + ' hit ' + h.x + ',' + h.y + ' - off by ' + dist.toFixed(1) + 'px (ring ' + ring + ')', dist <= TOL ? 'green' : 'orange');
+}
+
+// ---- Analysis: what KIND of error is it? -------------------------------
+const landed = shots.filter(s => !s.miss);
+const missedCount = shots.length - landed.length;
+const maxDist = landed.reduce((m, s) => Math.max(m, s.dist), 0);
+const mean = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+const mdx = landed.length ? mean(landed.map(s => s.dx)) : 0;
+const mdy = landed.length ? mean(landed.map(s => s.dy)) : 0;
+// least-squares slope of error vs. aim coordinate: a nonzero slope means the
+// error GROWS across the screen = scaling-factor mismatch, not a fixed offset
+function slope(pts) {
+  const n = pts.length;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  pts.forEach(p => { sx += p[0]; sy += p[1]; sxx += p[0]*p[0]; sxy += p[0]*p[1]; });
+  const den = n*sxx - sx*sx;
+  return den ? (n*sxy - sx*sy) / den : 0;
+}
+const kx = landed.length > 2 ? slope(landed.map(s => [s.aim.x, s.dx])) : 0;
+const ky = landed.length > 2 ? slope(landed.map(s => [s.aim.y, s.dy])) : 0;
+
+const score = shots.reduce((a, s) => a + s.ring, 0);
+const rank = score === 30 ? 'PERFECT RUN' : score >= 27 ? 'sharpshooter' : score >= 21 ? 'marksman' : 'needs calibration';
+
+let pass = false, verdict;
+if (missedCount) {
+  verdict = 'FAIL: ' + missedCount + ' of ' + shots.length + ' shots never reached the page - clicks land outside the viewport. Typical causes: window offset badly wrong, second monitor, another window in front.';
+} else if (maxDist <= TOL) {
+  pass = true;
+  verdict = 'PASS: all ' + shots.length + ' shots within ' + TOL + 'px (max ' + maxDist.toFixed(1) + 'px, mean offset ' + mdx.toFixed(1) + ',' + mdy.toFixed(1) + 'px)';
+} else if (Math.abs(kx) > 0.05 || Math.abs(ky) > 0.05) {
+  // 0.05, not 0.01: one quantization-wobbled shot out of three makes a fake
+  // slope of ~0.02 at 125% scaling; the real scaling bug measured 0.2.
+  verdict = 'FAIL: the error GROWS with distance (slope x=' + kx.toFixed(3) + ' y=' + ky.toFixed(3) + ') - display-scaling factor mismatch: the pipeline is off by ~' + (1+kx).toFixed(3) + 'x (x) / ' + (1+ky).toFixed(3) + 'x (y). Typical cause: OS display scaling (125%/150%) or browser zoom not reflected in the screen/CSS conversion.';
+} else {
+  verdict = 'FAIL: constant offset of dx=' + mdx.toFixed(1) + 'px dy=' + mdy.toFixed(1) + 'px on every shot - the viewport-origin calculation (window position + chrome/border) is wrong on this system/theme. Window chrome measured: ' + info.chromeX + 'x' + info.chromeY + 'px.';
+}
+
+// part 1 scorecard lines (rendered together with part 2 at the end)
+const padN = (v, n) => { let s = '' + v; while (s.length < n) s = ' ' + s; return s; };
+const fmt = v => (v > 0 ? '+' : '') + v.toFixed(1);
+const lines = ['DESKTOP CLICK ACCURACY REPORT', '', 'PART 1 - shots at known coordinates: ' + (pass ? 'PASS' : 'FAIL'), 'shot   aim          hit         dx      dy    dist  ring'];
+shots.forEach(s => {
+  lines.push('  ' + s.n + '   ' + padN(s.aim.x + ',' + s.aim.y, 9) + '   ' + (s.miss ? '--- never landed on the page ---' : padN(s.hit.x + ',' + s.hit.y, 9) + '  ' + padN(fmt(s.dx), 6) + '  ' + padN(fmt(s.dy), 6) + '  ' + padN(s.dist.toFixed(1), 5) + '   ' + padN(s.ring, 2)));
+});
+lines.push('score ' + score + '/30 - ' + rank);
+lines.push(verdict);
+uiv.log('Part 1: ' + score + '/30 - ' + rank, pass ? 'green' : 'orange');
+
+// ---- PART 2: how real macros FIND the x,y ------------------------------
+// Desktop-scope OCR ({engine: 'xmodule'}) locates three words on a white
+// page and the OS clicks are aimed at what OCR returned. Ground truth is
+// each word's real DOM box: a click outside it means the OCR coordinate
+// path (capture scaling / box mapping) is off - a failure surface part 1's
+// known-coordinate shots cannot see. The blue dashed boxes show where OCR
+// believes each word is; red dashed = word OCR could not find at all.
+// Which reader part 2 uses, stated in the scorecard rather than assumed.
+// This part measures the COORDINATE path, not OCR quality — so it has to run
+// the reader real desktop macros run, which is the XModule Local OCR: desktop
+// scope picks it by itself, and it reads native UI far better. The Javascript
+// engine is marginal on a full-screen capture (it missed a word here), and a
+// word it never finds makes part 2 inconclusive for a reason that has nothing
+// to do with coordinates.
+// It ships for Windows/macOS only, so Linux falls back — and the scorecard
+// names whichever reader actually ran, because a MISS means a different thing
+// for each one.
+const OS_NAME = uiv.getVar('!OS');
+let OCR_ENGINE = OS_NAME === 'linux' ? 'javascript' : 'xmodule';
+
+// {required: false} already turns "no match" into an empty array, so a THROW
+// here is the reader being unavailable (XModule installed for clicking, but
+// its OCR component missing) — fall back and say so, rather than reporting a
+// coordinate FAIL for a reader that never ran.
+// Search INSIDE the browser window only — the area is the window's screen
+// rect, built from the origin part 1 just MEASURED. A whole-screen search can
+// match the words in any other window that happens to show them (seen live:
+// a chat window displaying this demo's own report card gave OCR an 'ALPHA'
+// at screen x=168 while the browser started at x=697 — the click landed in
+// the chat). Real desktop macros anchor or restrict the same way.
+const WIN_AREA = () => ({ x: originX, y: originY, width: info.w, height: info.h });
+
+const ocrFind = (w) => {
+  try {
+    return uiv.ocr.findTexts(w, { scope: 'desktop', engine: OCR_ENGINE, area: WIN_AREA(), required: false, timeout: 10 });
+  } catch (e) {
+    if (OCR_ENGINE === 'javascript') throw e;
+    uiv.log('XModule Local OCR unavailable (' + e.message + ') — part 2 falls back to the Javascript OCR', 'orange');
+    OCR_ENGINE = 'javascript';
+    return uiv.ocr.findTexts(w, { scope: 'desktop', engine: OCR_ENGINE, area: WIN_AREA(), required: false, timeout: 10 });
+  }
+};
+
+const WORDS = ['ALPHA', 'NEXUS', 'CEDAR'];
+let truth = null;
+let p2note = '';
+const part2 = [];
+try {
+  truth = uiv.eval(\`
+var d = document, W = window.innerWidth, H = window.innerHeight;
+var ov = d.getElementById('uivxr');
+while (ov.firstChild) ov.removeChild(ov.firstChild);
+ov.style.background = '#ffffff';
+var NS = 'http://www.w3.org/2000/svg';
+var svg = d.createElementNS(NS, 'svg');
+svg.setAttribute('width', W); svg.setAttribute('height', H);
+ov.appendChild(svg);
+function el(n, a, parent, text) {
+  var e = d.createElementNS(NS, n);
+  for (var k in a) e.setAttribute(k, a[k]);
+  (parent || svg).appendChild(e);
+  if (text) e.textContent = text;
+  return e;
+}
+el('text', {x:W/2, y:34, fill:'#94a3b8', 'font-size':15, 'font-family':'Segoe UI,sans-serif', 'text-anchor':'middle'}, svg, 'part 2: desktop-scope OCR must find these words - then the OS clicks them');
+var words = ['ALPHA','NEXUS','CEDAR'];
+// diagonal spread; center word sits high (0.3H) so the final report card
+// (bottom center) does not cover it
+var pos = [[0.5,0.3],[0.15,0.2],[0.85,0.8]];
+window.__uivxrWords = {};
+for (var i = 0; i < words.length; i++) {
+  var cx = Math.round(pos[i][0] * W), cy = Math.round(pos[i][1] * H);
+  var e = el('text', {x:cx, y:cy, fill:'#111111', 'font-size':26, 'font-family':'Arial,Helvetica,sans-serif', 'font-weight':'600', 'letter-spacing':'1', 'text-anchor':'middle'}, svg, words[i]);
+  var r = e.getBoundingClientRect();
+  window.__uivxrWords[words[i]] = {x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2), left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height)};
+}
+window.__uivxrHits = [];
+window.__uivxrBox = function (l, t, wd, ht, color) {
+  el('rect', {x:l, y:t, width:wd, height:ht, fill:'none', stroke:color, 'stroke-width':1.5, 'stroke-dasharray':'4 3'});
+};
+window.__uivxrMark = function (hx, hy, color, label) {
+  el('line', {x1:hx-14, y1:hy, x2:hx+14, y2:hy, stroke:color, 'stroke-width':1.5});
+  el('line', {x1:hx, y1:hy-14, x2:hx, y2:hy+14, stroke:color, 'stroke-width':1.5});
+  el('circle', {cx:hx, cy:hy, r:5, fill:'none', stroke:color, 'stroke-width':1.5});
+  el('text', {x:hx+11, y:hy-9, fill:color, 'font-size':11, 'font-family':'Consolas,monospace'}, svg, label);
+};
+window.__uivxrReport = function (text, color) {
+  var box = d.createElement('pre');
+  box.style.cssText = 'position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:2147483647;background:rgba(15,23,42,0.93);border:1.5px solid ' + color + ';border-radius:8px;color:#e2e8f0;font:11px/1.55 Consolas,monospace;padding:10px 14px;margin:0;';
+  box.textContent = text;
+  ov.appendChild(box);
+};
+return window.__uivxrWords;
+\`);
+} catch (e) {
+  p2note = 'PART 2 skipped: ' + e.message;
+  uiv.log(p2note, 'orange');
+}
+
+if (truth) {
+  uiv.log("Part 2: OCR ({engine: '" + OCR_ENGINE + "'}) finds the words on the DESKTOP capture, then the OS clicks them... [" + OS_NAME + ']');
+  for (let i = 0; i < WORDS.length; i++) {
+    const w = WORDS[i];
+    const t = truth[w];
+    const found = ocrFind(w);
+    if (!found.length) {
+      part2.push({ w: w, found: false });
+      uiv.eval('window.__uivxrBox(' + t.left + ',' + t.top + ',' + t.width + ',' + t.height + ',' + JSON.stringify('#dc2626') + ')');
+      uiv.log("Word " + w + ": NOT found by OCR {engine: '" + OCR_ENGINE + "'} on the desktop capture", 'red');
+      continue;
+    }
+    const m = found[0];
+    // The match is in SCREEN px (desktop scope) — everything drawn on and
+    // compared against the page is in VIEWPORT px, so convert first. Without a
+    // known origin the box would be drawn far off-screen and the offset would
+    // be a meaningless number, so both are skipped rather than faked.
+    const mv = toViewport(m);
+    if (mv) {
+      uiv.eval('window.__uivxrBox(' + (m.rect.left - originX) + ',' + (m.rect.top - originY) + ',' + m.rect.width + ',' + m.rect.height + ',' + JSON.stringify('#2563eb') + ')');
+    }
+    const ocrOff = mv ? Math.sqrt(Math.pow(mv.x - t.x, 2) + Math.pow(mv.y - t.y, 2)) : null;
+    const h = shoot(m);
+    if (!h) {
+      part2.push({ w: w, found: true, landed: false, ocrOff: ocrOff });
+      uiv.log('Word ' + w + ': OCR found it, but the click never landed on the page', 'red');
+      continue;
+    }
+    const inBox = h.x >= t.left - 2 && h.x <= t.left + t.width + 2 && h.y >= t.top - 2 && h.y <= t.top + t.height + 2;
+    uiv.eval('window.__uivxrMark(' + h.x + ',' + h.y + ',' + JSON.stringify(inBox ? '#16a34a' : '#dc2626') + ',' + JSON.stringify(w + (inBox ? ' HIT' : ' MISS')) + ')');
+    part2.push({ w: w, found: true, landed: true, inBox: inBox, ocrOff: ocrOff, dx: h.x - t.x, dy: h.y - t.y });
+    uiv.log('Word ' + w + ': OCR box center off by ' + (ocrOff === null ? '(origin unknown)' : ocrOff.toFixed(1) + 'px') + ' from the word center, click landed ' + (inBox ? 'INSIDE' : 'OUTSIDE') + ' the word box', inBox ? 'green' : 'red');
+  }
+}
+
+const p2found = part2.filter(p => p.found);
+const p2in = part2.filter(p => p.inBox);
+const p2pass = !!truth && p2found.length >= 2 && p2found.every(p => p.landed && p.inBox);
+let p2verdict;
+if (!truth) {
+  p2verdict = p2note;
+} else if (p2pass) {
+  p2verdict = 'PASS: OCR found ' + p2found.length + '/' + WORDS.length + ' words and every click landed inside its word';
+} else if (!p2found.length) {
+  p2verdict = "FAIL: OCR {engine: '" + OCR_ENGINE + "'} found none of the " + WORDS.length + ' words - an OCR problem (engine or rendering), NOT a coordinate one; OCR-aimed clicking untested';
+} else if (p2found.length < 2) {
+  p2verdict = 'INCONCLUSIVE: OCR found only ' + p2found.length + '/' + WORDS.length + ' words - too few to judge OCR-aimed clicking';
+} else {
+  p2verdict = 'FAIL: ' + (p2found.length - p2in.length) + ' of ' + p2found.length + ' found words were clicked OUTSIDE their box - the OCR coordinate path (capture scaling / box mapping) is off, even though part 1 ' + (pass ? 'passed' : 'also failed');
+}
+
+lines.push('');
+lines.push("PART 2 - x,y found by OCR {engine: '" + OCR_ENGINE + "'}, desktop scope, on " + OS_NAME + ': ' + (truth ? (p2pass ? 'PASS' : 'FAIL') : 'SKIPPED'));
+if (truth) {
+  lines.push('word     ocr-off  click-dx  click-dy  in-box');
+  part2.forEach(p => {
+    lines.push(' ' + padN(p.w, 6) + '  ' + (!p.found ? '--- not found by OCR ---' : (!p.landed ? '--- click never landed ---' : padN(p.ocrOff === null ? 'n/a' : p.ocrOff.toFixed(1), 7) + '  ' + padN(fmt(p.dx), 8) + '  ' + padN(fmt(p.dy), 8) + '  ' + padN(p.inBox ? 'YES' : 'NO', 6))));
+  });
+}
+lines.push(p2verdict);
+
+// ---- PART 3: x,y from IMAGE SEARCH -------------------------------------
+// Same idea, but the finder is uiv.findImage on word images that SHIP with
+// the extension (preinstall/vision/range_*_dpi_96.png, captured at dpr 1).
+// minScore 0.75: similar bold words cross-match around 0.65-0.71, so the
+// threshold must reject those yet tolerate cross-system font rendering.
+// A click outside the word's true box = the vision coordinate path
+// (capture scaling / match mapping) is off.
+const IMAGES = [
+  { word: 'ROBOT', image: 'range_robot_dpi_96.png' },
+  { word: 'LASER', image: 'range_laser_dpi_96.png' },
+  { word: 'TIGER', image: 'range_tiger_dpi_96.png' }
+];
+let truth3 = null;
+let p3note = '';
+const part3 = [];
+try {
+  truth3 = uiv.eval(\`
+var d = document, W = window.innerWidth, H = window.innerHeight;
+var ov = d.getElementById('uivxr');
+while (ov.firstChild) ov.removeChild(ov.firstChild);
+ov.style.background = '#ffffff';
+var NS = 'http://www.w3.org/2000/svg';
+var svg = d.createElementNS(NS, 'svg');
+svg.setAttribute('width', W); svg.setAttribute('height', H);
+ov.appendChild(svg);
+function el(n, a, parent, text) {
+  var e = d.createElementNS(NS, n);
+  for (var k in a) e.setAttribute(k, a[k]);
+  (parent || svg).appendChild(e);
+  if (text) e.textContent = text;
+  return e;
+}
+el('text', {x:W/2, y:34, fill:'#94a3b8', 'font-size':15, 'font-family':'Segoe UI,sans-serif', 'text-anchor':'middle'}, svg, 'part 3: image search must find these words (shipped images) - then the OS clicks them');
+var words = ['ROBOT','LASER','TIGER'];
+var pos = [[0.15,0.22],[0.5,0.3],[0.85,0.75]];
+window.__uivxrWords3 = {};
+for (var i = 0; i < words.length; i++) {
+  var cx = Math.round(pos[i][0] * W), cy = Math.round(pos[i][1] * H);
+  var e = el('text', {x:cx, y:cy, fill:'#111111', 'font-size':26, 'font-family':'Arial,Helvetica,sans-serif', 'font-weight':'600', 'letter-spacing':'1', 'text-anchor':'middle'}, svg, words[i]);
+  var r = e.getBoundingClientRect();
+  window.__uivxrWords3[words[i]] = {x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2), left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height)};
+}
+window.__uivxrHits = [];
+window.__uivxrBox = function (l, t, wd, ht, color) {
+  el('rect', {x:l, y:t, width:wd, height:ht, fill:'none', stroke:color, 'stroke-width':1.5, 'stroke-dasharray':'4 3'});
+};
+window.__uivxrMark = function (hx, hy, color, label) {
+  el('line', {x1:hx-14, y1:hy, x2:hx+14, y2:hy, stroke:color, 'stroke-width':1.5});
+  el('line', {x1:hx, y1:hy-14, x2:hx, y2:hy+14, stroke:color, 'stroke-width':1.5});
+  el('circle', {cx:hx, cy:hy, r:5, fill:'none', stroke:color, 'stroke-width':1.5});
+  el('text', {x:hx+11, y:hy-9, fill:color, 'font-size':11, 'font-family':'Consolas,monospace'}, svg, label);
+};
+window.__uivxrReport = function (text, color) {
+  var box = d.createElement('pre');
+  box.style.cssText = 'position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:2147483647;background:rgba(15,23,42,0.93);border:1.5px solid ' + color + ';border-radius:8px;color:#e2e8f0;font:10.5px/1.5 Consolas,monospace;padding:9px 13px;margin:0;';
+  box.textContent = text;
+  ov.appendChild(box);
+};
+return window.__uivxrWords3;
+\`);
+} catch (e) {
+  p3note = 'PART 3 skipped: ' + e.message;
+  uiv.log(p3note, 'orange');
+}
+
+if (truth3) {
+  uiv.log('Part 3: image search finds the words (shipped images) on the DESKTOP capture, then the OS clicks them...');
+  for (let i = 0; i < IMAGES.length; i++) {
+    const it = IMAGES[i];
+    const t = truth3[it.word];
+    let found = [];
+    try {
+      found = uiv.findImages(it.image, { scope: 'desktop', minScore: 0.75, area: WIN_AREA(), required: false, timeout: 10 });
+    } catch (e) {
+      // e.g. the image is missing in this install (preinstall not re-offered)
+      p3note = e.message;
+      uiv.log('Image ' + it.image + ': ' + e.message, 'red');
+    }
+    if (!found.length) {
+      part3.push({ w: it.word, found: false });
+      uiv.eval('window.__uivxrBox(' + t.left + ',' + t.top + ',' + t.width + ',' + t.height + ',' + JSON.stringify('#dc2626') + ')');
+      uiv.log('Image ' + it.word + ': no match with score >= 0.75 on the desktop capture', 'red');
+      continue;
+    }
+    const m = found[0];
+    // SCREEN px -> VIEWPORT px, same as part 2
+    const mv = toViewport(m);
+    if (mv) {
+      uiv.eval('window.__uivxrBox(' + (m.rect.left - originX) + ',' + (m.rect.top - originY) + ',' + m.rect.width + ',' + m.rect.height + ',' + JSON.stringify('#2563eb') + ')');
+    }
+    const imgOff = mv ? Math.sqrt(Math.pow(mv.x - t.x, 2) + Math.pow(mv.y - t.y, 2)) : null;
+    const h = shoot(m);
+    if (!h) {
+      part3.push({ w: it.word, found: true, landed: false, imgOff: imgOff, score: m.score });
+      uiv.log('Image ' + it.word + ': found (score ' + (m.score || 0).toFixed(2) + '), but the click never landed on the page', 'red');
+      continue;
+    }
+    const inBox = h.x >= t.left - 2 && h.x <= t.left + t.width + 2 && h.y >= t.top - 2 && h.y <= t.top + t.height + 2;
+    uiv.eval('window.__uivxrMark(' + h.x + ',' + h.y + ',' + JSON.stringify(inBox ? '#16a34a' : '#dc2626') + ',' + JSON.stringify(it.word + (inBox ? ' HIT' : ' MISS')) + ')');
+    part3.push({ w: it.word, found: true, landed: true, inBox: inBox, imgOff: imgOff, score: m.score, dx: h.x - t.x, dy: h.y - t.y });
+    uiv.log('Image ' + it.word + ': match score ' + (m.score || 0).toFixed(2) + ', center off by ' + (imgOff === null ? '(origin unknown)' : imgOff.toFixed(1) + 'px') + ', click landed ' + (inBox ? 'INSIDE' : 'OUTSIDE') + ' the word box', inBox ? 'green' : 'red');
+  }
+}
+
+const p3found = part3.filter(p => p.found);
+const p3in = part3.filter(p => p.inBox);
+const p3pass = !!truth3 && p3found.length >= 2 && p3found.every(p => p.landed && p.inBox);
+let p3verdict;
+if (!truth3) {
+  p3verdict = p3note;
+} else if (p3pass) {
+  p3verdict = 'PASS: image search found ' + p3found.length + '/' + IMAGES.length + ' shipped word images and every click landed inside its word';
+} else if (!p3found.length) {
+  p3verdict = 'FAIL: image search matched none of the ' + IMAGES.length + ' shipped images' + (p3note ? ' (' + p3note + ')' : '') + ' - a vision problem (images missing, or rendering/scaling too different from the shipped dpr-1 captures); image-aimed clicking untested';
+} else if (p3found.length < 2) {
+  p3verdict = 'INCONCLUSIVE: image search matched only ' + p3found.length + '/' + IMAGES.length + ' images - too few to judge image-aimed clicking';
+} else {
+  p3verdict = 'FAIL: ' + (p3found.length - p3in.length) + ' of ' + p3found.length + ' matched images were clicked OUTSIDE their word box - the vision coordinate path (capture scaling / match mapping) is off';
+}
+
+lines.push('');
+lines.push('PART 3 - x,y found by image search (shipped images), desktop scope, on ' + OS_NAME + ': ' + (truth3 ? (p3pass ? 'PASS' : 'FAIL') : 'SKIPPED'));
+if (truth3) {
+  lines.push('word     score  img-off  click-dx  click-dy  in-box');
+  part3.forEach(p => {
+    lines.push(' ' + padN(p.w, 6) + '  ' + (!p.found ? '--- no match with score >= 0.75 ---' : (!p.landed ? '--- click never landed ---' : padN((p.score || 0).toFixed(2), 5) + '  ' + padN(p.imgOff === null ? 'n/a' : p.imgOff.toFixed(1), 7) + '  ' + padN(fmt(p.dx), 8) + '  ' + padN(fmt(p.dy), 8) + '  ' + padN(p.inBox ? 'YES' : 'NO', 6))));
+  });
+}
+lines.push(p3verdict);
+lines.push('');
+lines.push('env: ' + browser + ' ' + uiv.getVar('!OS') + ' dpr=' + info.dpr + ' viewport=' + info.w + 'x' + info.h + ' chrome=' + info.chromeX + 'x' + info.chromeY + ' win@' + info.left + ',' + info.top);
+
+const overall = pass && p2pass && p3pass;
+const vcolor = overall ? '#4ade80' : '#f87171';
+uiv.eval('window.__uivxrReport(' + JSON.stringify(lines.join('\\n')) + ',' + JSON.stringify(vcolor) + ')');
+
+uiv.log('Part 1: ' + score + '/30 (' + rank + ') | Part 2 OCR: ' + (truth ? p2in.length + '/' + WORDS.length + ' hit' : 'skipped') + ' | Part 3 image: ' + (truth3 ? p3in.length + '/' + IMAGES.length + ' hit' : 'skipped'), overall ? 'green' : 'orange');
+if (!overall) throw new Error('Part 1: ' + verdict + ' | Part 2: ' + p2verdict + ' | Part 3: ' + p3verdict);
+uiv.log('PASS: known-coordinate, OCR-aimed and image-aimed OS clicks all land where they should', 'green');
+`
+  },
+  {
     fileName: 'CU_PlayTicTacToe.js',
     path: 'LLM AI Commands/CU_PlayTicTacToe.js',
     title: 'CU_PlayTicTacToe (JS)',
@@ -2186,7 +2922,7 @@ uiv.log('Cat + greeting drawn with real OS input: ' + counts.ellipse + ' ellipse
 // line instead of another branch.
 uiv.run('XDesktopAutomation', 'false');
 uiv.open('https://ui.vision/demo/tictactoe');
-uiv.run('bringBrowserToForeground');
+uiv.window.focus();
 
 const TASK = [
   'You are playing a game of tic tac toe against the computer. You are X and move first.',
@@ -2225,7 +2961,7 @@ uiv.log('This demo macro uses an external website which is not affiliated with U
 
 uiv.run('XDesktopAutomation', 'false');
 uiv.open('https://www.theonlinecalculator.com/');
-uiv.run('bringBrowserToForeground');
+uiv.window.focus();
 
 const TASK = [
   'Use the calculator to compute 8 + 9 by clicking the buttons.',
@@ -2246,14 +2982,22 @@ if (result.includes('SUCCESS')) {
 `
   },
   {
-    fileName: 'DemoPDFTest_with_OCR.js',
-    path: 'Browser Vision (Chrome, Edge)/DemoPDFTest_with_OCR.js',
-    title: 'DemoPDFTest_with_OCR (JS)',
-    code: `// Port of Classic/XModules/DemoPDFTest_with_OCR.
+    fileName: 'PDF Automation.js',
+    // Browser Vision folder, and this time it is accurate: nothing here needs
+    // the XModule. It sat in "XModules" from 2026-08 because it drove the
+    // desktop tier — an XClick for focus and XType to page through the
+    // document. Both are gone (the page is reached by URL and the link is
+    // clicked through CDP), so the demo now runs on image search, the local
+    // OCR and a browser-tier click. Note the LOCAL OCR engine is an XModule
+    // feature: an install without it falls back to {engine: 'javascript'},
+    // which reads this PDF's small print less well.
+    path: 'Browser Vision (Chrome, Edge)/PDF Automation.js',
+    title: 'PDF Automation (JS)',
+    code: `// PDF Automation — port of Classic/XModules/DemoPDFTest_with_OCR.
 // A PDF in the browser's viewer has NO DOM at all — no elements, no text
 // nodes, nothing for uiv.$ to find. Everything here goes through the eyes:
-// image search, OCR and real mouse/keyboard input.
-const x = uiv.desktop;
+// image search and OCR locate the targets, and the clicks are aimed at what
+// those finders measured.
 
 // Not a debugger-API issue: Firefox renders PDFs in its built-in pdf.js
 // viewer, a PRIVILEGED page extensions cannot attach a content script to —
@@ -2263,8 +3007,22 @@ if (uiv.getVar('!BROWSER') === 'firefox') {
   uiv.exit('This demo works in Chrome and Edge only — Firefox shows PDFs in its privileged built-in viewer, which browser extensions cannot reach at all.');
 }
 
-uiv.run('setWindowSize', '800x700');
-uiv.open('http://download.ui.vision/demo/pdf-test.pdf');
+// OPEN FIRST, size after. Every command needs a browser tab to run in, and a
+// browser showing only its new-tab page has none — uiv.open is the one call
+// that creates one by itself. (The classic table macro sized the window first,
+// where the player always had a start tab; here that order died with E901
+// before the PDF was ever opened.)
+// #page=1&zoom=100 — the viewer REMEMBERS the page and zoom it was left on,
+// so a bare URL does not start at the top of the document on the second run of
+// the day. Pin both, the same reason the window gets a fixed size.
+uiv.open('http://download.ui.vision/demo/pdf-test.pdf#page=1&zoom=100');
+uiv.window.resize(800, 700);
+// (No uiv.window.focus() here. It is required before REAL OS input, because
+// that goes to whichever window the OS has focused — and it FAILS when another
+// application is in front, since a background app cannot raise itself. This
+// demo sends no OS input any more, so demanding the foreground would only add
+// a way to fail.)
+
 
 // --- is the PDF loaded? two independent checks ------------------------------
 // Option 1: image search. The finder throws if it is not there, which is
@@ -2272,14 +3030,17 @@ uiv.open('http://download.ui.vision/demo/pdf-test.pdf');
 uiv.findImage('pdftest_salesquote.png', { minScore: 0.35 });
 
 // Option 2: text search. ocr.findTexts COUNTS without throwing, so the failure
-// message can say how many it saw. Cloud engine 2, never 1 — engines 2 and 3
-// read far better and both auto-detect the text language (this demo needs an
-// OCR.Space key either way; see https://ocr.space/ocrapi#ocrengine2).
-uiv.setVar('!OCRLANGUAGE', 'ENG');
-uiv.setVar('!OCRENGINE', 2);
-uiv.setVar('!OCRSCALE', true);
-
-const matches = uiv.ocr.findTexts('sales quote', { required: false });
+// message can say how many it saw.
+//
+// Every read below names its reader: {engine: 'xmodule'} is the XModule's
+// Local OCR — it runs on this machine, so it needs no OCR.Space account, no
+// API key and no network, and it reads this PDF's print-quality text well.
+// A script NAMES its engine instead of setting !OCRENGINE/!OCRLANGUAGE/
+// !OCRSCALE globally: line 12 must not silently change what a read on line 40
+// returns. Swap in 'ocrspace_engine2' (needs a free key from
+// https://ocr.space/ocrapi) or 'javascript' (built in, no install) here and
+// the demo runs unchanged.
+const matches = uiv.ocr.findTexts('sales quote', { required: false, engine: 'xmodule' });
 uiv.log(\`Number of matches: \${matches.length}\`, 'green');
 if (matches.length === 0) {
   throw new Error('Something is wrong, I cannot find the text <sales quote>');
@@ -2295,49 +3056,140 @@ if (matches.length === 0) {
 // OCRExtractRelative: finders locate text, read() reads a region.
 const heading = matches[0];
 
-// an OS click into that line gives the PDF viewer focus for later scrolling
-// — what the classic XClickRelative click did
-x.click(uiv.offset(heading, 0, Math.round(1.4 * heading.rect.height)));
+// (The classic macro clicked into this line with XClick first, to give the
+// viewer keyboard focus for the XType paging that followed. Both are gone —
+// page 2 is reached by URL below — so the click went with them rather than
+// being kept alive as decoration.)
 
+// Read a BLOCK, not one tight line. A crop a few pixels tall is the one thing
+// OCR reliably fails at, and this PDF's quote number is printed in light
+// beige on white, which needs even more room around it: measured on this
+// page, a 180x30 crop of exactly that line comes back EMPTY, a 344x138 one
+// reads the line but drops the number, and a 344x196 one reads it every
+// time. So take a generous region and pick the number out in JS afterwards —
+// that costs nothing and never depends on a pixel-perfect crop.
 const raw = String(uiv.ocr.read({
+  engine: 'xmodule',
   area: {
-    x: heading.rect.left,
-    y: heading.rect.top + heading.rect.height,
-    width: Math.round(1.1 * heading.rect.width),
-    height: Math.round(1.3 * heading.rect.height)
+    x: heading.rect.left - Math.round(0.12 * heading.rect.width),
+    y: heading.rect.top,
+    width: Math.round(2.1 * heading.rect.width),
+    height: Math.round(8.5 * heading.rect.height)
   }
 }));
-uiv.log(\`Extracted text below the heading: >\${raw}<\`, 'blue');
+uiv.log(\`Text read around the heading: >\${raw.replace(/\\n/g, ' | ')}<\`, 'blue');
 
 // the classic macro needs two executeScript commands to strip whitespace and
 // test for the substring
-const quote = raw.replace(/[\\\\s]/g, '');
-uiv.log(\`Without spaces and line breaks, quote number: >\${quote}<\`, 'green');
+const quote = raw.replace(/\\s+/g, '');
+uiv.log(\`Without spaces and line breaks: >\${quote}<\`, 'green');
 
 if (!quote.includes('135')) {
-  throw new Error(\`Wrong quote number. Extracted text was >\${raw}<\`);
+  throw new Error(\`Wrong quote number. Text read was >\${raw}<\`);
 }
 uiv.log('Quote number OK', 'green');
 
-// --- scroll the PDF and follow a link ---------------------------------------
-// Real OS clicks aimed by OCR text — the composed form of the classic
-// "XClick | ocr=..." target: the finder locates the words, uiv.desktop.click
-// turns the match into an OS click at that page position. Click the document
-// first so the viewer has keyboard focus.
-uiv.sleep(500);
-x.click(uiv.ocr.findText('sales quote'));
+// --- go to page 2 and follow a link -----------------------------------------
+// Page 2 by URL, not by counting key presses. Chrome's PDF viewer takes
+// #page=N, and that is the same place on every run — while PAGE_DOWN is not:
+// the viewer REMEMBERS its zoom from the last visit, so the number of presses
+// that reaches page 2 changes underneath the macro, and the keys are dropped
+// in silence unless the document itself holds the keyboard focus.
+//
+// The zoom and the window size here are both load-bearing. At 100% this page
+// is WIDER than an 800px viewport, and the line the demo needs is cut off in
+// the middle of the very phrase it is looking for ("...purchase at our we|"),
+// which no reader can recover from. A 1000px viewport fits the whole line at
+// 100%, and 100% keeps the text at its largest — page-fit shrinks it until the
+// local OCR stops reading the words either side of the link.
+uiv.open('http://download.ui.vision/demo/pdf-test.pdf#page=2&zoom=100');
+uiv.window.resize(1000, 800);
 
-// page down: the shortcut differs per platform
-x.type(uiv.getVar('!OS') === 'mac' ? '\${KEY_CMD+KEY_DOWN}' : '\${KEY_PAGE_DOWN}\${KEY_PAGE_DOWN}');
+// Verify it rather than assume it — a finder call IS the assertion. The
+// trailing wildcard in 'CONDITIONS*' absorbs the colon OCR reads as part of
+// the word ("CONDITIONS:"); word matching is exact otherwise, so the bare
+// word would never match.
+uiv.ocr.findText('TERMS AND CONDITIONS*', { engine: 'xmodule' });
 
-// the PDF scrolls asynchronously and there is no DOM event to wait on
-uiv.sleep(500);
-x.click(uiv.ocr.findText('website'));
+// WAIT FOR THE VIEWPORT TO STOP MOVING before measuring anything here. A
+// trusted click needs Chrome's debugger, and Chrome announces that with a
+// notice bar that shrinks the viewport by its own height — which makes the PDF
+// viewer RE-FLOW the page, so coordinates measured under one height point at
+// nothing under the other. The bar rises on the first such click and clears
+// itself seconds after the last one, so it moves the page underneath a macro
+// that never asked it to.
+//
+// This is a settle loop, not a pause: it watches a real value and needs it to
+// hold STILL for several readings, not merely to be unchanged once — a single
+// repeat is satisfied by the notice sitting there mid-life, which is how the
+// first version of this loop let the layout change again a second later.
+let lastHeight = -1;
+let steady = 0;
+for (let i = 0; i < 25 && steady < 4; i++) {
+  const h = uiv.eval('return window.innerHeight');
+  steady = h === lastHeight ? steady + 1 : 0;
+  lastHeight = h;
+  uiv.sleep(400);
+}
 
-// the link leaves the PDF for a normal page, so the DOM is back — classic
-// assertElementPresent is just a finder call that throws
-uiv.$('xpath=//*[@id="logo"]/img');
-uiv.log('DemoPDFTest_with_OCR (JS) completed — landed on the website', 'green');
+// A RELATIVE CLICK — the composed form of the classic word#R x,y target.
+//
+// "our website" is a small, light blue, underlined phrase, and no local OCR
+// reads it: not at any zoom, not at any region size. But OCR reads the words
+// on either SIDE of it perfectly — "purchase at" before, "apply" after — and
+// two anchors are better than one, because the gap between them IS the link.
+// Its midpoint needs no constant to be guessed and no image file to be kept in
+// step with the rendering: at 100% that gap is 84px wide, so the click has
+// ±42px of room, where aiming at the phrase itself allows only a few.
+//
+// Two other readers can find this link directly, if you would rather ask:
+//
+//   uiv.ai.find('the small underlined blue link that reads "our website"')
+//     — the model looks at the screen and hands back a match like any finder.
+//     Needs an AI provider key and costs a model call per attempt, and on a
+//     target this small it is worth knowing that it lands a few pixels out
+//     often enough to matter.
+//
+//   uiv.ocr.findText('our website', { engine: 'ocrspace_engine2' })
+//     — the OCR.Space cloud OCR reads this link perfectly at exactly this
+//     rendering. It needs a FREE API key from https://ocr.space/ocrapi,
+//     entered under Settings > OCR.
+//
+// uiv.browser.click, not uiv.desktop.click — deliberately, and it is what
+// makes this demo need no XModule. A CDP click takes viewport CSS pixels
+// straight into the tab, so it needs no viewport-to-screen conversion, no
+// window focus and no uncovered window, and the finders hand it exactly those
+// coordinates. The desktop tier would be the right answer for a target
+// OUTSIDE the page — an OS dialog, another application — which this is not.
+//
+// MEASURE, CLICK, THEN CHECK, and measure again if it did not land. The
+// debugger notice can come or go between the measurement and the click, and
+// the PDF re-flows when it does. Re-measuring costs nothing here — both
+// anchors are local OCR — so the macro simply notices it missed and repeats.
+let landed = null;
+for (let attempt = 1; attempt <= 3 && !landed; attempt++) {
+  const before = uiv.ocr.findText('purchase at', { engine: 'xmodule' });
+  const after = uiv.ocr.findText('apply', { engine: 'xmodule' });
+
+  // uiv.offset returns a MATCH, so scope/frame travel with it — bare x/y would
+  // drop the browser-scope tag that keeps viewport pixels out of the desktop
+  // tier. The offset is measured from the anchor's own centre.
+  const midX = Math.round((before.rect.left + before.rect.width + after.rect.left) / 2);
+  uiv.browser.click(uiv.offset(before, midX - before.x, 0));
+
+  // the link leaves the PDF for a normal page, so the DOM is back — classic
+  // assertElementPresent is just a finder call, and {required: false} turns it
+  // into the question "did that work?" instead of an immediate failure
+  landed = uiv.$('xpath=//*[@id="logo"]/img', { required: false, timeout: 10 });
+  if (!landed && attempt < 3) {
+    uiv.log('The click did not land — the viewport moved under it. Measuring again.', 'blue');
+  }
+}
+if (!landed) {
+  throw new Error('Clicked between the "purchase at" and "apply" anchors three times and never left the PDF — the page did not navigate.');
+}
+
+uiv.log('PDF Automation (JS) completed — read the quote number and followed a link out of the PDF', 'green');
 `
   }
 ]

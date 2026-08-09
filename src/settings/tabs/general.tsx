@@ -83,24 +83,11 @@ class GeneralTab extends React.Component<GeneralTabProps> {
           >
             Open Side Panel by default
           </Checkbox>
-          <Checkbox
-            onChange={(e: any) => {
-              onConfigChange('sidePanelOnLeft', e.target.checked)
-            }}
-            checked={config.sidePanelOnLeft}
-          >
-            Check if Side Panel is on the left (
-            <a
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                window.open(goUivUrl('https://go.ui.vision/?help=sidepanel_left'))
-              }}
-            >
-              More details
-            </a>
-            )
-          </Checkbox>
+          {/* the "Side Panel is on the left" checkbox is gone: since v10.0.76
+              the viewport origin is MEASURED from trusted mouse events, which
+              already include a left-docked panel — the manual correction it
+              drove became a double-count (see getSidePanelWidth's tombstone in
+              modules/helper.ts). The config key stays in storage, ignored. */}
         </Form.Item>
         <Form.Item
           label={

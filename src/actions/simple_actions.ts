@@ -21,7 +21,7 @@ import { MiscKey, getMiscData } from '@/services/kv_data/misc_data'
 import { UNTITLED_ID } from '@/common/constant'
 import getSaveTestCase from '@/components/save_test_case'
 import FileSaver from '@/common/lib/file_saver'
-import { canCommandRunMacro, canCommandReadCsv, canCommandReadImage, parseImageTarget } from '@/common/command'
+import { canCommandRunMacro, canCommandReadCsv, canCommandReadImage, parseImageTarget, parseScriptResources } from '@/common/command'
 import { NEW_MACRO_SCRIPT } from '@/config/preinstall_js_scripts'
 import JSZip from 'jszip'
 import { Command } from '@/services/player/macro'
@@ -788,6 +788,13 @@ export const ActionFactories = {
           FileSaver.saveAs(blob, `${macro.name}.json`, true)
         }
         const involveOtherResources = (): boolean => {
+          // JS script macros keep their resource references in the program text
+          const script = (macro.data as any).script
+          if (typeof script === 'string') {
+            const res = parseScriptResources(script)
+            return res.images.length > 0 || res.csvs.length > 0
+          }
+
           const imageRelatedCommands = macro.data.commands.filter(command => {
             return !canCommandReadImage(command.cmd) ? false : parseImageTarget(command.target)?.fileName
           })
@@ -850,6 +857,36 @@ export const ActionFactories = {
       const csvDict: Record<string, boolean> = {}
       const macroDict: Record<string, boolean> = {}
 
+      const addImageToZip = (imageFileName?: string | null): Promise<void> => {
+        if (!imageFileName || imageDict[imageFileName]) {
+          return Promise.resolve()
+        }
+        imageDict[imageFileName] = true
+
+        return getStorageManager().getVisionStorage().read(imageFileName, 'ArrayBuffer')
+        .then(buffer => {
+          zip.file(imageFileName, buffer as any, { binary: true })
+        })
+        .catch((e: Error) => {
+          warn(`Failed to add ${imageFileName} into zip: ${e.message}`)
+        })
+      }
+
+      const addCsvToZip = (csvFileName?: string | null): Promise<void> => {
+        if (!csvFileName || csvDict[csvFileName]) {
+          return Promise.resolve()
+        }
+        csvDict[csvFileName] = true
+
+        return getStorageManager().getCSVStorage().read(csvFileName, 'Text')
+        .then(text => {
+          zip.file(csvFileName, text as string)
+        })
+        .catch((e: Error) => {
+          warn(`Failed to add ${csvFileName} into zip: ${e.message}`)
+        })
+      }
+
       const bundleMacroIntoZip = (macroId: string, isSubMacro?: boolean): Promise<void> => {
         const macroStorage = getStorageManager().getMacroStorage()
         const path = macroStorage.getPathLib()
@@ -861,6 +898,8 @@ export const ActionFactories = {
           const imageRelatedCommands = macro.data.commands.filter(cmd => canCommandReadImage(cmd.cmd))
           const csvRelatedCommands   = macro.data.commands.filter(cmd => canCommandReadCsv(cmd.cmd))
           const macroRelatedCommands = [] as Command[]
+          // JS script macros reference images/CSVs in the program text, not in commands
+          const scriptResources = parseScriptResources((macro.data as any).script || '')
 
           // Since all macros are saved in the same folder now,
           // macro paths in `run` commands should be changed accordingly
@@ -871,41 +910,13 @@ export const ActionFactories = {
             }
           })
 
-          Promise.all([
-            ...imageRelatedCommands.map(command => {
-              const imageFileName = parseImageTarget(command.target)?.fileName
-
-              if (!imageFileName || imageDict[imageFileName]) {
-                return Promise.resolve()
-              }
-
-              imageDict[imageFileName] = true
-
-              return getStorageManager().getVisionStorage().read(imageFileName, 'ArrayBuffer')
-              .then(buffer => {
-                zip.file(imageFileName, buffer as any, { binary: true })
-              })
-              .catch((e: Error) => {
-                warn(`Failed to add ${imageFileName} into zip: ${e.message}`)
-              })
-            }),
-            ...csvRelatedCommands.map(command => {
-              const csvFileName = command.target
-
-              if (!csvFileName || csvDict[csvFileName]) {
-                return Promise.resolve()
-              }
-
-              csvDict[csvFileName] = true
-
-              return getStorageManager().getCSVStorage().read(csvFileName, 'Text')
-              .then(text => {
-                zip.file(csvFileName, text as string)
-              })
-              .catch((e: Error) => {
-                warn(`Failed to add ${csvFileName} into zip: ${e.message}`)
-              })
-            }),
+          // returned so callers (and the outer catch) actually wait for the
+          // files - a nested sub-macro must land before zip.generateAsync runs
+          return Promise.all([
+            ...imageRelatedCommands.map(command => addImageToZip(parseImageTarget(command.target)?.fileName)),
+            ...csvRelatedCommands.map(command => addCsvToZip(command.target)),
+            ...scriptResources.images.map(addImageToZip),
+            ...scriptResources.csvs.map(addCsvToZip),
             ...macroRelatedCommands.map(command => {
               const subMacroRelativePath = resolvePath(
                 macroStorage.getPathLib(),

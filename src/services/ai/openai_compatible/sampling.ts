@@ -3,6 +3,7 @@ import { ComputerUseMessageType } from '../computer_use/model'
 import { SamplingError } from '../computer_use/sampling'
 import { OPENAI_COMPAT } from '@/common/constant'
 import { chatCompletionsUrl } from '@/common/uiv_link'
+import { uivInstallHeader } from '../uivision_free_tier'
 
 // Agent sampling loop for OpenAI-compatible chat-completions endpoints
 // (OpenRouter, Ollama, LM Studio, ...). Mirrors the Anthropic Sampling class
@@ -135,6 +136,8 @@ class OpenAICompatSampling implements ISamplingEngine {
     if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`
     headers['X-Title'] = 'Ui.Vision RPA'
     headers['X-UIV-Task'] = this.params.task || 'ai.computerUse'
+    // device id — our proxy only; on PRO the Bearer header is the account key
+    Object.assign(headers, uivInstallHeader(this.params.baseURL))
 
     // Reasoning models burn "thinking" tokens against max_tokens and can cut
     // tool-call JSON mid-string at 1024 — with finish_reason still saying

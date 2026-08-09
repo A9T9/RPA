@@ -72,7 +72,7 @@ import { getXUserIO } from '@/services/xmodules/x_user_io'
 import { getXFile } from '@/services/xmodules/xfile'
 import { getXLocal } from '@/services/xmodules/xlocal'
 import { getNativeXYAPI, MouseButton, MouseEventType } from '@/services/xy'
-import { sendCdpMouseEvent, sendCdpTypeText } from '@/services/cdp_input'
+import { calibrateScreenOriginViaCdp, sendCdpMouseEvent, sendCdpTypeText } from '@/services/cdp_input'
 import { InterpreterInstance, PlayerInstance } from '@/init_player'
 import { getOcrResponse, guardOcrSettings } from '@/modules/ocr'
 import { store } from '@/redux'
@@ -82,7 +82,6 @@ import {
   withVisualHighlightHidden,
   withDesktopCaptureCover,
   shouldHideGuiDuringCapture,
-  getSidePanelWidth,
   replaceEscapedChar,
   captureImage,
   captureScreenShot
@@ -759,15 +758,6 @@ const runXMouseKeyboardCommand = (command: any) => {
                       offset: { x, y }
                     }
                   })
-                  .then(getSidePanelWidth)
-                  .then(([sidePanelWidth, result]) => {
-                    // CDP dispatch uses pure page-viewport coordinates; the side
-                    // panel correction only applies to the XModule screen mapping
-                    if (!isCdpDispatch) {
-                      result.offset.x = result.offset.x + sidePanelWidth
-                    }
-                    return result
-                  })
               }
 
               case 'visual_search': {
@@ -803,16 +793,6 @@ const runXMouseKeyboardCommand = (command: any) => {
                       offset: { x, y },
                       originalResult: result
                     }
-                  })
-                  .then(getSidePanelWidth)
-                  .then(([sidePanelWidth, prev]) => {
-                    // we need this for visual_search
-                    // eg. DemoXMove
-                    // (XModule screen mapping only — CDP uses pure viewport coords)
-                    if (prev.type === 'viewport' && !isCdpDispatch) {
-                      prev.offset.x = prev.offset.x + sidePanelWidth
-                    }
-                    return prev
                   })
               }
 
@@ -1150,15 +1130,6 @@ const runXMouseKeyboardCommand = (command: any) => {
                       originalResult: result
                     }
                   })
-                  .then(getSidePanelWidth)
-                  .then(([sidePanelWidth, prev]) => {
-                    // we need this for ocrText
-                    // (XModule screen mapping only — CDP uses pure viewport coords)
-                    if (prev.type === 'viewport' && !isCdpDispatch) {
-                      prev.offset.x = prev.offset.x + sidePanelWidth
-                    }
-                    return prev
-                  })
               }
 
               case 'desktop_coordinates': {
@@ -1240,15 +1211,6 @@ const runXMouseKeyboardCommand = (command: any) => {
                     y: parseFloat(coordinates[1])
                   }
                 })
-                  .then(getSidePanelWidth)
-                  .then(([sidePanelWidth, result]) => {
-                    // CDP dispatch uses pure page-viewport coordinates; the side
-                    // panel correction only applies to the XModule screen mapping
-                    if (!isCdpDispatch) {
-                      result.offset.x = result.offset.x + sidePanelWidth
-                    }
-                    return result
-                  })
               }
             }
           })()
@@ -1422,10 +1384,65 @@ const runXMouseKeyboardCommand = (command: any) => {
                   }
 
                   return type === 'desktop'
-                    ? api.sendMouseEvent(event)
+                    ? api.sendDesktopMouseEvent(event, {
+                        onTrace: ({ scalingFactor, screenX, screenY }) => {
+                          store.dispatch(act.addLog(
+                            'info',
+                            `${cmd} → screen (${Math.round(screenX)}, ${Math.round(screenY)}) [desktop scope${scalingFactor !== 1 ? `, × ${scalingFactor}` : ''}]`
+                          ))
+                        }
+                      })
                     : api.sendViewportMouseEvent(event, {
-                        getViewportRectInScreen: () => {
-                          return csIpc.ask('PANEL_GET_VIEWPORT_RECT_IN_SCREEN')
+                        getViewportRectInScreen: async () => {
+                          let rect = await csIpc.ask('PANEL_GET_VIEWPORT_RECT_IN_SCREEN')
+                          // 'derived' = Chrome, and no trusted mouse event has
+                          // taught the page its own screen origin yet (fresh
+                          // page, user never moved the mouse). The derived
+                          // guess (screenLeft + 8 / outerHeight arithmetic)
+                          // measured 64px wrong on a real system — so fire ONE
+                          // CDP mouse-move: a trusted event whose
+                          // screenX - clientX IS the origin, picked up by the
+                          // content script's passive sampler. Costs a debugger
+                          // attach, so Chrome shows its "is debugging" notice
+                          // — once per page, and only when the user's own
+                          // mouse hasn't already calibrated it for free.
+                          // (Firefox never gets here: its rect is 'exact'.)
+                          if (rect && rect.source === 'derived') {
+                            try {
+                              const globalState = await getState()
+                              // calibrateScreenOriginViaCdp, not a bare mouse
+                              // move: on a plugin-hosted viewport (Chrome's PDF
+                              // viewer) the move is routed to the <embed>'s
+                              // out-of-process frame and the top document's
+                              // sampler never fires. It puts a transparent
+                              // overlay in the top frame first so the hit test
+                              // lands there — see the comment on that function.
+                              await calibrateScreenOriginViaCdp(globalState.tabIds.toPlay)
+                              await delay(() => {}, 150)
+                              const measured = await csIpc.ask('PANEL_GET_VIEWPORT_RECT_IN_SCREEN')
+                              if (measured && measured.source === 'measured') {
+                                rect = measured
+                              } else {
+                                store.dispatch(act.addLog('warning', `W372: ${cmd}: screen-origin calibration probe did not produce a measurement — falling back to the derived viewport origin, which is blind to anything docked beside the viewport (a side panel shifts it by the panel's whole width) and to unusual window themes/scaling. The trace line below shows the numbers used; if the click lands far from its target, move the mouse over the page once and run again.`))
+                              }
+                            } catch (e) {
+                              /* probe blocked (debugger veto etc.) — the derived guess stands */
+                            }
+                          }
+                          return rect
+                        },
+                        // one line per OS click with the numbers the conversion
+                        // used. The click "succeeds" from the engine's view even
+                        // when it lands off-viewport (the native host cannot
+                        // know), so this trace is the only record of where it
+                        // was AIMED — on Chrome the viewport origin is derived
+                        // from screenLeft/outerHeight guesses, and a wrong
+                        // guess is otherwise invisible.
+                        onTrace: ({ viewportRect, scalingFactor, screenX, screenY }) => {
+                          store.dispatch(act.addLog(
+                            'info',
+                            `${cmd} → screen (${Math.round(screenX)}, ${Math.round(screenY)}) = viewport (${event.x}, ${event.y}) + origin (${Math.round(viewportRect.x)}, ${Math.round(viewportRect.y)}${(viewportRect as any).source ? `, ${(viewportRect as any).source}` : ''})${scalingFactor !== 1 ? ` × ${scalingFactor}` : ''}`
+                          ))
                         }
                       })
                 })()
@@ -1892,7 +1909,8 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
         })
       }
 
-      if (/\.csv$/i.test(target)) {
+      // .csv and .txt share one store (the CSV/TXT tab) — both export from it
+      if (/\.(csv|txt)$/i.test(target)) {
         return csvStorage.exists(target).then((existed) => {
           if (!existed) throw new Error(`${target} doesn't exist`)
 
@@ -2321,13 +2339,26 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
                     // PAGE (uiv.eval('return innerWidth')) — window here is the
                     // side panel's window, and comparing against it produced a
                     // confident, meaningless "MISMATCH".
+                    // captureScale = captured pixels per screen point, MEASURED
+                    // off the shot rather than assumed from devicePixelRatio
+                    // (which also moves with browser zoom, while the screen
+                    // capture does not).
+                    let captureScale = 1
                     try {
                       const { Jimp } = await import('jimp')
                       const shot = await Jimp.read(imageBuffer as any)
+
+                      if (isDesktop && screen.width > 0) {
+                        captureScale = shot.bitmap.width / screen.width
+                      }
+
                       store.dispatch(act.addLog(
                         'info',
-                        `aiScreenXY frame: screenshot ${shot.bitmap.width}x${shot.bitmap.height} px, dpr ${window.devicePixelRatio}. ` +
-                        `Coordinates are in THIS space — compare with the page's own innerWidth/innerHeight.`
+                        `aiScreenXY frame: screenshot ${shot.bitmap.width}x${shot.bitmap.height} px, dpr ${window.devicePixelRatio}` +
+                        (isDesktop
+                          ? `, screen ${screen.width}x${screen.height} pt, capture scale ${captureScale.toFixed(2)}`
+                          : '') +
+                        `. Coordinates are in THIS space — compare with the page's own innerWidth/innerHeight.`
                       ))
                     } catch (e) { /* diagnostic only */ }
 
@@ -2404,10 +2435,41 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
 
                     console.log('window.devicePixelRatio:>> ', window.devicePixelRatio)
 
-                    // offsetting window.devicePixelRatio windows machine included in aiScreenXYProcessImage
-                    // for mac it's required why??
-                    let ai1ForDesktop = isMac() ? ai1 : ai1 * window.devicePixelRatio
-                    let ai2ForDesktop = isMac() ? ai2 : ai2 * window.devicePixelRatio
+                    // ai.find is the ONE desktop finder that hands back raw
+                    // CAPTURE coordinates. uiv.findImage and uiv.ocr.findText
+                    // already return screen POINTS — measured with
+                    // DesktopClickAccuracyRange, whose parts 2 and 3 land on
+                    // their targets with no scaling applied at the click
+                    // boundary — but the model's answer is in the pixels of the
+                    // screenshot it was shown, which on macOS Retina is the
+                    // backing-resolution capture: 2816x1762 for a 1408x881
+                    // POINT screen.
+                    //
+                    // The native host takes CSS points (verified directly
+                    // against kantu-xy-host v1.0.31: send_mouse_event at
+                    // (1390, 860) parks the cursor in the bottom-right corner,
+                    // where a pixel reading would have put it dead centre), so
+                    // those capture pixels have to come down by the capture
+                    // scale. Un-divided they aimed at twice the distance from
+                    // the screen origin — ai.find put the side panel's
+                    // "Clear log" button at y=1506 on an 881-point screen and
+                    // the click went out at 1506, off the display entirely.
+                    //
+                    // Fix it HERE, not at the click boundary: that boundary is
+                    // shared with findImage/ocr.findText, and scaling it halved
+                    // their already-correct points (0/3 hit in both parts).
+                    // Windows keeps its multiply — there the capture is in
+                    // logical pixels and captureScale stays 1.
+                    let ai1ForDesktop = isMac() ? ai1 / captureScale : ai1 * window.devicePixelRatio
+                    let ai2ForDesktop = isMac() ? ai2 / captureScale : ai2 * window.devicePixelRatio
+
+                    if (isDesktop && isMac() && captureScale !== 1) {
+                      store.dispatch(act.addLog(
+                        'info',
+                        `ai.find → screen (${Math.round(ai1ForDesktop)}, ${Math.round(ai2ForDesktop)}) pt ` +
+                        `= capture (${Math.round(ai1)}, ${Math.round(ai2)}) px ÷ ${captureScale.toFixed(2)}`
+                      ))
+                    }
 
                     if (isDesktop) {
                       newVars = (() => {

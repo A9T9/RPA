@@ -537,3 +537,29 @@ export function parseImageTarget (target: string): ImageTarget | null {
 
   return { fileName, confidence, index, imageUrl }
 }
+
+// JS script macros have no command table to inspect — their vision images and
+// CSVs are referenced inside string literals of the program text instead
+// (uiv.findImage('button.png'), uiv.csv.read('data.csv'), classic-style
+// 'img.png@0.8' via uiv.run). Scan for such names so features that walk a
+// macro's resources (zip export etc.) see them too. Names with path
+// separators are skipped: storage file names never have them, those are
+// local paths (e.g. file-upload targets).
+export function parseScriptResources (script: string): { images: string[], csvs: string[] } {
+  const images: Record<string, boolean> = {}
+  const csvs: Record<string, boolean> = {}
+  const reg = /(['"`])([^'"`\r\n]{1,300}?\.(?:png|csv))(?:@[\d.]+)?(?:#\d+)?\1/gi
+  let m: RegExpExecArray | null
+
+  while ((m = reg.exec(script || ''))) {
+    const name = m[2]
+    if (/[\\/]/.test(name)) continue
+    if (/\.png$/i.test(name)) {
+      images[name] = true
+    } else {
+      csvs[name] = true
+    }
+  }
+
+  return { images: Object.keys(images), csvs: Object.keys(csvs) }
+}

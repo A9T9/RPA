@@ -218,8 +218,12 @@ export class BrowserFileSystemStandardStorage extends StandardStorage implements
     const baseName      = path.basename(filePath)
     const sanitized     = shouldSanitize ? sanitizeFileName(baseName) : baseName
     const existingExt   = path.extname(baseName)
-    const ext           = this.extensions[0]
-    const finalFileName = existingExt && existingExt.substr(1).toLowerCase() === ext.toLowerCase() ? sanitized: (sanitized + '.' + ext)
+    // ANY known extension is honored as-is (mirrors the native storage's
+    // filePath) — with a multi-extension store (the CSV/TXT tab holds .csv
+    // AND .txt) matching only extensions[0] would turn "notes.txt" into
+    // "notes.txt.csv". Extension-less names get the primary extension.
+    const isKnownExt    = !!existingExt && this.extensions.some(e => e.toLowerCase() === existingExt.substr(1).toLowerCase())
+    const finalFileName = isKnownExt ? sanitized : (sanitized + '.' + this.extensions[0])
 
     if (this.isStartWithBaseDir(dirName)) {
       return path.join(dirName, this.transformFileName(finalFileName))
