@@ -717,7 +717,7 @@ class DashboardBottom extends React.Component {
     }
 
     const content = (() => {
-      if (/(XModule|xFile) is not installed yet/.test(log.text)) {
+      if (/(XModule|xFile) is not installed yet|native messaging host|host not reachable/i.test(log.text)) {
         return (
           <span>
             <span>{log.text}</span>
@@ -726,7 +726,7 @@ class DashboardBottom extends React.Component {
               style={{ marginLeft: '10px' }}
               onClick={e => {
                 e.preventDefault()
-                openSettings('xmodules')
+                openSettings('desktop-automation')
               }}
             >
               Install now

@@ -1,7 +1,20 @@
 export type Sender = 'You' | 'AI' | 'Action' | 'Error'
+
+// A vision image the agent just created, attached to the log line that
+// announces it. Shown inline in the chat: the file name alone says nothing
+// about WHAT was cropped, so a wrong crop stays invisible until the macro
+// misbehaves. Raw pixel size travels along so the view can scale tiny icon
+// crops up to something a human can actually judge.
+export interface ConversationImage {
+  dataUrl: string
+  width: number
+  height: number
+}
+
 export interface ConversationItem {
   sender: Sender
   message: string
+  image?: ConversationImage
 }
 
 export class AiConversation {
@@ -26,14 +39,15 @@ export class AiConversation {
    * @param sender - The name of the sender.
    * @param message - The content of the message.
    */
-  addMessage(sender: Sender, message: string): void {
+  addMessage(sender: Sender, message: string, image?: ConversationImage): void {
     this._conversation.push({
       sender,
-      message
+      message,
+      image
     })
   }
 
-  get conversation(): { sender: Sender; message: string }[] {
+  get conversation(): ConversationItem[] {
     return [...this._conversation]
   }
 

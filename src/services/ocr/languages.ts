@@ -303,26 +303,20 @@ export function convertOcrLanguageToTesseractLanguage(ocrLang: OCRLanguage): Tes
   }
 }
 
-export function isValidOCRLanguage (lang: string,store:any): boolean {
-  let ocrEngine = store.getState().config.ocrEngine;
-  let ocrLanguageOption = store.getState().config.ocrLanguageOption;
-  if (ocrEngine == 99) {
-    let found = ocrLanguageOption.filter(function(res:any) {
-      return res.value.toLowerCase() === lang.toLowerCase();
-     });
-     return typeof lang === 'string' && !!(found.length > 0);
-  } else if (ocrEngine == 98) {
-    let tesseractLangAr = tesseractLanguageOptions.map((item) =>  {
-      return {
-        text: item.text,
-        value: item.value,
-      }}
-    ); 
-    let found = tesseractLangAr.filter(function(res:any) {
-      return res.value.toLowerCase() === lang.toLowerCase();
-     });
-     return typeof lang === 'string' && !!(found.length > 0);
-  } else {
-     return typeof lang === 'string' && !!(ocr_languages as any)[lang.toLowerCase()];
-  }
- }
+// Accepts a code from ANY reader's list, not only the engine selected right
+// now. Settings keeps the OCR.Space code ('chs', 'ger') when the user switches
+// to a local reader, and a run's pre-flight validates every config variable —
+// so the old engine-strict check blocked EVERY JS run for those users with
+// "Cannot prepare the macro for the script run: Value 'chs' is not supported
+// for variable !OCRLANGUAGE" (8 chats in the 2026-09-06 drop, OPEN-ISSUES
+// 35.10). The local readers translate OCR.Space codes themselves
+// (OCR_LANGUAGE_TAGS: chs -> zh-Hans) and ignore what they cannot map.
+export function isValidOCRLanguage (lang: string, store: any): boolean {
+  if (typeof lang !== 'string' || !lang) return false
+  const l = lang.toLowerCase()
+  if ((ocr_languages as any)[l]) return true
+  if (tesseractLanguageOptions.some((o) => String(o.value).toLowerCase() === l)) return true
+  let osList: any[] = []
+  try { osList = (store && store.getState().config.ocrLanguageOption) || [] } catch (e) { osList = [] }
+  return osList.some((o: any) => String(o && o.value).toLowerCase() === l)
+}

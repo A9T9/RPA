@@ -166,7 +166,10 @@ const fs = (function () {
       return fileLocator(filePath, fs)
       .then(({ directoryEntry, fileName }) => {
         return new Promise((resolve, reject) => {
-          directoryEntry.getFile(fileName, { create: true }, (fileEntry) => {
+          // create MUST be false: with create:true a remove that misses its
+          // target (name mismatch) silently creates an empty file, deletes
+          // that, and reports success — the real file survives forever
+          directoryEntry.getFile(fileName, { create: false }, (fileEntry) => {
             fileEntry.remove(resolve, reject)
           }, reject)
         })

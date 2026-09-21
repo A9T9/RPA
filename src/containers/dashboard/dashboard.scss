@@ -561,6 +561,11 @@
           color: orange;
         }
 
+        // MCP bridge lines (Claude Code)
+        &.mcp {
+          color: #5b4bc4;
+        }
+
         .log-type {
           float: left;
           margin-right: 10px;

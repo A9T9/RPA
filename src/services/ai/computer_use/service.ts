@@ -192,6 +192,7 @@ export class ComputerUseService {
       this.sampling = new Sampling(samplingProps)
     } else {
       this.sampling = new OpenAICompatSampling({
+        provider: providerConfig.provider,
         task: 'ai.computerUse',
         baseURL: providerConfig.baseURL,
         apiKey: providerConfig.apiKey,
@@ -370,7 +371,7 @@ export class ComputerUseService {
   getTerminationRequestDefault = (loopCompletedCount: number) => {
     this.currentLoop = loopCompletedCount
     const state = store.getState()
-    const maxLoop = parseInt(state.config.aiComputerUseMaxLoops)
+    const maxLoop = 50
     if (loopCompletedCount >= maxLoop) {
       return 'max_loop_reached'
     }
@@ -446,7 +447,7 @@ export class ComputerUseService {
           console.log('Sampling completed. Result:>>', JSON.stringify(resultForOutput, null, 2))
 
           if (result.stopReason === 'max_loop_reached') {
-            throw new Error('E501: Loop Limit Reached. Increase if needed.')
+            throw new Error('E501: aiComputerUse stopped after its fixed limit of 50 loops. Split the task into smaller steps.')
           } else if (result.stopReason === 'player_stopped') {
             this._logMessage(`Computer Use sequence ended (${this.currentLoop} loops)`)
 

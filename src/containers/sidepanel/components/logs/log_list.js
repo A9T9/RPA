@@ -1,4 +1,5 @@
 import React from 'react'
+import LocalExecutionIcon from './local_execution_icon'
 import { connect } from 'react-redux'
 import { bindActionCreators } from 'redux'
 
@@ -6,6 +7,7 @@ import * as actions from '@/actions'
 import { Actions as simpleActions } from '@/actions/simple_actions'
 import { renderLogType } from '@/common/macro_log'
 import { openSettings } from '@/ext/common/tab'
+import { goUivUrl } from '@/common/uiv_link'
 
 // The log list itself, extracted from the former Logs tab so the same view
 // can render in two places: the Data tab (full height) and the collapsible
@@ -122,20 +124,47 @@ class LogList extends React.Component {
     }
 
     const content = (() => {
-      if (/(XModule|xFile) is not installed yet/.test(log.text)) {
+      // A command needed the native module and it is not there. Explain WHY
+      // and hand the user the direct download for THEIR OS plus a read-more —
+      // the raw connect error ("Specified native messaging host not found")
+      // explains nothing.
+      if (/(XModule|xFile) is not installed yet|Specified native messaging host not found|native messaging host/i.test(log.text)) {
+        const os = /windows/i.test(navigator.userAgent) ? 'win'
+          : /mac/i.test(navigator.userAgent) ? 'mac' : 'linux'
+        const osName = { win: 'Windows', mac: 'macOS', linux: 'Linux' }[os]
         return (
           <span>
             <span>{log.text}</span>
-            <a
-              href="#"
-              style={{ marginLeft: '10px' }}
-              onClick={e => {
-                e.preventDefault()
-                openSettings('xmodules')
-              }}
-            >
-              Install now
-            </a>
+            <span style={{ display: 'block', marginTop: '4px' }}>
+              This command controls the real mouse/keyboard or reads the screen, which a browser
+              extension cannot do alone — it needs the free Desktop Automation module (a small
+              native helper) installed once.{' '}
+              <a
+                href={goUivUrl(`https://go.ui.vision/?help=desktop_${os}`)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Download for {osName}
+              </a>
+              {' · '}
+              <a
+                href={goUivUrl('https://go.ui.vision/?help=desktop_readmore')}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Learn more
+              </a>
+              {' · '}
+              <a
+                href="#"
+                onClick={e => {
+                  e.preventDefault()
+                  openSettings('desktop-automation')
+                }}
+              >
+                Settings
+              </a>
+            </span>
           </span>
         )
       }
@@ -160,11 +189,27 @@ class LogList extends React.Component {
       return this.appendLinkIfPatternMatched(log.text)
     })()
 
+    // JS script failure with a known line (options.scriptJump from the
+    // script runner): render a link that opens the macro and reveals the line
+    const jump = log.options && log.options.scriptJump
+    const jumpLink = (jump && typeof jump.line === 'number') ? (
+      <a
+        href="#"
+        style={{ marginLeft: '8px' }}
+        onClick={e => {
+          e.preventDefault()
+          this.props.gotoScriptLineInMacro(jump.macroId, jump.line)
+        }}
+      >
+        Jump to line {jump.line}
+      </a>
+    ) : null
+
     const stack = log.stack || []
     const source = stack[stack.length - 1]
 
     if (!source) {
-      return content
+      return jumpLink ? <span>{content}{jumpLink}</span> : content
     }
 
     return (
@@ -189,6 +234,7 @@ class LogList extends React.Component {
         </a>
         <span>: </span>
         { content }
+        { jumpLink }
       </span>
     )
   }
@@ -241,7 +287,7 @@ class LogList extends React.Component {
         {logs.map((log, i) => (
           <li className={log.type} key={log.id} style={this.logStyle(log)}>
             <span className="log-type">{renderLogType(log)}</span>
-            <pre className="log-detail">{this.renderLogText(log)}</pre>
+            <pre className="log-detail">{log.options && log.options.localExecution ? <LocalExecutionIcon /> : null}{this.renderLogText(log)}</pre>
             {this.shouldRenderLogStack(log) ? this.renderLogStack(log) : null}
           </li>
         ))}

@@ -12,16 +12,15 @@ import {
   ocrMatchCenter,
   runOCR,
   runOCRLocal,
-  runOCRTesseractC,
   scaleOcrResponseCoordinates,
   searchTextInOCRResponse
 } from '@/services/ocr'
 import { getOcrCommandCounter } from '@/services/ocr/command_counter'
-import { convertOcrLanguageToTesseractLanguage } from '@/services/ocr/languages'
 import { OcrHighlightType } from '@/services/ocr/types'
 import { readableSize } from '@/services/storage/flat/storage'
 import { captureImage } from './helper'
 import { getXFile } from '@/services/xmodules/xfile'
+import { runAiProviderOcr, AI_PROVIDER_OCR_ENGINE } from '@/services/ai/aiocr/service'
 
 // --- XModule Local OCR availability probe -----------------------------------
 // AUTHORING-time helper, deliberately NOT used to switch engines at runtime:
@@ -32,7 +31,8 @@ import { getXFile } from '@/services/xmodules/xfile'
 // the session, a miss for 60s (a freshly installed XModule is picked up
 // without a reload).
 let xmoduleOcrProbe: { available: boolean; at: number } | null = null
-export const isXModuleOcrAvailable = (): Promise<boolean> => {
+export const isXModuleOcrAvailable = (refresh = false): Promise<boolean> => {
+  if (refresh) xmoduleOcrProbe = null
   if (xmoduleOcrProbe && (xmoduleOcrProbe.available || Date.now() - xmoduleOcrProbe.at < 60000)) {
     return Promise.resolve(xmoduleOcrProbe.available)
   }
@@ -67,24 +67,20 @@ export const getOcrResponse = async ({
 }: any) => {
   const ocrScale = scale
 
-  // DESKTOP SCOPE ONLY: the Javascript OCR (98) is never the right default
-  // here — a desktop read already requires the XModule (the capture itself
-  // comes from it), and the XModule's Local OCR reads native UI far better,
-  // while the JS engine loses window titles, menu entries and selected
-  // (white-on-highlight) text. So when the caller did not ask for a specific
-  // engine and the configured one is 98, desktop reads use 99. Browser-scope
-  // reads are untouched: they run with exactly the configured engine.
-  // Local OCR ships for Windows and macOS only — on Linux the JS engine
-  // stays the default (the availability probe alone would not catch that,
-  // since the XModule itself does exist there).
+  // DESKTOP SCOPE ONLY: the cross-platform ocrs engine (98, "builtin") is
+  // never the best default here — a desktop read already requires the
+  // XModule (the capture itself comes from it), and the OS reader
+  // (Windows.Media.Ocr / Apple Vision, 99) reads native UI measurably
+  // better (benchmarks in xmodule2/HANDOVER.md: "excellent" vs "fair"). So
+  // when the caller did not ask for a specific engine and the configured
+  // one is 98, desktop reads use 99. Browser-scope reads are untouched:
+  // they run with exactly the configured engine. (On Linux both numbers
+  // reach the same ocrs engine, so the upgrade is a no-op there.)
   //
-  // "did not ask for a specific engine" is now the CALLER's word (engineExplicit),
-  // not the guess `config.ocrEngine === 98` — which was wrong for the one case
-  // the log message promises: a user configured to 98 who passes {engine: 98}
-  // got silently upgraded to 99 anyway. DesktopClickAccuracyRange part 2 tests
-  // the Javascript OCR by name, so that silent swap would make it test the
-  // wrong engine and report the other one's accuracy.
-  const localOcrOs = !/linux/i.test(window.navigator.userAgent) || /(windows|mac os|macintosh)/i.test(window.navigator.userAgent)
+  // "did not ask for a specific engine" is the CALLER's word (engineExplicit):
+  // a user configured to 98 who passes {engine: 'builtin'} explicitly keeps
+  // the cross-platform engine even at desktop scope.
+  const localOcrOs = true
   const askedForEngine = engineExplicit !== undefined
     ? !!engineExplicit
     : Number(store.getState().config.ocrEngine) !== 98 // legacy callers: old proxy
@@ -93,7 +89,7 @@ export const getOcrResponse = async ({
       if (!loggedDesktopEngine) {
         loggedDesktopEngine = true
         store.dispatch(
-          act.addLog('info', "Desktop OCR: using the XModule Local OCR ({engine: 'xmodule'}) — it reads native UI far better than the Javascript OCR. Pass {engine: 'javascript'} to force the Javascript engine.")
+          act.addLog('info', "Desktop OCR: using the OS reader ({engine: 'builtin_win'/'builtin_mac'}) — it reads native UI better than the cross-platform engine. Pass {engine: 'builtin'} to force the cross-platform engine.")
         )
       }
       engine = 99
@@ -119,7 +115,9 @@ export const getOcrResponse = async ({
 
       switch (ocrMode) {
         case 'enabled': {
-          if (!ocrSpaceApiKey) {
+          // the shared keys.json placeholder ("ui-vision-ai-free") is the
+          // Ui.Vision AI free tier, not an OCR.space key (OPEN-ISSUES 38)
+          if (!ocrSpaceApiKey || String(ocrSpaceApiKey).trim().toLowerCase() === 'ui-vision-ai-free') {
             throw new Error('Please set OCR API key first')
           }
 
@@ -206,67 +204,48 @@ export const getOcrResponse = async ({
 
         // Note: check in advance so that it throws error before making OCR requests
         ocrCmdCounter.check()
-        // Short label for the OCR engine being used: Cloud E1/E2/E3 for the
-        // OCR.Space cloud engines, JS for the Javascript (Tesseract) engine,
-        // Local for the XModule local OCR.
-        const engineLabel = engine == 98 ? 'JS'
-                          : engine == 99 ? 'Local'
-                          : 'Cloud E' + engine
+        // Engine numbers: 98 = 'builtin' (cross-platform ocrs in the
+        // XModule host — the number the removed Tesseract engine used, kept
+        // so stored configs stay valid), 99 = the OS reader
+        // ('builtin_win'/'builtin_mac'), 90 = 'aiprovider' (the configured
+        // AI provider as OCR engine), 1/2/3 = OCR.Space cloud.
+        const engineLabel =
+          engine == 99 ? 'Local OS' :
+          engine == 98 ? 'Local cross-platform' :
+          engine == AI_PROVIDER_OCR_ENGINE ? 'AI provider' :
+          'Cloud E' + engine
         if (store.getState().player.status != 'STOPPED') {
           store.dispatch(act.addLog('info', `OCR (${lang}, ${engineLabel}) started (${fileSize})`))
         }
 
         console.log('#233 engine:>> ', engine)
 
-        if (engine == 98) {
-          const tesseractLanguage = convertOcrLanguageToTesseractLanguage(lang.toLowerCase())
-
-          const tesseractResult = runOCRTesseractC(
-            {
-              engine,
-              image: dataUrl.split(',')[1],
-              imageDataURL: dataUrl,
-              language: tesseractLanguage,
-              totalTimeout: ocrApiTimeout,
-              singleApiTimeout: config.ocr.singleApiTimeout,
-              os: (() => {
-                const ua = window.navigator.userAgent
-                if (/windows/i.test(ua)) return 'windows'
-                if (/mac/i.test(ua)) return 'mac'
-                return 'linux'
-              })(),
-              isOverlayRequired: true
-            },
-            (log, isNetwork) => {
-              // console.log('log :>> ', log);
-              if (isNetwork && 'loading language traineddata' === log.status) {
-                const progressInPercentText = (log.progress * 100).toFixed(0) + '%'
-                store.dispatch(act.addLog('info', `Loading OCR (${lang}) language - ${progressInPercentText}`))
-              }
-            }
-          ).then((data) => {
-            console.log('tess data :>> ', data)
-            let ocrRes = data
-
+        if (engine == AI_PROVIDER_OCR_ENGINE) {
+          // The AI provider as OCR engine — same integration surface as the
+          // cloud engines (word boxes in the OCR.Space shape), same log
+          // rhythm; shows up as task 'aiocr' in the proxy log.
+          const startTime = new Date().getTime()
+          return runAiProviderOcr(dataUrl).then((ocrRes) => {
             cancelCountDown()
             if (store.getState().player.status != 'STOPPED') {
-              store.dispatch(
-                act.addLog('info', `OCR result received (${getDuration(startTime, new Date().getTime())} from Javascript OCR)`)
-              )
+              store.dispatch(act.addLog('info', `OCR result received (${getDuration(startTime, new Date().getTime())} from the AI provider)`))
             }
             return {
               offset,
               viewportOffset,
               response: scaleOcrResponseCoordinates(ocrRes, scale)
             }
+          }, (e) => {
+            cancelCountDown()
+            throw e
           })
+        }
 
-          console.log('tesseractResult:>>', tesseractResult)
-          return tesseractResult
-        } else if (engine == 99) {
+        if (engine == 99 || engine == 98) {
           const startTime = new Date().getTime()
           let xModuleOcrResult = runOCRLocal({
             engine,
+            localEngine: engine == 98 ? 'ocrs' : undefined,
             image: dataUrl.split(',')[1],
             language: lang,
             totalTimeout: ocrApiTimeout,
@@ -430,7 +409,10 @@ export const ocrViewportCalibration = ({ store, isDesktop }) => {
       const { hit, all } = searchResult
       if (hit) {
         const center = ocrMatchCenter(hit)
-        const calibrateNumber = (center.width * window.devicePixelRatio) / hit.words[0].word.WordText.length
+        // logical px per character: the tick is added to the match's click
+        // point, which is in logical px in every scope (the × devicePixelRatio
+        // dates from the v9 physical-px desktop contract)
+        const calibrateNumber = center.width / hit.words[0].word.WordText.length
         store.getState().config.ocrCalibration_internal = calibrateNumber
         updateState(setIn(['ocrCalibration_internal'], calibrateNumber))
         localStorage.setItem('ocrCalibration', calibrateNumber)
@@ -483,22 +465,28 @@ export const ocrViewport = ({ store, isDesktop }) => {
     .then(({ response, offset, viewportOffset }) => {
       console.log('response :>> ', response)
 
-      const documentBasedParseResults = safeUpdateIn(
-        ['[]', 'TextOverlay', 'Lines', '[]', 'Words', '[]'],
-        (word) => ({
-          ...word,
-          Top: word.Top + offset.y,
-          Left: word.Left + offset.x
-        }),
-        response.ParsedResults
-      )
+      // The desktop overlay VIEWER draws over the raw capture, so it needs
+      // capture-LOCAL coordinates; the offset (the display's global origin
+      // since browser-display following) is for click consumers. Browser
+      // overlays draw in the page and keep the offset mapping.
+      const overlayParseResults = isDesktop
+        ? response.ParsedResults
+        : safeUpdateIn(
+          ['[]', 'TextOverlay', 'Lines', '[]', 'Words', '[]'],
+          (word) => ({
+            ...word,
+            Top: word.Top + offset.y,
+            Left: word.Left + offset.x
+          }),
+          response.ParsedResults
+        )
 
       const ocrMatches = [
         // All words identified by OCR into one group
         {
           similarity: 1,
           highlight: OcrHighlightType.Matched,
-          words: allWordsWithPosition(documentBasedParseResults, [])
+          words: allWordsWithPosition(overlayParseResults, [])
         }
       ]
 
@@ -537,19 +525,21 @@ export const ocrViewport = ({ store, isDesktop }) => {
 // key. Callers that pass nothing (the classic commands) are unchanged: the
 // configured engine and the !ocrEngine variable still decide.
 export const guardOcrSettings = ({ store, engine }: any = {}) => {
-  const isLocal = (v: any) => v == 98 || v == 99
+  // engines that need no OCR.Space account: the two local readers (98
+  // cross-platform, 99 OS) and the AI provider (90, its own key/config)
+  const noAccountNeeded = (v: any) => v == 98 || v == 99 || v == AI_PROVIDER_OCR_ENGINE
   const vars = getVarsInstance()
   if (
     store.getState().config.ocrMode === 'disabled' &&
-    !isLocal(engine) &&
-    !isLocal(store.getState().config.ocrEngine) &&
-    !isLocal(vars.get('!ocrEngine'))
+    !noAccountNeeded(engine) &&
+    !noAccountNeeded(store.getState().config.ocrEngine) &&
+    !noAccountNeeded(vars.get('!ocrEngine'))
   ) {
     throw new Error(
-      'OCR feature disabled — Settings > OCR has no OCR.Space API key, so the cloud OCR engines cannot run. ' +
+      'OCR feature disabled — Settings > OCR has no OCR.Space API key, so the OCR.Space cloud engines cannot run. ' +
       'Either get a free key at https://ocr.space/ocrapi and enter it there, or use a reader that needs no account: ' +
-      "the XModule Local OCR (engine 99, {engine: 'xmodule'} in a JS script) or the built-in Javascript OCR " +
-      "(engine 98, {engine: 'javascript'})."
+      "the local readers ({engine: 'builtin'} cross-platform, {engine: 'builtin_win'}/{engine: 'builtin_mac'} OS reader — both need the Desktop Automation XModule) " +
+      "or the configured AI provider ({engine: 'aiprovider'})."
     )
   }
 }

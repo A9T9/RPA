@@ -4,6 +4,7 @@ import { connect } from 'react-redux'
 import { bindActionCreators } from 'redux'
 
 import * as actions from '@/actions'
+import { store } from '@/redux'
 import { isJsFirstMode, isScriptMacroEditing, isScriptMacroView } from '@/recomputed'
 import './macro.scss'
 import MacroHeader from './macro_header'
@@ -102,7 +103,15 @@ class Macro extends React.Component {
             <div className="macro-table-area">
               {this.isEmptyMacro() ? this.renderEmptyCta() : <MacroTable />}
             </div>
-            {devMode ? <EditForm /> : null}
+            {/* store={store}: the form subscribes to the store DIRECTLY instead of
+                through this container's nested react-redux subscription. Nested
+                subscriptions are notified only after the parent has committed,
+                so on a keystroke the antd <Input> re-rendered from its own state
+                with a stale value prop first, React "corrected" the DOM back to
+                the old text and the caret jumped to the end (forum 29959,
+                OPEN-ISSUES #12). With a direct subscription the form gets the
+                new value in the same commit. */}
+            {devMode ? <EditForm store={store} /> : null}
           </React.Fragment>
         )}
         {/* Logs & Variables: dev tool for table macros, but always available

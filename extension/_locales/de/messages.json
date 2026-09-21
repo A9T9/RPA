@@ -4,7 +4,7 @@
     "description": "extension name"
   },
   "description": {
-    "message": "Open-Source Robotic Process Automation (RPA) mit Selenium IDE für die Web und Desktop Test Automatisierung und Datenextraktion.",
+    "message": "Open-Source Browser- und Desktop-Automatisierung, lokal statt Cloud. Bilderkennung, OCR, eingebaute KI, MCP für KI-Agenten und LLMs.",
     "description": "extension description"
   },
   "short_name": {

@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
 import PropTypes from 'prop-types'
-import { Menu } from 'antd'
+import { Menu, message } from 'antd'
 import ClickOutside from 'react-click-outside'
 // import { ClickParam } from 'antd/lib/menu' // deprecated
 import { Size } from '@/common/types'
@@ -85,9 +85,18 @@ export class ContextMenu extends React.Component<ContextMenuProps, ContextMenuSt
         const { context, onClick } = found.data as ButtonMenuOptions
 
         try {
-          onClick(e.domEvent, context)
-        } catch (e) {
-          console.warn(e)
+          const ret: any = onClick(e.domEvent, context)
+          // an async handler's failure used to vanish into a console.warn —
+          // a dead menu item with no feedback at all. Say what broke.
+          if (ret && typeof ret.catch === 'function') {
+            ret.catch((err: any) => {
+              console.error(err)
+              message.error(`'${(found.data as ButtonMenuOptions).content}' failed: ${(err && err.message) || err}`, 3)
+            })
+          }
+        } catch (err: any) {
+          console.error(err)
+          message.error(`'${(found.data as ButtonMenuOptions).content}' failed: ${(err && err.message) || err}`, 3)
         } finally {
           this.hide()
         }

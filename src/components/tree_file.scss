@@ -157,6 +157,16 @@
     .folder-icon {
       height: 16px;
     }
+
+    // antd icon (a span around the svg) standing in for the folder glyph of
+    // the shipped demo folders
+    .demo-folder-icon {
+      display: inline-flex;
+      align-items: center;
+      font-size: 15px;
+      color: #7a5af5;
+      &.expanded { color: #5b3fd6; }
+    }
   }
 
   .tree-node .tree-node .tree-node-content {

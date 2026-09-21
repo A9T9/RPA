@@ -2,13 +2,14 @@
 import React from 'react'
 import { connect } from 'react-redux'
 import { bindActionCreators, Dispatch } from 'redux'
-import { Button, Checkbox, Form, message, Modal, Select } from 'antd'
+import { Checkbox, Form, message, Modal, Select } from 'antd'
 
 import * as actions from '@/actions'
 import { Actions as simpleActions } from '@/actions/simple_actions'
 import { goUivUrl } from '@/common/uiv_link'
-import { getStorageManager, StorageManagerEvent, StorageStrategyType } from '@/services/storage'
+import { getStorageManager, StorageManagerEvent, StorageStrategyType, requestCrossPageForceReload } from '@/services/storage'
 import { State } from '@/reducers/state'
+import { hostConnectDiagnosisOf } from '@/services/xmodules2/native'
 
 const displayConfig = {
   labelCol: { span: 8 },
@@ -18,10 +19,10 @@ const displayConfig = {
 interface GeneralTabProps {
   config: { [key: string]: any }
   updateConfig: (config: { [key: string]: any }) => void
-  restoreDemoMacros: (kind: string) => Promise<any>
 }
 
 class GeneralTab extends React.Component<GeneralTabProps> {
+
   onConfigChange = (key: string, val: any) => {
     this.props.updateConfig({ [key]: val })
   }
@@ -56,13 +57,21 @@ class GeneralTab extends React.Component<GeneralTabProps> {
                 It is not installed (or not reachable), so the storage mode stays at
                 &quot;Local Storage (in browser)&quot; for now.
               </p>
-              <p style={{ marginBottom: 0, color: '#888' }}>({e.message})</p>
+              {(() => {
+                // the browser's own reason, classified: "not registered",
+                // "refuses this extension", "could not run" each need a
+                // different fix, and a bare message read as "not installed"
+                const diag = hostConnectDiagnosisOf(e)
+                return diag
+                  ? <div style={{ marginBottom: 0 }}><b>{diag.title}</b><div style={{ whiteSpace: 'pre-wrap', color: '#555', marginTop: 4 }}>{diag.detail}</div></div>
+                  : <p style={{ marginBottom: 0, color: '#888' }}>({e.message})</p>
+              })()}
             </div>
           ),
-          okText: 'Show XModules settings',
+          okText: 'Show Desktop Automation settings',
           cancelText: 'Close',
           onOk: () => {
-            window.location.hash = 'xmodules'
+            window.location.hash = 'desktop-automation'
           }
         })
       })
@@ -114,7 +123,10 @@ class GeneralTab extends React.Component<GeneralTabProps> {
               style={{ marginLeft: '10px' }}
               onClick={(e) => {
                 e.preventDefault()
+                // local emit reaches only THIS page; the nonce reaches the
+                // side panel / IDE window, where the file tree actually lives
                 getStorageManager().emit(StorageManagerEvent.ForceReload)
+                requestCrossPageForceReload()
                 message.info('reloaded from hard drive')
               }}
             >
@@ -144,30 +156,6 @@ class GeneralTab extends React.Component<GeneralTabProps> {
             </a>
             )
           </Checkbox>
-        </Form.Item>
-        <Form.Item label="For Tech Support/QA" {...displayConfig}>
-          <span style={{ marginRight: '8px' }}>Restore Demo Macros:</span>
-          <Button
-            size="small"
-            style={{ marginRight: '8px' }}
-            onClick={() => {
-              this.props.restoreDemoMacros('js')
-                .then(() => message.success('JavaScript demo macros restored. If the macro tree does not show them, close and reopen the extension.', 5))
-                .catch((e: Error) => message.error(e.message))
-            }}
-          >
-            JavaScript
-          </Button>
-          <Button
-            size="small"
-            onClick={() => {
-              this.props.restoreDemoMacros('classic')
-                .then(() => message.success('Classic demo macros restored. If the macro tree does not show them, close and reopen the extension.', 5))
-                .catch((e: Error) => message.error(e.message))
-            }}
-          >
-            Classic
-          </Button>
         </Form.Item>
       </Form>
     )

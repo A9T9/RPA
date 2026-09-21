@@ -49,7 +49,7 @@ export class BrowserFileSystemStandardStorage extends StandardStorage implements
   public getLink (filePath: string): Promise<string> {
     if (!isFirefox()) {
       const tmp   = Ext.runtime.getURL('temporary')
-      const link  = `filesystem:${tmp}/${this.filePath(filePath)}`
+      const link  = `filesystem:${tmp}/${this.resolvePath(filePath)}`
       return Promise.resolve(link + '?' + new Date().getTime())
     } else {
       // Note: Except for Chrome, the filesystem API we use is a polyfill from idb.filesystem.js
@@ -59,8 +59,19 @@ export class BrowserFileSystemStandardStorage extends StandardStorage implements
     }
   }
 
+  // A path that already points inside the store (an Entry.fullPath handed out
+  // by list()/stat()) is EXACT and must be used verbatim: deriving it again
+  // through filePath() lowercases the name and appends the default extension,
+  // so any file whose stored name never came through write() (legacy case,
+  // foreign extension) becomes unreadable and unremovable while still being
+  // listed — the filesystem is case-sensitive. User-supplied names still get
+  // the full derivation.
+  private resolvePath (p: string, shouldSanitize: boolean = false): string {
+    return this.isStartWithBaseDir(path.dirname(p)) ? p : this.filePath(p, shouldSanitize)
+  }
+
   public read (filePath: string, type: ReadFileType): Promise<Content> {
-    const fullPath     = this.filePath(filePath)
+    const fullPath     = this.resolvePath(filePath)
     const relativePath = path.relative(this.dirPath('/'), fullPath)
 
     return this.fs.readFile(fullPath, type)
@@ -78,7 +89,7 @@ export class BrowserFileSystemStandardStorage extends StandardStorage implements
   public stat (entryPath: string, isDir?: boolean): Promise<Entry> {
     const name         = path.basename(entryPath)
     const dir          = path.dirname(entryPath)
-    const fullPath     = isDir ? this.dirPath(entryPath) : this.filePath(entryPath)
+    const fullPath     = isDir ? this.dirPath(entryPath) : this.resolvePath(entryPath)
     const relativePath = path.relative(this.dirPath('/'), fullPath)
 
     return this.fs.existsStat(fullPath)
@@ -164,7 +175,7 @@ export class BrowserFileSystemStandardStorage extends StandardStorage implements
   }
 
   protected __removeFile (filePath: string): Promise<void> {
-    return this.fs.removeFile(this.filePath(filePath))
+    return this.fs.removeFile(this.resolvePath(filePath))
   }
 
   protected __removeEmptyDirectory (directoryPath: string): Promise<void> {
@@ -173,7 +184,7 @@ export class BrowserFileSystemStandardStorage extends StandardStorage implements
 
   protected __moveFile (filePath: string, newPath: string): Promise<void> {
     return this.fs.moveFile(
-      this.filePath(filePath),
+      this.resolvePath(filePath),
       this.filePath(newPath, true)
     )
     .then(() => {})
@@ -181,7 +192,7 @@ export class BrowserFileSystemStandardStorage extends StandardStorage implements
 
   protected __copyFile (filePath: string, newPath: string): Promise<void> {
     return this.fs.copyFile(
-      this.filePath(filePath),
+      this.resolvePath(filePath),
       this.filePath(newPath, true)
     )
     .then(() => {})

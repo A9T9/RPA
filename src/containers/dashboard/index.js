@@ -11,12 +11,14 @@ import * as C from '@/common/constant'
 import storage from '@/common/storage'
 import { getState } from '@/ext/common/global_state'
 import * as actions from '../../actions'
+import { store } from '@/redux'
 import { delayMs } from '../../common/utils'
 import getSaveTestCase from '../../components/save_test_case'
 import { goUivUrl } from '@/common/uiv_link'
 import DashboardBottom from './bottom'
 import './dashboard.scss'
 import DashboardEditor from './editor'
+import DaSetupDialog from '@/components/da_setup_dialog'
 import Ext from '../../common/web_extension'
 
 class Dashboard extends React.Component {
@@ -161,8 +163,16 @@ class Dashboard extends React.Component {
 
     return (
       <div className="dashboard">
-        <DashboardEditor bottomPanelHeight={this.state.bottomPanelHeight} />
+        {/* store={store}: direct store subscription, not nested under this
+            container's — otherwise the Target/Value/Description inputs get a
+            stale value prop in the first commit of every keystroke and the
+            caret jumps to the end (forum 29959, OPEN-ISSUES #12; details in
+            sidepanel/components/macro/index.js) */}
+        <DashboardEditor bottomPanelHeight={this.state.bottomPanelHeight} store={store} />
         <DashboardBottom onBottomPanelHeightChange={this.onBottomPanelHeightChange} />
+        {/* "grant the macOS/Wayland permissions" nudge after a native-app
+            install; renders nothing once handled */}
+        <DaSetupDialog />
 
         <div className="online-help">
           <Popover

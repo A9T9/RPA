@@ -2,7 +2,7 @@ import React from 'react'
 import PropTypes from 'prop-types'
 import { DragSource, DropTarget, DragSourceConnector, DragSourceMonitor, DropTargetConnector, DropTargetMonitor } from 'react-dnd'
 // import { Icon } from 'antd'
-import { MenuFoldOutlined } from '@ant-design/icons';
+import { MenuFoldOutlined, ExperimentOutlined } from '@ant-design/icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 // Deep-path import keeps webpack from bundling the whole icon set
 import { faFileCode } from '@fortawesome/free-regular-svg-icons/faFileCode'
@@ -26,6 +26,24 @@ export type FileNodeData = TreeNodeData<FileNodeType> & {
   entryPath:  string;
   className:  string;
   children:   FileNodeData[];
+}
+
+// All macro FILES under a folder node — subfolders included, in tree order.
+// "Play all in folder" needs this: a folder that only holds subfolders (like
+// the shipped demo root) has no direct file children at all.
+export function collectMacroFileNodes (folder: FileNodeData): FileNodeData[] {
+  const out: FileNodeData[] = []
+  const walk = (node: FileNodeData): void => {
+    for (const child of node.children || []) {
+      if (child.type === FileNodeType.File) {
+        out.push(child)
+      } else {
+        walk(child)
+      }
+    }
+  }
+  walk(folder)
+  return out
 }
 
 export type FileTreeProps = {
@@ -93,6 +111,13 @@ export class InternalFileTree extends React.Component<FileTreeProps, FileTreeSta
         )
 
       case FileNodeType.Folder:
+        // The shipped demo folders ("Demo and QA Test Scripts", "... (Classic)")
+        // sort after the user's folders (storage sortEntries) - the flask marks
+        // them as the test/demo set so the out-of-order position reads as
+        // intended, not as a sorting bug (user request 2026-09-16)
+        if (/^Demo and QA Test Scripts/i.test(data.name || '')) {
+          return <ExperimentOutlined className={cn('file-node-icon', 'folder-icon', 'demo-folder-icon', { expanded: !data.folded })} />
+        }
         if (!data.folded) {
           return (
             // <img

@@ -6,6 +6,18 @@
   padding: 0 20px;
   width: 100%;
   height: 44px;
+  // The run controls must stay put whatever the window does. This box sits
+  // in .content, a flex column that scrolls (overflow-y: auto): a short IDE
+  // window plus Chrome's "started debugging" infobar (56 px, raised by every
+  // uiv.browser.click) left a user with no Play/Step/Resume/Stop row at all
+  // (forum 29839 #73, OPEN-ISSUES 45). With overflow: hidden the flex minimum
+  // of this box is 0, so it is the first thing a flex squeeze takes; and
+  // once .content scrolls, a plain header scrolls away with it. flex-shrink 0
+  // stops the squeeze, sticky keeps it on top of any scroll.
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 5;
   border-bottom: 2px solid #ccc;
   background-color: #f9f9f9;
 

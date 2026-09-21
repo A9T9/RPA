@@ -1,3 +1,4 @@
+import { setRunFrameStep } from '../common/run_frames'
 import * as act from '@/actions'
 import { Actions } from '@/actions/simple_actions'
 import { aiPromptGetPromptAndImageArrayBuffers, getFileBufferFromScreenshotStorage } from '@/common/ai_vision'
@@ -23,6 +24,7 @@ import {
   parseBoolLike,
   safeUpdateIn,
   strictParseBoolLike,
+  until,
   withCountDown
 } from '@/common/ts_utils'
 import {
@@ -46,7 +48,8 @@ import { prompt } from '@/components/prompt'
 import config from '@/config'
 import { DesktopScreenshot } from '@/desktop_screenshot_editor/types'
 import { getState, updateState } from '@/ext/common/global_state'
-import { getPlayTab, getPlayTabIpc } from '@/ext/common/tab'
+import { getPlayTab, getPlayTabIpc, reinjectContentScript } from '@/ext/common/tab'
+import { getIpcCache } from '@/common/ipc/ipc_cache'
 import { runCommandInPlayTab } from '@/ext/popup/run_command'
 import { clearTimerForTimeoutStatus, startSendingTimeoutStatus } from '@/ext/popup/timeout_counter'
 import { findMacroNodeWithCaseInsensitiveRelativePath } from '@/recomputed'
@@ -56,8 +59,8 @@ import AnthropicService from '@/services/ai/anthropic/anthropic.service'
 import { getNativeCVAPI } from '@/services/desktop'
 import { getNativeFileSystemAPI } from '@/services/filesystem'
 import { MacroResultStatus } from '@/services/kv_data/macro_extra_data'
-import { allWordsWithPosition, ocrMatchCenter, runDownloadLog, scaleOcrTextSearchMatch, searchTextInOCRResponse } from '@/services/ocr'
-import { convertOcrLanguageToTesseractLanguage, OCRLanguage } from '@/services/ocr/languages'
+import { allWordsWithPosition, ocrMatchCenter, ocrMatchRect, runDownloadLog, scaleOcrTextSearchMatch, searchTextInOCRResponse } from '@/services/ocr'
+import { OCRLanguage } from '@/services/ocr/languages'
 import { OcrHighlightType } from '@/services/ocr/types'
 import { getMacroCallStack } from '@/services/player/call_stack/call_stack'
 import { MacroStatus } from '@/services/player/macro'
@@ -68,24 +71,48 @@ import { ProxyScheme } from '@/services/proxy/types'
 import { getStorageManager } from '@/services/storage'
 import { visionLocate, visionPrompt } from '@/services/ai/vision_prompt/service'
 import { getAIProviderConfig, normalizeApiKey } from '@/services/ai/computer_use/service'
-import { getXUserIO } from '@/services/xmodules/x_user_io'
 import { getXFile } from '@/services/xmodules/xfile'
 import { getXLocal } from '@/services/xmodules/xlocal'
-import { getNativeXYAPI, MouseButton, MouseEventType } from '@/services/xy'
-import { calibrateScreenOriginViaCdp, sendCdpMouseEvent, sendCdpTypeText } from '@/services/cdp_input'
+import { getNativeXYAPI, getLastMouseEventError, MouseButton, MouseEventType } from '@/services/xy'
+
+// map a native mouse event type to its desktop input-cue kind (see
+// services/desktop_border.ts — click ripple / move blip / held-button disc)
+const cueKindOf = (t: MouseEventType): DesktopCueKind =>
+  t === MouseEventType.Move ? 'move'
+    : t === MouseEventType.Down ? 'down'
+      : t === MouseEventType.Up ? 'up'
+        : 'click'
+
+// The name a trace line gives an OS-input command. A JS macro's
+// uiv.desktop.mouse.click runs as the classic XClick underneath, and the run log
+// used to read "Executing: uiv.desktop.mouse.click …" followed by "XClick → screen
+// …" — the Playwright verbs are the definitions and the old spellings the
+// aliases (10.0.205), so a script's trace names what the script wrote. A
+// table macro keeps its own command name.
+const osInputName = (cmd: string, scope: string, viaJsMacro: boolean, eventType?: MouseEventType): string => {
+  if (!viaJsMacro) return cmd
+  const tier = scope === 'desktop' ? 'uiv.desktop' : 'uiv.browser'
+  if (/^XType$/i.test(cmd)) return `${tier}.type`
+  if (/^XMouseWheel$/i.test(cmd)) return `${tier}.wheel`
+  const kind = eventType === undefined ? (/^XMove/i.test(cmd) ? 'move' : 'click') : cueKindOf(eventType)
+  return `${tier}.${kind}`
+}
+import { calibrateScreenOriginViaCdp, measureViewportOriginViaBeacon, sendCdpMouseEvent, sendCdpTypeText } from '@/services/cdp_input'
 import { InterpreterInstance, PlayerInstance } from '@/init_player'
 import { getOcrResponse, guardOcrSettings } from '@/modules/ocr'
 import { store } from '@/redux'
 import { xCmdCounter } from './counters'
 import {
-  hideDownloadBar,
   withVisualHighlightHidden,
   withDesktopCaptureCover,
   shouldHideGuiDuringCapture,
   replaceEscapedChar,
   captureImage,
-  captureScreenShot
+  captureScreenShot,
+  desktopCaptureDisplayOrigin
 } from './helper'
+import { getDesktopCaptureHint } from '@/services/desktop_dip'
+import { showDesktopBorder, hideDesktopBorder, showDesktopMatchMarksDip, showDesktopInputCue, showDesktopTypeCue, DesktopCueKind } from '@/services/desktop_border'
 import { ComputerUseService } from '@/services/ai/computer_use/service'
 
 const captureScreenshotService = new CaptureScreenshotService({
@@ -203,6 +230,10 @@ export const askBackgroundToRunCommand = async ({
       // Replace variables in 'target' and 'value' of commands
       ;['target', 'value'].forEach((field) => {
         if (command[field] === undefined) return
+        // Already-serialized script API code/data is literal JavaScript.
+        // Classic ${variable} expansion and escape replacement would corrupt
+        // page template literals and user data (including ${!URL}).
+        if (field === 'target' && command.extra && command.extra.literalTarget) return
 
         const oldEval =
           (command.cmd === 'storeEval' && field === 'target') ||
@@ -295,6 +326,13 @@ const useAnthropicVision = (): string | null => {
 // (regression: AI-generated bahn.de macro died at uiv.browser.click).
 const CDP_INPUT_BLOCKED_RE = /cannot access|cannot attach/i
 
+// how many times a BClick/BType was demoted to its DOM fallback (W371) —
+// the script runner compares the count around a bridge op, so uiv.download's
+// start-timeout message can say the trigger was NOT trusted after all
+// (OPEN-ISSUES 20.2)
+let cdpInputFallbacks = 0
+export const getCdpInputFallbackCount = () => cdpInputFallbacks
+
 const isWebPageUrl = (url?: string) => /^(https?|file):/i.test(url || '')
 
 // Plain left single click replayed as DOM events in the top frame — the one
@@ -334,7 +372,154 @@ function domFallbackClickAt (x: number, y: number) {
   }
 }
 
-const handleCdpInputBlocked = (cmdName: string, tabId: number, e: any, clickFallback?: { x: number; y: number }): Promise<boolean> => {
+// Runs inside the page via chrome.scripting — must be fully self-contained.
+// The attach veto names no culprit, and "disable the other extension" is not
+// actionable without one: list the ids of iframes whose src belongs to
+// ANOTHER extension. Reads only src attributes in the top document (no
+// webNavigation permission needed); frames built from srcdoc/blob stay
+// invisible, and the caller says so.
+function listForeignExtensionFrames () {
+  var ids: string[] = []
+  var others: string[] = []
+  try {
+    var mine = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) || ''
+    // extensions like to mount their UI inside an open shadow root — look there too
+    var all: any[] = []
+    var collect = function (root: any, depth: number) {
+      var found = root.querySelectorAll('iframe, frame')
+      for (var k = 0; k < found.length; k++) all.push(found[k])
+      if (depth > 4) return
+      var hosts = root.querySelectorAll('*')
+      for (var h = 0; h < hosts.length; h++) if (hosts[h].shadowRoot) collect(hosts[h].shadowRoot, depth + 1)
+    }
+    collect(document, 0)
+    for (var i = 0; i < all.length; i++) {
+      var fr: any = all[i]
+      var src = fr.getAttribute('src') || ''
+      var m = /^(chrome|moz)-extension:\/\/([^/]+)/i.exec(src)
+      if (m) {
+        if (m[2] !== mine && ids.indexOf(m[2]) === -1) ids.push(m[2])
+        continue
+      }
+      // a frame whose document we cannot read is either cross-origin web
+      // content or an extension frame that hides its src (srcdoc/blob)
+      var readable = false
+      try { readable = !!fr.contentDocument } catch (e) { readable = false }
+      if (!readable && others.length < 5) {
+        var desc = fr.tagName.toLowerCase() + (fr.id ? '#' + fr.id : '') + (fr.className && typeof fr.className === 'string' ? '.' + fr.className.trim().split(/\s+/).slice(0, 2).join('.') : '') + ' src=' + (src ? src.slice(0, 60) : '(none)')
+        others.push(desc)
+      }
+    }
+  } catch (e) { /* best effort */ }
+  return { ids: ids, others: others }
+}
+
+// { who, detail }: "who" is short enough to sit inside a sentence; "detail"
+// is the how-to-find-it hint, appended once at the end of the message.
+const describeCdpBlocker = (tabId: number): Promise<{ who: string; detail: string }> =>
+  (chrome as any).scripting.executeScript({ target: { tabId, frameIds: [0] }, func: listForeignExtensionFrames })
+    .then((results: any) => {
+      const r = (results && results[0] && results[0].result) || {}
+      const ids: string[] = r.ids || []
+      const others: string[] = r.others || []
+      if (ids.length) {
+        return { who: ids.map((id) => `extension ${id}`).join(' and '), detail: `Open ${ids.map((id) => `chrome://extensions/?id=${id}`).join(' or ')} to see which extension that is.` }
+      }
+      const seen = others.length ? ` Unreadable frames in the page: ${others.join('; ')} — one of them is that extension's.` : ''
+      return { who: 'an iframe from another extension (it hides its id)', detail: `Under chrome://extensions, look for extensions that inject content into this site and disable one at a time.${seen}` }
+    })
+    .catch(() => ({ who: 'an iframe from another extension', detail: '' }))
+
+// Runs inside the page via chrome.scripting — must be fully self-contained.
+// BType's stand-in when the debugger attach is vetoed: type into the FOCUSED
+// element of the top document (following shadow roots and same-origin
+// frames) with DOM means. Plain text goes through execCommand('insertText'),
+// which fires the input events React/Ember listen to; ${KEY_*} tokens,
+// \n and \t become synthetic key events on the focused element. Untrusted
+// by nature: a widget that checks isTrusted, or a form submit that only a
+// real Enter triggers, may ignore it — the warning the caller logs says so.
+function domFallbackType (text: string) {
+  try {
+    var doc: any = document
+    var el: any = doc.activeElement
+    for (var guard = 0; guard < 10; guard++) {
+      if (el && el.shadowRoot && el.shadowRoot.activeElement) { el = el.shadowRoot.activeElement; continue }
+      var tag = el && el.tagName ? el.tagName.toLowerCase() : ''
+      if ((tag === 'iframe' || tag === 'frame') && el.contentDocument && el.contentDocument.activeElement) {
+        doc = el.contentDocument
+        el = doc.activeElement
+        continue
+      }
+      break
+    }
+    if (!el || el === doc.body || el === doc.documentElement) return { ok: false, error: 'no focused element to type into — click the field first' }
+    var KEYS: any = {
+      KEY_ENTER: ['Enter', 13], KEY_TAB: ['Tab', 9], KEY_ESC: ['Escape', 27], KEY_BACKSPACE: ['Backspace', 8], KEY_DELETE: ['Delete', 46],
+      KEY_UP: ['ArrowUp', 38], KEY_DOWN: ['ArrowDown', 40], KEY_LEFT: ['ArrowLeft', 37], KEY_RIGHT: ['ArrowRight', 39],
+      KEY_ARROW_UP: ['ArrowUp', 38], KEY_ARROW_DOWN: ['ArrowDown', 40], KEY_ARROW_LEFT: ['ArrowLeft', 37], KEY_ARROW_RIGHT: ['ArrowRight', 39],
+      KEY_HOME: ['Home', 36], KEY_END: ['End', 35], KEY_PGUP: ['PageUp', 33], KEY_PGDN: ['PageDown', 34], KEY_SPACE: [' ', 32],
+      KEY_MINUS: ['-', 189], KEY_PLUS: ['+', 187], KEY_EQUALS: ['=', 187], KEY_EQUAL: ['=', 187], KEY_COMMA: [',', 188], KEY_PERIOD: ['.', 190],
+      KEY_SEMICOLON: [';', 186], KEY_SLASH: ['/', 191], KEY_NUMPAD_ADD: ['+', 107], KEY_NUMPAD_SUBTRACT: ['-', 109], KEY_NUM_ADD: ['+', 107], KEY_NUM_SUBTRACT: ['-', 109]
+    }
+    var unsupported: string[] = []
+    var isField = function () { return /^(input|textarea)$/i.test(el.tagName) || !!el.isContentEditable }
+    var insert = function (chunk: string) {
+      if (!chunk) return
+      if (!isField()) {
+        for (var i = 0; i < chunk.length; i++) key(chunk.charAt(i), chunk.charAt(i).toUpperCase().charCodeAt(0))
+        return
+      }
+      var ok = false
+      try { ok = doc.execCommand('insertText', false, chunk) } catch (e) { ok = false }
+      if (ok) return
+      // execCommand refused (some frameworks cancel beforeinput): set the
+      // value through the prototype setter so React/Ember see the change
+      var proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+      var desc = Object.getOwnPropertyDescriptor(proto, 'value')
+      var start = el.selectionStart != null ? el.selectionStart : String(el.value || '').length
+      var end = el.selectionEnd != null ? el.selectionEnd : start
+      var v = String(el.value || '').slice(0, start) + chunk + String(el.value || '').slice(end)
+      if (desc && desc.set) desc.set.call(el, v); else el.value = v
+      try { el.setSelectionRange(start + chunk.length, start + chunk.length) } catch (e) { /* not a text control */ }
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+    var key = function (name: string, code: number) {
+      var init: any = { bubbles: true, cancelable: true, composed: true, key: name, code: name === ' ' ? 'Space' : (name.length === 1 ? 'Key' + name.toUpperCase() : name), keyCode: code, which: code }
+      var proceed = el.dispatchEvent(new KeyboardEvent('keydown', init))
+      el.dispatchEvent(new KeyboardEvent('keypress', init))
+      if (proceed && name === 'Enter' && el.form && el.tagName === 'INPUT') {
+        // the one default action worth reproducing: Enter in a form field submits
+        try { if (el.form.requestSubmit) el.form.requestSubmit(); else el.form.submit() } catch (e) { /* validation stopped it */ }
+      }
+      if (proceed && name === ' ' && isField()) insert(' ')
+      el.dispatchEvent(new KeyboardEvent('keyup', init))
+    }
+    var plain = function (s: string) {
+      var parts = s.split(/(\n|\t)/)
+      for (var i = 0; i < parts.length; i++) {
+        if (parts[i] === '\n') key('Enter', 13)
+        else if (parts[i] === '\t') key('Tab', 9)
+        else insert(parts[i])
+      }
+    }
+    var re = /\$\{(KEY_[A-Za-z0-9_+]+(?:\+[^\s}])?)\}/g
+    var last = 0
+    var m
+    while ((m = re.exec(text))) {
+      plain(text.slice(last, m.index))
+      var d = KEYS[m[1]]
+      if (d) key(d[0], d[1]); else unsupported.push(m[1])
+      last = m.index + m[0].length
+    }
+    plain(text.slice(last))
+    if (unsupported.length) return { ok: false, error: 'the DOM fallback cannot send ' + unsupported.join(', ') + ' (modifier combos and function keys need trusted input)' }
+    return { ok: true }
+  } catch (e: any) {
+    return { ok: false, error: (e && e.message) || String(e) }
+  }
+}
+
+const handleCdpInputBlocked = (cmdName: string, tabId: number, e: any, clickFallback?: { x: number; y: number }, typeFallback?: { text: string }): Promise<boolean> => {
   const msg = (e && e.message) ? e.message : String(e)
   if (!CDP_INPUT_BLOCKED_RE.test(msg)) throw e
 
@@ -345,34 +530,78 @@ const handleCdpInputBlocked = (cmdName: string, tabId: number, e: any, clickFall
       // The play tab itself is showing a page this extension may not touch —
       // typically another extension opened/redirected a tab mid-run.
       store.dispatch(act.addLog('warning', `W371: ${cmdName} skipped a non-web play tab: "${url || '(tab gone)'}" — ${msg}`))
-      throw new Error(`E345: ${cmdName}: the tab to automate is showing "${url || '(no url)'}", a browser-internal or another extension's page that browser input cannot target. Another extension probably opened or redirected the tab mid-run. Switch back to the web page (uiv.open / selectWindow) and run again`)
+      throw new Error(`E345: ${cmdName}: the tab to automate is showing "${url || '(no url)'}", a browser-internal or another extension's page that browser input cannot target. Another extension probably opened or redirected the tab mid-run. Switch back to the web page (uiv.goto / selectWindow) and run again`)
     }
 
     // The page is a normal web page, so the attach was vetoed by an iframe
-    // belonging to a different extension somewhere in its frame tree.
-    if (clickFallback) {
-      store.dispatch(act.addLog('warning', `W371: another extension's frame inside ${url} blocks Chrome debugger input (${msg}) — ${cmdName} fell back to a DOM click at (${clickFallback.x}, ${clickFallback.y}). For trusted clicks, disable the extension that injects frames into this page, or use XClick (XModule)`))
-      return (chrome as any).scripting.executeScript({
-        target: { tabId, frameIds: [0] },
-        func: domFallbackClickAt,
-        args: [clickFallback.x, clickFallback.y]
-      }).then((results: any) => {
-        const r = results && results[0] && results[0].result
-        if (!r || !r.ok) {
-          throw new Error(`E346: ${cmdName}: Chrome debugger input is blocked by another extension's frame in this page, and the DOM click fallback also failed${r && r.error ? ` (${r.error})` : ''}. Disable the other extension for this site, or use uiv.page.click / XClick instead`)
-        }
-        return true
-      })
-    }
+    // belonging to a different extension somewhere in its frame tree. Name
+    // it (OPEN-ISSUES 15) — "disable the other extension" needs a which.
+    return describeCdpBlocker(tabId).then(({ who, detail }) => {
+      const howToFix = 'For trusted input, disable that extension for this site, or use real OS input: uiv.desktop.mouse.click / uiv.desktop.keyboard.type (XClick / XType via the XModule)'
+      const tail = detail ? ` ${detail}` : ''
 
-    throw new Error(`E346: ${cmdName} could not attach Chrome's debugger to this page: an iframe injected by a different extension blocks it (${msg}). Disable the other extension for this site, or use the DOM/XModule variants (uiv.page.click / uiv.page.type / XClick / XType) instead`)
+      if (clickFallback) {
+        cdpInputFallbacks++
+        store.dispatch(act.addLog('warning', `W371: Chrome debugger input on ${url} is blocked by ${who} — ${cmdName} fell back to a DOM click at (${clickFallback.x}, ${clickFallback.y}). ${howToFix}.${tail}`))
+        return (chrome as any).scripting.executeScript({
+          target: { tabId, frameIds: [0] },
+          func: domFallbackClickAt,
+          args: [clickFallback.x, clickFallback.y]
+        }).then((results: any) => {
+          const r = results && results[0] && results[0].result
+          if (!r || !r.ok) {
+            throw new Error(`E346: ${cmdName}: Chrome debugger input is blocked by ${who}, and the DOM click fallback also failed${r && r.error ? ` (${r.error})` : ''}. ${howToFix}, or use uiv.page.click.${tail}`)
+          }
+          return true
+        })
+      }
+
+      if (typeFallback) {
+        cdpInputFallbacks++
+        store.dispatch(act.addLog('warning', `W371: Chrome debugger input on ${url} is blocked by ${who} — ${cmdName} fell back to DOM key events on the focused element (untrusted: a widget that insists on real keystrokes may ignore them). ${howToFix}.${tail}`))
+        return (chrome as any).scripting.executeScript({
+          target: { tabId, frameIds: [0] },
+          func: domFallbackType,
+          args: [typeFallback.text]
+        }).then((results: any) => {
+          const r = results && results[0] && results[0].result
+          if (!r || !r.ok) {
+            throw new Error(`E346: ${cmdName}: Chrome debugger input is blocked by ${who}, and the DOM typing fallback also failed${r && r.error ? ` (${r.error})` : ''}. ${howToFix}, or use uiv.page.fill(locator, text).${tail}`)
+          }
+          return true
+        })
+      }
+
+      throw new Error(`E346: ${cmdName} could not attach Chrome's debugger to this page: it is blocked by ${who} (${msg}). ${howToFix}, or use the DOM variants (uiv.page.click / uiv.page.fill).${tail}`)
+    })
   })
 }
+
+// Desktop-scope finder results — the match a table XClick/XClickText clicks,
+// the !imageX/!imageY/!ocrx/!ocry family, and the rects the *Relative
+// commands crop — stay in the unit of the desktop CAPTURE: logical
+// (DPI-virtualized) screen px, the same unit a JS finder returns and a literal
+// "x,y" target is written in. sendDesktopMouseEvent converts to physical px
+// ONCE, per display (window anchor / scaling factor). Every place below used
+// to multiply by getScalingFactor() first — the v9 contract, where desktop
+// coordinates were physical px and the host took them as they were — so
+// since 10.0.69 the scale was applied TWICE at any Windows/Linux scaling
+// other than 100%: XClickText 'Thunderbird' found at logical 36,748 clicked at
+// screen 56,1169 instead of 45,935, XClick on an image found at 38,724
+// clicked at 60,1133 instead of 47,905 (measured 2026-09-09, 125%), while a
+// JS finder's match fed to XMove x,y landed right. macOS was never affected
+// (dpr / backingScale = 1 there), which is why the desktop demos passed.
+const desktopVarScale = (): Promise<number> => Promise.resolve(1)
 
 const runXMouseKeyboardCommand = (command: any) => {
   const { cmd, target, value, extra } = command
   console.log('#220 runXMouseKeyboardCommand command:>> ', command)
   const isDesktop_ = command.spExtra?.isDesktop
+
+  // All real input goes through the xmodule2 host — the only native backend
+  // since 10.0.151.
+  const xyAPI = () => getNativeXYAPI()
+  const xySanity = (): Promise<any> => Promise.resolve(true)
 
   const vars = getVarsInstance()
 
@@ -382,18 +611,21 @@ const runXMouseKeyboardCommand = (command: any) => {
 
   switch (cmd) {
     case 'XType': {
-      return getXUserIO()
-        .sanityCheck()
-        .then(() => {
-          if (xCmdCounter.get() === 1) {
-            return hideDownloadBar()
-          }
-        })
-        .then(() => delay(() => {}, 300))
+      // The 300ms settle predates the JS API: table macros type right after
+      // a click and need the OS to catch up. A JS script paces itself
+      // (uiv.sleep), and for reactive uses (uiv.desktop.keyboard.type in a vision
+      // loop) a fixed 300ms is pure added latency — measured as the reason
+      // timed key presses landed too late.
+      return xySanity()
+        .then(() => delay(() => {}, command.spExtra?.viaJsMacro ? 0 : 300))
         .then(() => decryptIfNeeded(target))
         .then((text) => {
-          return getNativeXYAPI()
-            .sendText({ text })
+          const pSend = xyAPI().sendText({ text })
+          // keyboard cue AFTER the keystroke RPC is on the wire: a square
+          // blip at the last input point says keys were sent, at zero added
+          // key latency (fire-and-forget, like the mouse cues)
+          showDesktopTypeCue()
+          return pSend
             .then((success) => {
               if (!success) throw new Error(`E311: Failed to XType '${target}'`)
               return { byPass: true }
@@ -417,7 +649,7 @@ const runXMouseKeyboardCommand = (command: any) => {
         .then((text) => {
           return getState()
             .then((state: any) => sendCdpTypeText(state.tabIds.toPlay, text)
-              .catch((e: any) => handleCdpInputBlocked('BType', state.tabIds.toPlay, e)))
+              .catch((e: any) => handleCdpInputBlocked('BType', state.tabIds.toPlay, e, undefined, { text })))
             .then((success) => {
               if (!success) throw new Error(`E339: Failed to BType '${target}'`)
               return { byPass: true }
@@ -432,15 +664,9 @@ const runXMouseKeyboardCommand = (command: any) => {
         throw new Error('E312: Target of XMouseWheel must be a number')
       }
 
-      return getXUserIO()
-        .sanityCheck()
+      return xySanity()
         .then(() => {
-          if (xCmdCounter.get() === 1) {
-            return hideDownloadBar()
-          }
-        })
-        .then(() => {
-          return getNativeXYAPI()
+          return xyAPI()
             .sendMouseWheelEvent({
               deltaX,
               deltaY: 0,
@@ -476,6 +702,16 @@ const runXMouseKeyboardCommand = (command: any) => {
       // event goes to the play tab via chrome.debugger (CDP) instead of the
       // XModule native host. Browser content only — no OS/desktop events.
       const isCdpDispatch = /^B(Click|Move)(Text)?(Relative)?$/.test(cmd)
+
+      // Real OS input (XClick/XMove/XType — browser OR desktop scope) means
+      // desktop automation is acting on this machine: show the border. The
+      // accuracy demo's Part 1 fires browser-scope XClicks — a desktop-only
+      // hook left the frame dark for that whole phase (field report
+      // 2026-08-20). B commands are CDP-only browser input — no OS
+      // involvement, no border. Fire-and-forget: never delays input.
+      if (!isCdpDispatch) {
+        showDesktopBorder()
+      }
 
       // OCR engine 99 ("Local") runs inside the FileAccess XModule. B commands
       // need no XModule for input dispatch, but when the XModule is installed
@@ -584,14 +820,14 @@ const runXMouseKeyboardCommand = (command: any) => {
           }
         }
 
-        if (/^[dD](\d+(\.\d+)?)\s*,\s*(\d+(\.\d+)?)$/.test(trimmedTarget)) {
+        if (/^[dD](-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)$/.test(trimmedTarget)) {
           return {
             type: 'desktop_coordinates',
             value: { coordinates: trimmedTarget.substr(1).split(/\s*,\s*/) }
           }
         }
 
-        if (/^(\d+(\.\d+)?)\s*,\s*(\d+(\.\d+)?)$/.test(trimmedTarget)) {
+        if (/^(-?\d+(\.\d+)?)\s*,\s*(-?\d+(\.\d+)?)$/.test(trimmedTarget)) {
           return {
             type: isDesktopMode ? 'desktop_coordinates' : 'viewport_coordinates',
             value: { coordinates: trimmedTarget.split(/\s*,\s*/) }
@@ -699,13 +935,7 @@ const runXMouseKeyboardCommand = (command: any) => {
                 cdpLocalOcrAvailable = !!(info && info.installed)
               }).catch(() => { /* leave cdpLocalOcrAvailable = false */ })
             : Promise.resolve())
-        : getXUserIO()
-            .sanityCheck()
-            .then(() => {
-              if (xCmdCounter.get() === 1) {
-                return hideDownloadBar()
-              }
-            })
+        : xySanity()
 
       return pXUserIOReady
         .then(() => {
@@ -828,7 +1058,7 @@ const runXMouseKeyboardCommand = (command: any) => {
                         mode_type: 'local',
                         value: '__ocrResult__'
                       }),
-                      isCVTypeForDesktop(vars.get('!CVSCOPE')) ? getNativeXYAPI().getScalingFactor() : Promise.resolve(1)
+                      isCVTypeForDesktop(vars.get('!CVSCOPE')) ? desktopVarScale() : Promise.resolve(1)
                     ])
                   })
                   .then(([result, scalingFactor]) => {
@@ -932,7 +1162,7 @@ const runXMouseKeyboardCommand = (command: any) => {
                         mode_type: 'local',
                         value: '__ocrResult__'
                       }),
-                      isCVTypeForDesktop(vars.get('!CVSCOPE')) ? getNativeXYAPI().getScalingFactor() : Promise.resolve(1)
+                      isCVTypeForDesktop(vars.get('!CVSCOPE')) ? desktopVarScale() : Promise.resolve(1)
                     ])
                   })
                   .then(([result, scalingFactor]) => {
@@ -1057,7 +1287,7 @@ const runXMouseKeyboardCommand = (command: any) => {
                         mode_type: 'local',
                         value: '__ocrResult__'
                       }),
-                      isCVTypeForDesktop(vars.get('!CVSCOPE')) ? getNativeXYAPI().getScalingFactor() : Promise.resolve(1)
+                      isCVTypeForDesktop(vars.get('!CVSCOPE')) ? desktopVarScale() : Promise.resolve(1)
                     ])
                   })
                   .then(([result, scalingFactor]) => {
@@ -1231,8 +1461,8 @@ const runXMouseKeyboardCommand = (command: any) => {
               .then(() => delay(() => {}, isCdpDispatch ? 0 : 300))
               .then(() => {
                 // Do not touch the XModule native host for CDP dispatch —
-                // getNativeXYAPI() would try to connect to it on first call
-                const api = isCdpDispatch ? null : getNativeXYAPI()
+                // connecting happens on first call
+                const api = isCdpDispatch ? null : xyAPI()
                 const [button, eventType] = (() => {
                   switch (realValue) {
                     case '#left':
@@ -1388,8 +1618,9 @@ const runXMouseKeyboardCommand = (command: any) => {
                         onTrace: ({ scalingFactor, screenX, screenY }) => {
                           store.dispatch(act.addLog(
                             'info',
-                            `${cmd} → screen (${Math.round(screenX)}, ${Math.round(screenY)}) [desktop scope${scalingFactor !== 1 ? `, × ${scalingFactor}` : ''}]`
+                            `${osInputName(cmd, type, !!command.spExtra?.viaJsMacro, event.type)} → screen (${Math.round(screenX)}, ${Math.round(screenY)}) [desktop scope${scalingFactor !== 1 ? `: ${event.x},${event.y} logical px × ${scalingFactor} display scale` : ''}]`
                           ))
+                          showDesktopInputCue(screenX, screenY, cueKindOf(event.type), event.button, scalingFactor)
                         }
                       })
                     : api.sendViewportMouseEvent(event, {
@@ -1407,6 +1638,38 @@ const runXMouseKeyboardCommand = (command: any) => {
                           // — once per page, and only when the user's own
                           // mouse hasn't already calibrated it for free.
                           // (Firefox never gets here: its rect is 'exact'.)
+                          if (rect && rect.source === 'derived') {
+                            // FIRST choice: a REAL mouse move from the host to
+                            // the middle of the (derived) viewport. It is a
+                            // trusted mousemove like the user's own, so the
+                            // content script's sampler learns screenX - clientX
+                            // from it — with no debugger attach. The CDP probe
+                            // below is the fallback, and it has a side effect:
+                            // Chrome's "started debugging this browser" infobar
+                            // SHRINKS the viewport by its height the moment it
+                            // appears, i.e. AFTER the finder measured the target
+                            // — bottom-anchored page furniture moves up under
+                            // the click (measured live on macOS: DemoXClick's +
+                            // click, found at viewport y=452, landed on the
+                            // folder icon one slot below, every run). The
+                            // derived guess may be ~64px off, which still puts
+                            // the move inside a viewport hundreds of px wide.
+                            try {
+                              await api.sendDesktopMouseEvent({
+                                type: MouseEventType.Move,
+                                button: MouseButton.Left,
+                                x: rect.x + Math.round((rect.width || 200) / 2),
+                                y: rect.y + Math.round((rect.height || 200) / 2)
+                              })
+                              await delay(() => {}, 150)
+                              const measuredByMove = await csIpc.ask('PANEL_GET_VIEWPORT_RECT_IN_SCREEN')
+                              if (measuredByMove && measuredByMove.source === 'measured') {
+                                rect = measuredByMove
+                              }
+                            } catch (e) {
+                              /* host move failed — the CDP probe below still runs */
+                            }
+                          }
                           if (rect && rect.source === 'derived') {
                             try {
                               const globalState = await getState()
@@ -1429,6 +1692,23 @@ const runXMouseKeyboardCommand = (command: any) => {
                               /* probe blocked (debugger veto etc.) — the derived guess stands */
                             }
                           }
+                          // Linux/Wayland: screenX-based origins (derived AND
+                          // 'measured' — trusted events inherit the same
+                          // hidden-window-position lie) miss by the window's
+                          // real position, a constant offset on every shot.
+                          // The beacon measurement is absolute; override when
+                          // it succeeds. No-op when the beacon cannot be seen.
+                          if (/linux/i.test(window.navigator.userAgent)) {
+                            try {
+                              const globalState2 = await getState()
+                              const beaconOrigin = await measureViewportOriginViaBeacon(globalState2.tabIds.toPlay)
+                              if (beaconOrigin) {
+                                rect = { ...rect, x: beaconOrigin.x, y: beaconOrigin.y, source: 'beacon' } as any
+                              }
+                            } catch (e) {
+                              /* beacon not measurable — prior origin stands */
+                            }
+                          }
                           return rect
                         },
                         // one line per OS click with the numbers the conversion
@@ -1438,11 +1718,12 @@ const runXMouseKeyboardCommand = (command: any) => {
                         // was AIMED — on Chrome the viewport origin is derived
                         // from screenLeft/outerHeight guesses, and a wrong
                         // guess is otherwise invisible.
-                        onTrace: ({ viewportRect, scalingFactor, screenX, screenY }) => {
+                        onTrace: ({ viewportRect, scalingFactor, screenX, screenY, anchorNote }: any) => {
                           store.dispatch(act.addLog(
                             'info',
-                            `${cmd} → screen (${Math.round(screenX)}, ${Math.round(screenY)}) = viewport (${event.x}, ${event.y}) + origin (${Math.round(viewportRect.x)}, ${Math.round(viewportRect.y)}${(viewportRect as any).source ? `, ${(viewportRect as any).source}` : ''})${scalingFactor !== 1 ? ` × ${scalingFactor}` : ''}`
+                            `${osInputName(cmd, type, !!command.spExtra?.viaJsMacro, event.type)} → screen (${Math.round(screenX)}, ${Math.round(screenY)}) = viewport (${event.x}, ${event.y}) + origin (${Math.round(viewportRect.x)}, ${Math.round(viewportRect.y)}${(viewportRect as any).source ? `, ${(viewportRect as any).source}` : ''})${scalingFactor !== 1 ? ` × ${scalingFactor}` : ''}${anchorNote ? ` [${anchorNote}]` : ''}`
                           ))
+                          showDesktopInputCue(screenX, screenY, cueKindOf(event.type), event.button, scalingFactor)
                         }
                       })
                 })()
@@ -1450,7 +1731,10 @@ const runXMouseKeyboardCommand = (command: any) => {
                 store.dispatch(Actions.setOcrInDesktopMode(false))
 
                 return pSendMouseEvent.then((success) => {
-                  if (!success) throw new Error(`E201: Failed to ${cmd} ${type} coordinates at [${offset.x}, ${offset.y}]`)
+                  if (!success) {
+                    const reason = getLastMouseEventError()
+                    throw new Error(`E201: Failed to ${osInputName(cmd, type, !!command.spExtra?.viaJsMacro)} ${type} coordinates at [${offset.x}, ${offset.y}]${reason ? ` — ${reason}` : ''}`)
+                  }
 
                   // Note: `originalResult` is used by visualAssert to update !imageX and !imageY
                   return {
@@ -1469,6 +1753,9 @@ const runXMouseKeyboardCommand = (command: any) => {
 }
 
 const runCommand = (command: any, index?: any, parentCommand?: any) => {
+  // run pictures: file a finder's capture under this command (ignored while a
+  // JS script runs — its own op tags are finer)
+  try { setRunFrameStep(`cmd#${index}`, `${command && command.cmd} ${(command && command.target) || ''}`.trim(), 'classic') } catch (e) { /* never fail a command over it */ }
   const { cmd, target: target_, value, extra } = command
   const target = target_ as string
   const vars = getVarsInstance()
@@ -1741,17 +2028,9 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
     }
 
     case 'store': {
-      let target_ = target
-      const tessLang: OCRLanguage = target.toLowerCase() as OCRLanguage
-
-      // if value == '!ocrlanguage' and engine == 98 (tesseract)
-      // then transform the target (eg. ger) to tesseract language code (deu)
-      if (value == '!ocrlanguage') {
-        let engine_ = store.getState().config.ocrEngine
-        if (engine_ == 98) {
-          target_ = convertOcrLanguageToTesseractLanguage(tessLang)
-        }
-      }
+      // The Javascript (Tesseract) OCR engine was removed 2026-08-14, and
+      // with it the engine-98 language-code translation that lived here.
+      const target_ = target
 
       return {
         byPass: true,
@@ -1784,7 +2063,15 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
     }
 
     case 'prompt': {
-      const [_, message, defaultAnswer] = target.match(/^([^@]+)(?:@(.+))?$/)
+      // "Question@" (empty default) and "@default" made the old regex return
+      // null and the destructure throw "Invalid attempt to destructure
+      // non-iterable instance" — 117 chats in the 2026-09-06 log drop, every
+      // one misread by the model as "prompt is unsupported in JS scripts"
+      // (OPEN-ISSUES 35.1). Split on the FIRST '@' only: the question may
+      // not contain one, the default may ("Email@user@x.com").
+      const at = target.indexOf('@')
+      const message = at === -1 ? target : target.slice(0, at)
+      const defaultAnswer = at === -1 ? '' : target.slice(at + 1)
       return isSidePanelWindowAsync(window)
         .then((isSidePanel) => {
           if (!isSidePanel) {
@@ -1857,11 +2144,39 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
       const saveToDownloads = (blob: Blob, filename: string): Promise<void> => {
         const url = URL.createObjectURL(blob)
         // revoke after the download has had ample time to read the stream —
-        // the ipc resolves when the download STARTS, not when it completes
+        // for blob exports the ipc waits for completion, but keep a wide margin
         setTimeout(() => URL.revokeObjectURL(url), 60000)
         return Promise.resolve(csIpc.ask('PANEL_DOWNLOAD_URL', { url, filename }))
-          .then(() => {
-            store.dispatch(act.addLog('info', `'${filename}' exported to the browser's Downloads folder`))
+          .then((res: any) => {
+            // The background reports the ACTUAL on-disk name. Chromium does
+            // not reliably honor the requested filename for blob: URLs
+            // (extension rewritten from the MIME type, or a blob-UUID name) —
+            // when that happens the export must FAIL, not log a filename that
+            // does not exist. A " (1)" uniquify suffix is still the requested
+            // file, just deduplicated by the browser — that stays a success.
+            const actual = (res && res.fileName) || filename
+            const dropUniquify = (s: string) => s.replace(/ \(\d+\)(\.[^.]*)?$/, '$1')
+            const saved = dropUniquify(actual).toLowerCase()
+            const wanted = filename.toLowerCase()
+            if (saved !== wanted) {
+              // A DECORATED name — same stem prefix, same extension (e.g.
+              // 'uivision_log - 2026-08-27T114257.105.txt': a download-manager
+              // extension resolving the name collision its own way; Chrome
+              // lets the newest-installed extension win onDeterminingFilename)
+              // — is still our file with our content. Warn and succeed
+              // (field report: every loop iteration of a working export
+              // errored out). The hard error stays for a name that is NOT
+              // ours: blob-UUID names, extension rewritten from the MIME type.
+              const extOf = (s: string) => { const m = s.match(/\.[^.\\/]+$/); return m ? m[0] : '' }
+              const stemOf = (s: string) => s.slice(0, s.length - extOf(s).length)
+              const isDecorated = stemOf(saved).startsWith(stemOf(wanted)) && extOf(saved) === extOf(wanted)
+              if (!isDecorated) {
+                throw new Error(`localStorageExport: the browser saved the file as '${actual}' instead of '${filename}'`)
+              }
+              store.dispatch(act.addLog('warning', `localStorageExport: saved as '${actual}' instead of '${filename}' — another extension or download tool renamed it. The export itself succeeded`))
+              return
+            }
+            store.dispatch(act.addLog('info', `'${actual}' exported to the browser's Downloads folder`))
           })
       }
 
@@ -1887,7 +2202,7 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
               })
             } else {
               const text = store.getState().logs.map(renderLog).join('\n')
-              saveToDownloads(new Blob([text]), 'uivision_log.txt')
+              saveToDownloads(new Blob([text], { type: 'text/plain' }), 'uivision_log.txt')
                 .then(() => {
                   if (deleteAfterExport) {
                     store.dispatch((act as any).clearLogs())
@@ -1901,7 +2216,7 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
 
       if (/^\s*log\s*$/i.test(target)) {
         const text = store.getState().logs.map(renderLog).join('\n')
-        return saveToDownloads(new Blob([text]), 'uivision_log.txt').then(() => {
+        return saveToDownloads(new Blob([text], { type: 'text/plain' }), 'uivision_log.txt').then(() => {
           if (deleteAfterExport) {
             store.dispatch((act as any).clearLogs())
           }
@@ -1915,7 +2230,12 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
           if (!existed) throw new Error(`${target} doesn't exist`)
 
           return csvStorage.read(target, 'Text').then((text) => {
-            return saveToDownloads(new Blob([text]), target).then(() => {
+            // a typed blob keeps the right extension even where the name is
+            // decided from the MIME type (a second net under the
+            // onDeterminingFilename suggestion, which another extension's
+            // listener can override)
+            const type = /\.csv$/i.test(target) ? 'text/csv' : 'text/plain'
+            return saveToDownloads(new Blob([text], { type }), target).then(() => {
               if (deleteAfterExport) {
                 csvStorage.remove(target).then(() => store.dispatch(act.listCSV()))
               }
@@ -1926,14 +2246,35 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
         })
       }
 
+      // .png lives in TWO tabs: Screenshots (captures) and Vision (the match
+      // images uiv.findImage / XClick / visualAssert use, written by
+      // uiv.shot.area and the AI chat's save_element_image). Exporting only
+      // ever read Screenshots, so a vision image reported "doesn't exist"
+      // however plainly the user could see it in the panel. Screenshots is
+      // still tried FIRST, so a name that always resolved there keeps
+      // resolving there; uivStore rides in from uiv.files.exportToDownloads
+      // when the caller named a tab explicitly.
       if (/\.png$/i.test(target)) {
-        return ssStorage.exists(target).then((existed) => {
-          if (!existed) throw new Error(`${target} doesn't exist`)
+        const wantedStore = (command as any).uivStore
+        const pngStores = [
+          { id: 'screenshots', storage: ssStorage, refresh: () => act.listScreenshots() },
+          { id: 'vision', storage: getStorageManager().getVisionStorage(), refresh: () => act.listVisions() }
+        ].filter((s) => !wantedStore || s.id === wantedStore)
 
-          return ssStorage.read(target, 'ArrayBuffer').then((buffer) => {
-            return saveToDownloads(new Blob([new Uint8Array(buffer as ArrayBuffer)]), target).then(() => {
+        const findStore = async () => {
+          for (const s of pngStores) {
+            if (await s.storage.exists(target)) return s
+          }
+          return null
+        }
+
+        return findStore().then((hit) => {
+          if (!hit) throw new Error(`${target} doesn't exist`)
+
+          return hit.storage.read(target, 'ArrayBuffer').then((buffer) => {
+            return saveToDownloads(new Blob([new Uint8Array(buffer as ArrayBuffer)], { type: 'image/png' }), target).then(() => {
               if (deleteAfterExport) {
-                ssStorage.remove(target).then(() => store.dispatch(act.listScreenshots()))
+                hit.storage.remove(target).then(() => store.dispatch(hit.refresh()))
               }
 
               return result
@@ -2010,6 +2351,14 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
 
           console.log('searchResult :>> ', searchResult)
           console.log('command :>> ', command)
+
+          // bounding boxes on the actual desktop (gold = OCR match); the
+          // match rects here are global DIP screen coords (the desktop
+          // capture's display-origin rebase) — fire-and-forget decoration,
+          // the hit (the @POS one, or the first) emphasized
+          if (isCVTypeForDesktop(vars.get('!CVSCOPE')) && all && all.length) {
+            showDesktopMatchMarksDip(all.map((m: any) => ocrMatchRect(m)), 'ocr', hit ? all.indexOf(hit) : undefined)
+          }
 
           // if (command.extra && command.extra.throwError != undefined && command.extra.throwError != true)
           if (command.mode_type != undefined && command.mode_type == 'local' && command.extra && command.extra.throwError != true) {
@@ -2105,7 +2454,7 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
             localStorage.setItem('ocrMatches_preview', JSON.stringify(ocrMatches))
           }
 
-          const pScaleFactor = isCVTypeForDesktop(vars.get('!CVSCOPE')) ? getNativeXYAPI().getScalingFactor() : Promise.resolve(1)
+          const pScaleFactor = isCVTypeForDesktop(vars.get('!CVSCOPE')) ? desktopVarScale() : Promise.resolve(1)
 
           // Note: In desktop mode, `!ocrx`, `!ocry` and `best` should be desktop coordinates
           return pScaleFactor.then((factor) => {
@@ -2279,13 +2628,29 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
               devicePixelRatio: window.devicePixelRatio
             })
           })
-          .then(() => delay(() => {}, 500))
-          .then(() => {
+          .then((captured: any) => delay(() => captured, 500))
+          .then((captured: any) => {
+            // The model has to see the SAME image its answer will be read in.
+            // On the browser path those were two different images: the viewport
+            // shot is written to LAST_SCREENSHOT at DEVICE pixels, while the
+            // dpi rescale that turns it into CSS pixels (96/page-dpi) is applied
+            // only to what captureImage RETURNS. Reading the file handed the
+            // model a dpr-times-too-big picture, so every coordinate came back
+            // scaled by dpr — measured with BrowserAi.FindClickAccuracyRange on
+            // Windows at 125% (1.250x on both axes), and it is a factor of 2 on
+            // a Retina Mac. Use the returned image instead.
+            // Desktop still reads its file: there the saved shot IS the full
+            // screen, which is the space the conversion below is written for.
             const screenshotFileName = isDesktop
               ? ensureExtName('.png', C.LAST_DESKTOP_SCREENSHOT_FILE_NAME)
               : ensureExtName('.png', C.LAST_SCREENSHOT_FILE_NAME)
 
-            return getFileBufferFromScreenshotStorage(screenshotFileName)
+            const pImageBuffer: Promise<ArrayBuffer | null> =
+              !isDesktop && captured && captured.dataUrl
+                ? dataURItoBlob(captured.dataUrl).arrayBuffer()
+                : getFileBufferFromScreenshotStorage(screenshotFileName)
+
+            return pImageBuffer
               .then(async (imageBuffer) => {
                 const screenXYAnthropicKey = useAnthropicVision()
                 const promptText = target
@@ -2329,14 +2694,11 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
                     const timeStr = time.toFixed(2)
                     store.dispatch(act.addLog('info', `Result received (${timeStr}s): Answer is: ${aiResponse}`))
 
-                    const ai1 = coords[0].x || 0
-                    const ai2 = coords[0].y || 0
-
                     // !ai1/!ai2 are used as PAGE-VIEWPORT coordinates by the
                     // click that follows, so they are only right if the
                     // captured image shares that coordinate space. Report the
                     // image size; the page's own viewport has to come from the
-                    // PAGE (uiv.eval('return innerWidth')) — window here is the
+                    // PAGE (uiv.evaluate('return innerWidth')) — window here is the
                     // side panel's window, and comparing against it produced a
                     // confident, meaningless "MISMATCH".
                     // captureScale = captured pixels per screen point, MEASURED
@@ -2361,6 +2723,21 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
                         `. Coordinates are in THIS space — compare with the page's own innerWidth/innerHeight.`
                       ))
                     } catch (e) { /* diagnostic only */ }
+
+                    // The model answers in CAPTURE pixels. On Linux the
+                    // portal capture is PHYSICAL screen pixels, but the
+                    // desktop click path multiplies by devicePixelRatio on
+                    // its way to the host (sendDesktopMouseEvent) — so the
+                    // raw answer overshoots by exactly dpr: measured live as
+                    // a uniform 1.25x error on every point by
+                    // Desktop_Ai.Find_ClickAccuracyRange. Pre-divide by dpr
+                    // so the multiply lands back on physical. Windows/Mac
+                    // captures are already DPI-virtualized (captureScale
+                    // above logs 1.00) and need the multiply untouched.
+                    const isLinuxDesktopAnswer = isDesktop && /linux/i.test(window.navigator.userAgent)
+                    const aiDivisor = isLinuxDesktopAnswer ? (window.devicePixelRatio || 1) : 1
+                    const ai1 = (coords[0].x || 0) / aiDivisor
+                    const ai2 = (coords[0].y || 0) / aiDivisor
 
                     let newVars = (() => {
                       vars.set(
@@ -2458,12 +2835,34 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
                     // Fix it HERE, not at the click boundary: that boundary is
                     // shared with findImage/ocr.findText, and scaling it halved
                     // their already-correct points (0/3 hit in both parts).
-                    // Windows keeps its multiply — there the capture is in
-                    // logical pixels and captureScale stays 1.
-                    let ai1ForDesktop = isMac() ? ai1 / captureScale : ai1 * window.devicePixelRatio
-                    let ai2ForDesktop = isMac() ? ai2 / captureScale : ai2 * window.devicePixelRatio
+                    //
+                    // One MEASURED division on every platform. Windows used to
+                    // multiply by devicePixelRatio instead, on the assumption
+                    // that its desktop capture is in logical pixels and
+                    // captureScale stays 1. That holds only at 100%: at 125%
+                    // the XModule still captures physical pixels (2090px wide
+                    // for a 1672pt screen), so captureScale is 1.25 and the old
+                    // line was wrong twice over — wrong direction, wrong source.
+                    // The error was dpr SQUARED: measured with
+                    // DesktopAi.FindClickAccuracyRange at 125%, every point came
+                    // back at 1.5648x its true position (1.25^2 = 1.5625), which
+                    // threw two of three targets clean out of the window.
+                    // At 100% captureScale is 1, so nothing changes there.
+                    // The capture is of the display the BROWSER is on
+                    // (xmodule2), whose global origin is not (0,0) on a
+                    // multi-monitor arrangement — a display left of the
+                    // primary sits at negative global points. Anchor the
+                    // converted point on that origin; {0,0} everywhere else.
+                    const desktopOrigin = isDesktop
+                      ? await desktopCaptureDisplayOrigin()
+                      : { x: 0, y: 0 }
+                    let ai1ForDesktop = ai1 / captureScale + desktopOrigin.x
+                    let ai2ForDesktop = ai2 / captureScale + desktopOrigin.y
 
-                    if (isDesktop && isMac() && captureScale !== 1) {
+                    // no longer Mac-only: the division is what every platform
+                    // does now, so the line that explains it has to show up
+                    // wherever the capture is scaled
+                    if (isDesktop && captureScale !== 1) {
                       store.dispatch(act.addLog(
                         'info',
                         `ai.find → screen (${Math.round(ai1ForDesktop)}, ${Math.round(ai2ForDesktop)}) pt ` +
@@ -2614,7 +3013,7 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
                   debugVisual: false
                 }
               }),
-              isCVTypeForDesktop(vars.get('!CVSCOPE')) ? getNativeXYAPI().getScalingFactor() : Promise.resolve(1)
+              isCVTypeForDesktop(vars.get('!CVSCOPE')) ? desktopVarScale() : Promise.resolve(1)
             ])
           })
           .then(([result, scalingFactor]) => {
@@ -2750,7 +3149,7 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
               target: trimmedTarget.split('#')[0],
               value: '__ocrResult__'
             }),
-            isCVTypeForDesktop(vars.get('!CVSCOPE')) ? getNativeXYAPI().getScalingFactor() : Promise.resolve(1)
+            isCVTypeForDesktop(vars.get('!CVSCOPE')) ? desktopVarScale() : Promise.resolve(1)
           ])
         })
         .then(([result, scalingFactor]) => {
@@ -3003,7 +3402,9 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
               command,
               captureScreenshotService,
               devicePixelRatio: window.devicePixelRatio,
-              storedImageRect: vars.get('!storedImageRect')
+              storedImageRect: vars.get('!storedImageRect'),
+              // desktop overlay: emphasize the match picked by the sort below
+              markSelection: { index: resultIndex, explicit: resultIndex === rawIndex }
             })
           )
           .then(({ regions, imageInfo }) => {
@@ -3108,7 +3509,7 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
               })
             }
 
-            const pScaleFactor = isCVTypeForDesktop(cvScope) ? getNativeXYAPI().getScalingFactor() : Promise.resolve(1)
+            const pScaleFactor = isCVTypeForDesktop(cvScope) ? desktopVarScale() : Promise.resolve(1)
 
             // Note: Make sure `best`, `!imageX` and `!imageY` are all desktop coordinates (for later use in XClick)
             // While in PANEL_HIGHLIGHT_DESKTOP_RECTS, it uses css coordinates
@@ -3212,8 +3613,7 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
 
           case ComputerVisionType.Desktop:
           case ComputerVisionType.DesktopScreenCapture:
-            return getNativeXYAPI()
-              .getScalingFactor()
+            return desktopVarScale()
               .then((factor) => {
                 return {
                   x: rect.x / factor,
@@ -3393,7 +3793,7 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
               target: trimmedTarget.split('#')[0],
               value: '__ocrResult__'
             }),
-            isCVTypeForDesktop(vars.get('!CVSCOPE')) ? getNativeXYAPI().getScalingFactor() : Promise.resolve(1)
+            isCVTypeForDesktop(vars.get('!CVSCOPE')) ? desktopVarScale() : Promise.resolve(1)
           ])
         })
         .then(([result, scalingFactor]) => {
@@ -3606,8 +4006,10 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
           case 'desktop': {
             const cvApi = getNativeCVAPI()
 
+            showDesktopBorder() // fire-and-forget; never delays the capture
             // On the other hand, desktop screenshot is in device pixel
-            return withDesktopCaptureCover(() => cvApi.captureDesktop({ path: undefined }))
+            return getDesktopCaptureHint()
+              .then((displayHint) => withDesktopCaptureCover(() => cvApi.captureDesktop({ path: undefined, displayHint })))
               .then((hardDrivePath) => cvApi.readFileAsDataURL(hardDrivePath, true))
               .then((dataUrl) => {
                 saveDataUrlToLastDesktopScreenshot(dataUrl)
@@ -3716,6 +4118,15 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
         true
       )
 
+      // Desktop border indicator: frame the display being automated for the
+      // rest of the run (host draws it, capture-excluded; the run's END
+      // handler hides it). Fire-and-forget — decoration must not slow runs.
+      if (shouldEnableDesktopAutomation) {
+        showDesktopBorder()
+      } else {
+        hideDesktopBorder()
+      }
+
       return Promise.resolve({ byPass: true })
     }
 
@@ -3801,7 +4212,6 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
     case 'XClickTextRelative':
     case 'XClickText':
     case 'XClick':
-      const api = getNativeXYAPI()
       return runXMouseKeyboardCommand(command)
 
     case 'captureDesktopScreenshot': {
@@ -3825,7 +4235,9 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
           : (actualPath) => {
               store.dispatch(act.addLog('info', `desktop screenshot saved to hard drive at '${actualPath}'`))
             }
-      return withDesktopCaptureCover(() => cvApi.captureDesktop({ path: filePath }))
+      showDesktopBorder() // fire-and-forget; never delays the capture
+      return getDesktopCaptureHint()
+        .then((displayHint) => withDesktopCaptureCover(() => cvApi.captureDesktop({ path: filePath, displayHint })))
         .then(next)
         .then(() => ({
           byPass: true
@@ -3867,11 +4279,43 @@ const runCommand = (command: any, index?: any, parentCommand?: any) => {
         .then((state) => {
           return activateTab(state.tabIds.toPlay, true)
             .then(() => delay(() => {}, C.SCREENSHOT_DELAY))
-            .then(getPlayTabIpc)
+            // A click that NAVIGATES races this capture: the OLD page stays
+            // the live document until the new one commits, answers DOM_READY
+            // and START_CAPTURE like nothing happened, receives SCROLL_PAGE —
+            // and then freezes into the bfcache during its own 100ms response
+            // delay, so the answer never comes ("no answer after 4s";
+            // storage-log traced on a blog page whose embedded video slows
+            // the commit). The page CONTENT cannot tell us this — the TAB
+            // can: the pending navigation flips tab.status to 'loading'
+            // immediately, so wait for 'complete' first, then domReadyGet
+            // pins the ipc to the settled page's content script.
+            .then(() => {
+              const timeout = (Number(getVarsInstance().get('!TIMEOUT_PAGELOAD')) || 60) * 1000
+              const waitComplete = (): Promise<void> => until('tab load complete', () => {
+                return Ext.tabs.get(state.tabIds.toPlay).then(
+                  (tab: any) => ({ pass: !tab || tab.status === 'complete', result: true }),
+                  () => ({ pass: true, result: true })
+                )
+              }, 200, timeout).then(() => {})
+              return waitComplete()
+                // a tab open since before an extension update/reload has no
+                // content script: re-inject first (same as selectWindow, 21.5),
+                // or the DOM-ready wait burns its full timeout ("ipc by tab id
+                // expired" after 60 s, seen 2026-09-03)
+                .then(() => Ext.tabs.get(state.tabIds.toPlay).then((tab: any) => reinjectContentScript(tab)).catch(() => false))
+                .then(() => getIpcCache().domReadyGet(state.tabIds.toPlay, timeout))
+            })
             .then((ipc) => {
               return captureScreenshotService.saveFullScreen(getStorageManager().getScreenshotStorage(), state.tabIds.toPlay, fileName, {
                 startCapture: () => {
-                  return ipc.ask('START_CAPTURE_FULL_SCREENSHOT', {}, C.CS_IPC_TIMEOUT)
+                  return ipc.ask('START_CAPTURE_FULL_SCREENSHOT', {}, C.CS_IPC_TIMEOUT).then((info: any) => {
+                    // OPEN-ISSUES 24.4: the document does not scroll, an inner box
+                    // does — the stitched result is the plain viewport, say so
+                    if (info && info.documentScrolls === false && Number(info.innerScrollerHeight) > Number(info.windowHeight) + 20) {
+                      store.dispatch(act.addLog('warning', `captureEntirePageScreenshot: the page itself does not scroll — an inner box does (${Math.round(info.innerScrollerHeight)} px tall in a ${Math.round(info.windowHeight)} px window), so this "entire page" capture is the viewport only. Scroll that box and capture again, or crop what you need with uiv.screenshot({element: …})`))
+                    }
+                    return info
+                  })
                 },
                 endCapture: (pageInfo) => {
                   return ipc.ask('END_CAPTURE_FULL_SCREENSHOT', { pageInfo }, C.CS_IPC_TIMEOUT)

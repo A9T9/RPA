@@ -1,3 +1,4 @@
+import { captureExecutionCloudCall } from '@/common/execution_locality'
 import Anthropic from '@anthropic-ai/sdk'
 import { MessageParam } from '@anthropic-ai/sdk/resources'
 // import sharp, { Metadata } from 'sharp'
@@ -83,7 +84,9 @@ class AnthropicService {
   }
 
   async getPromptResponse(promptText: string): Promise<string> {
+    const recordCloudCall = captureExecutionCloudCall('anthropic')
     try {
+      recordCloudCall()
       const message = await this.anthropic.messages.create({
         model: ANTHROPIC.COMPUTER_USE_MODEL,
         max_tokens: this.MAX_TOKENS,
@@ -103,12 +106,14 @@ class AnthropicService {
   }
 
   async readTextInImage(imageBuffer: ArrayBuffer): Promise<string> {
+    const recordCloudCall = captureExecutionCloudCall('anthropic')
     const mainImageBase64 = Buffer.from(imageBuffer).toString('base64')
 
     try {
       console.log('mainImageBase64:>> ', imageBuffer)
 
       // Call Anthropic API
+      recordCloudCall()
       const message = await this.anthropic.messages.create({
         model: ANTHROPIC.COMPUTER_USE_MODEL,
         max_tokens: this.MAX_TOKENS,
@@ -142,6 +147,36 @@ class AnthropicService {
     } catch (error) {
       console.error('Error processing image:', error)
       throw error
+    }
+  }
+
+  // One prompt + pre-scaled image(s) in, the model's text out. The caller
+  // owns any image scaling and coordinate back-conversion (unlike the
+  // aiPrompt/aiScreenXY methods below, which scale internally) — used by the
+  // aiprovider OCR engine, which needs the exact scale factor it applied.
+  async promptWithImages(promptText: string, imageBuffers: ArrayBuffer[]): Promise<string> {
+    const recordCloudCall = captureExecutionCloudCall('anthropic')
+    const content: any[] = [{ type: 'text', text: promptText }]
+    for (const buffer of imageBuffers) {
+      content.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: 'image/png',
+          data: Buffer.from(buffer).toString('base64')
+        }
+      })
+    }
+    try {
+      recordCloudCall()
+      const message = await this.anthropic.messages.create({
+        model: ANTHROPIC.COMPUTER_USE_MODEL,
+        max_tokens: 4096, // OCR of a text-heavy screen needs room
+        messages: [{ role: 'user', content }]
+      })
+      return message.content[0].type === 'text' ? message.content[0].text : ''
+    } catch (error) {
+      throw this.uivError(error)
     }
   }
 
@@ -207,6 +242,7 @@ class AnthropicService {
     promptText: string
     // mainImageFileName: string
   ): Promise<ProcessImageResult> {
+    const recordCloudCall = captureExecutionCloudCall('anthropic')
     try {
       // Scale images if needed
       const mainImageData = mainImageBuffer && (await this.scaleImageIfNeeded(mainImageBuffer))
@@ -245,6 +281,7 @@ class AnthropicService {
       }
 
       // Call Anthropic API
+      recordCloudCall()
       const message = await this.anthropic.messages.create({
         model: ANTHROPIC.COMPUTER_USE_MODEL,
         max_tokens: 1024,
@@ -324,6 +361,7 @@ class AnthropicService {
   }
 
   async aiScreenXYProcessImage(imageBuffer: ArrayBuffer, promptText: string): Promise<ProcessImageResult> {
+    const recordCloudCall = captureExecutionCloudCall('anthropic')
     try {
       // Lazy-load jimp (~700 KB) so it stays out of the eager panel bundle
       const { Jimp } = await import('jimp')
@@ -370,6 +408,7 @@ class AnthropicService {
       console.log(`Prompt= ${prompt}`)
 
       // Call Computer Use API
+      recordCloudCall()
       const computerUseResponse = await this.anthropic.beta.messages.create({
         model: ANTHROPIC.COMPUTER_USE_MODEL,
         max_tokens: 1024,

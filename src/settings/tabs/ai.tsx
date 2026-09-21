@@ -1,7 +1,7 @@
 import React from 'react'
 import { connect } from 'react-redux'
 import { bindActionCreators, Dispatch } from 'redux'
-import { AutoComplete, Button, Input, Modal, Select, Switch } from 'antd'
+import { AutoComplete, Button, Checkbox, Input, Modal, Select, Switch } from 'antd'
 import AnthropicService, { NO_ANTHROPIC_API_KEY_ERROR } from '@/services/ai/anthropic/anthropic.service'
 import { DEFAULT_MACRO_AGENT_SYSTEM_PROMPT } from '@/services/ai/macro_agent/service'
 import { Actions as simpleActions } from '@/actions/simple_actions'
@@ -28,7 +28,7 @@ import {
   PRO_KEY_FORMAT_ERROR,
   uivInstallHeader
 } from '@/services/ai/uivision_free_tier'
-import { testMcpBridge } from '@/services/mcp_bridge'
+import { isDevTestBrowser, testMcpBridge, probeBridgeConnections } from '@/services/mcp_bridge'
 import { normalizeApiKey } from '@/services/ai/computer_use/service'
 
 // One-line installer for the MCP bridge (shown with a Copy button in the
@@ -62,7 +62,8 @@ const UIVISION_BASE_URL = OPENAI_COMPAT.UIVISION_BASE_URL
 const OPENROUTER_MODEL_OPTIONS = [
   { value: 'anthropic/claude-sonnet-5', label: 'anthropic/claude-sonnet-5 — recommended: best results' },
   { value: 'openai/gpt-5.6-luna', label: 'openai/gpt-5.6-luna — low cost, good results' },
-  { value: 'qwen/qwen3.7-plus', label: 'qwen/qwen3.7-plus — low cost, slower on visual tasks' }
+  { value: 'qwen/qwen3.7-plus', label: 'qwen/qwen3.7-plus — low cost, slower on visual tasks' },
+  { value: 'google/gemini-3.7-flash', label: 'google/gemini-3.7-flash — low cost, fast, weaker on desktop visual tasks' }
 ]
 
 const ANTHROPIC_MODEL_OPTIONS = [
@@ -84,9 +85,31 @@ interface AiTabAppState {
   showSystemPrompt: boolean
   // MCP bridge "Test" button: a connection attempt is in flight
   testingBridge: boolean
+  // dev/test browser (unpacked install or Firefox Dev/Beta): token waived
+  devTestBrowser: boolean
+  // connected browsers as the bridge labels them (chrome#1, firefox#2, ...)
+  // — null until a probe answered; the active one gets the marker
+  bridgeConnections: string[] | null
+  bridgeActive: string | null
 }
 
 class AITab extends React.Component<AiTabProps, AiTabAppState> {
+  componentDidMount () {
+    isDevTestBrowser().then(dev => this.setState({ devTestBrowser: dev }))
+    this.refreshBridgeConnections()
+  }
+
+  // ask the bridge who is connected (chrome#1, firefox#2, ...) — settings
+  // run outside the panel, so a one-shot probe is how this page learns it
+  refreshBridgeConnections = () => {
+    probeBridgeConnections().then(info => {
+      this.setState({
+        bridgeConnections: info ? info.connections : null,
+        bridgeActive: info ? info.active : null
+      })
+    })
+  }
+
   constructor(props: any) {
     super(props)
     this.onClickTestPrompt = this.onClickTestPrompt.bind(this)
@@ -94,19 +117,31 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
 
   state: AiTabAppState = {
     apiKeyInput: '',
-    prompt: 'Explain a random uiv. api command',
+    // The Test button sends this as a bare user message — no system prompt,
+    // no Ui.Vision context — so the prompt must not lean on either. (The old
+    // "Explain a random uiv. api command" did, and the model confidently
+    // explained a Linux shell command.) A joke request needs no context to
+    // answer, any working model can do it, and a chuckle beats an API
+    // explainer for "is my key working".
+    prompt: 'Tell a Ui.Vision joke',
     promptResponse: '',
     error: '',
     testing: false,
     showSystemPrompt: false,
-    testingBridge: false
+    testingBridge: false,
+    devTestBrowser: false,
+    bridgeConnections: null,
+    bridgeActive: null
   }
 
   testBridge = () => {
     this.setState({ testingBridge: true })
     testMcpBridge()
       .then((r) => (r.ok ? message.success(r.text, 5) : message.error(r.text, 6)))
-      .finally(() => this.setState({ testingBridge: false }))
+      .finally(() => {
+        this.setState({ testingBridge: false })
+        this.refreshBridgeConnections()
+      })
   }
 
   getProvider(): AIProvider {
@@ -137,7 +172,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
     if (selection === 'uivision' || selection === 'uivision-pro') {
       // one provider, two tiers — written together so the pair is never
       // half-updated (PRO selected with the free tier still recorded)
-      this.props.updateConfig({ aiProvider: 'uivision', uivisionTier: selection === 'uivision-pro' ? 'pro' : 'free' })
+      this.props.updateConfig({ aiProvider: 'uivision', uivisionTier: selection === 'uivision-pro' ? 'pro' : 'free', ...(selection === 'uivision' ? { shareUsageStatistics: true } : {}) })
     } else {
       this.props.updateConfig({ aiProvider: selection })
     }
@@ -248,15 +283,30 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
       if (!isLocal) headers['X-Title'] = 'Ui.Vision RPA'
       // device id — our proxy only; on PRO the Bearer header is the account key
       Object.assign(headers, uivInstallHeader(baseURL))
+      // without this the Settings test call lands in the proxy's "unlabelled"
+      // bucket, where it is indistinguishable from an unknown caller — and
+      // most of that bucket is this button, hit before a key is entered
+      headers['X-UIV-Task'] = 'settings.test'
+      // build cohort marker (retention.md 9.4), same as the real AI calls
+      headers['X-UIV-Version'] = chrome.runtime.getManifest().version
+
+      // Reasoning models (qwen3.7 family and friends) burn "thinking" tokens
+      // against max_tokens and then return an EMPTY answer with finish_reason
+      // "length" — observed live with qwen3.7-plus on this very button. Same
+      // fix the chat and computer-use loops carry: OpenRouter's unified
+      // reasoning switch, sent only there (local endpoints may not know the
+      // param, and the Ui.Vision proxy forces it server-side anyway).
+      const body: any = {
+        model,
+        messages: [{ role: 'user', content: this.state.prompt }],
+        max_tokens: 300
+      }
+      if (/openrouter\.ai/i.test(baseURL)) body.reasoning = { enabled: false }
 
       const res = await fetch(`${baseURL.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: this.state.prompt }],
-          max_tokens: 300
-        })
+        body: JSON.stringify(body)
       })
 
       if (!res.ok) {
@@ -396,6 +446,11 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
               />
             </div>
             <div className="row" style={{ marginBottom: '10px', fontSize: '12px' }}>
+              The chat's instructions alone are about 40k tokens, so load the model with a context window of at least 64k
+              (LM Studio: "Context Length" when loading, base URL http://localhost:1234/v1; Ollama: num_ctx).
+              A smaller context fails with "exceeds the available context size" in LM Studio and is cut silently in Ollama.
+            </div>
+            <div className="row" style={{ marginBottom: '10px', fontSize: '12px' }}>
               For Ollama, allow extension access first: set OLLAMA_ORIGINS=chrome-extension://* before starting Ollama.
             </div>
           </>
@@ -403,7 +458,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
 
         {provider === 'uivision' && !isPro && (
           <div className="row" style={{ marginBottom: '10px', fontSize: '12px' }}>
-            Free beta: no API key needed, but there is a daily request limit per installation and no uptime guarantee.
+            Free beta: a shared daily spending allowance for both engines, per installation. This tier includes basic usage statistics. Switch to another AI option to turn them off in Settings &gt; Advanced &gt; Privacy.
             For unlimited and reliable use, select another provider and add your own API key.
           </div>
         )}
@@ -454,20 +509,6 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
             </div>
           </>
         ) : null}
-        <div className="ai-settings-item">
-          <span className="label-text">
-            <strong>aiComputerUse:</strong> Max loops before stopping:{' '}
-          </span>
-          <Input
-            type="number"
-            min="0"
-            style={{ marginLeft: '10px', width: '70px' }}
-            value={this.props.config.aiComputerUseMaxLoops}
-            onChange={(e) => onConfigChange('aiComputerUseMaxLoops', e.target.value)}
-            placeholder=""
-          />
-        </div>
-
         <div className="ai-settings-item" style={{ marginTop: '20px' }}>
           <span className="label-text">
             <strong>MCP bridge (Claude Code):</strong>
@@ -482,12 +523,23 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
         </div>
         {this.props.config.mcpBridgeEnabled ? (
           <>
+            {this.state.bridgeConnections && this.state.bridgeConnections.length ? (
+              // who holds a bridge connection right now — with several
+              // browsers on one bridge these labels (chrome#1, firefox#2)
+              // are how the user tells them apart; the ACTIVE one is where
+              // the AI's tool calls go (select_browser switches it)
+              <div className="row" style={{ marginBottom: '10px', fontSize: '12px', color: '#389e0d' }}>
+                <strong>Connected now:</strong>{' '}
+                {this.state.bridgeConnections.map(l => l === this.state.bridgeActive ? `${l} (active)` : l).join(', ')}
+                {' '}&mdash; the AI drives the <em>active</em> one; its <code>select_browser</code> tool switches.
+              </div>
+            ) : null}
             <div className="row" style={{ marginBottom: '10px', fontSize: '12px' }}>
               Lets Claude Code (or any MCP client) build and run macros in this browser. The side panel connects to a
               small local bridge process on 127.0.0.1 and must stay open while the AI works.
             </div>
             <div className="ai-settings-item">
-              <span className="label-text">1. Run this once:</span>
+              <span className="label-text">Run this once:</span>
               <Input readOnly value={MCP_BRIDGE_SETUP_CMD} style={{ fontFamily: 'monospace', fontSize: '12px' }} />
               <Button
                 onClick={() => {
@@ -502,7 +554,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
             </div>
             <div className="row" style={{ marginBottom: '10px', fontSize: '12px' }}>
               Paste it into a terminal. It registers Ui.Vision with every MCP client on this machine (Claude Code,
-              Claude Desktop, Cursor, Windsurf, VS Code) and prints the pairing token for step 2.{' '}
+              Claude Desktop, Cursor, Windsurf, VS Code).{' '}
               <strong>Then quit and reopen Claude Code</strong> — or whichever of those apps you use. MCP servers are
               loaded only at startup, so an app that was already running will not see Ui.Vision, and opening a new chat
               or tab is not enough.
@@ -513,7 +565,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
                   navigator.clipboard
                     .writeText(MCP_BRIDGE_SETUP_JSON)
                     .then(() => message.success('JSON copied — add it to your MCP client’s config file'))
-                    .catch(() => message.error('Could not copy — see ui.vision/ai/mcp-bridge'))
+                    .catch(() => message.error('Could not copy — see ui.vision/mcp'))
                 }}
               >
                 Copy the JSON config instead
@@ -521,24 +573,13 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
               for any other MCP client.
             </div>
             <div className="ai-settings-item">
-              <span className="label-text">2. Bridge token:</span>
-              {/* plain text on purpose: a localhost pairing token, not a
-                  secret — masking it only makes pairing harder to verify.
-                  Narrow: the token is ~10 chars */}
-              <Input
-                type="text"
-                style={{ width: '160px' }}
-                placeholder="Pairing token"
-                value={this.props.config.mcpBridgeToken || ''}
-                onChange={(e) => onConfigChange('mcpBridgeToken', e.target.value)}
-              />
+              <span className="label-text">Connection:</span>
               <Button loading={this.state.testingBridge} onClick={this.testBridge}>
                 Test
               </Button>
-            </div>
-            <div className="row" style={{ marginBottom: '10px', fontSize: '12px' }}>
-              Lost it? The same token is in the <code>.uivision_mcp_token</code> file in your home folder, or just ask
-              the AI &mdash; it can read the token off the bridge and show it to you.
+              <span style={{ marginLeft: 8, fontSize: '12px', color: '#389e0d' }}>
+                Chrome, Edge and Firefox pair automatically — the bridge recognises the Ui.Vision extension by its origin.
+              </span>
             </div>
             <div className="ai-settings-item">
               <span className="label-text">Bridge port:</span>
@@ -588,6 +629,17 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
               <div className="row" style={{ marginBottom: '5px', fontSize: '12px' }}>
                 The instructions the sidebar AI Chat (macro assistant) works with. Edit at your own risk — the tool
                 descriptions and working rules are tuned; as long as it is unedited, updates to Ui.Vision may improve it.
+                On the built-in Ui.Vision AI, an unedited prompt is served server-side (always up to date); other
+                providers use the prompt below.
+              </div>
+              <div className="row" style={{ marginBottom: '5px', fontSize: '12px' }}>
+                <Checkbox
+                  checked={!!this.props.config.aiDevLocalPrompt}
+                  onChange={(e) => onConfigChange('aiDevLocalPrompt', e.target.checked)}
+                >
+                  DEV: send this build's prompt on the Ui.Vision AI too (skip the server-served prompt — for testing
+                  local prompt changes without a server deploy)
+                </Checkbox>
               </div>
               <Input.TextArea
                 rows={10}

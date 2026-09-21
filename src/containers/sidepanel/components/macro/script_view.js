@@ -1,4 +1,5 @@
 import { Button, Modal, message } from 'antd'
+import { prompt } from '@/components/prompt'
 import { DownOutlined, UpOutlined } from '@ant-design/icons'
 import React from 'react'
 import { connect } from 'react-redux'
@@ -9,11 +10,27 @@ import 'codemirror/mode/javascript/javascript'
 import 'codemirror/addon/edit/matchbrackets'
 import 'codemirror/addon/edit/closebrackets'
 import 'codemirror/addon/hint/show-hint'
+// in-editor search: Ctrl-F find, Ctrl-G next, Shift-Ctrl-G prev,
+// Shift-Ctrl-F replace, Alt-G jump to line — stock CM5 addons, the dialog
+// renders inside the editor so the browser's own find never opens
+import '@/common/cm_search'
+import 'codemirror/addon/search/searchcursor'
+import 'codemirror/addon/search/jump-to-line'
+import 'codemirror/addon/dialog/dialog'
+// select a token -> its other uses light up; current line gets a tint
+// (the dark theme styled the active line years before the addon was wired);
+// Ctrl-/ comments the selection in and out — the debugging workhorse
+import 'codemirror/addon/search/match-highlighter'
+import 'codemirror/addon/selection/active-line'
+import 'codemirror/addon/comment/comment'
 import 'codemirror/lib/codemirror.css'
 import 'codemirror/addon/hint/show-hint.css'
+import 'codemirror/addon/dialog/dialog.css'
+import '@/styles/cm-extras.css'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faImage } from '@fortawesome/free-regular-svg-icons/faImage'
 import { faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons/faMagnifyingGlass'
+import { faStopwatch } from '@fortawesome/free-solid-svg-icons/faStopwatch'
 // scope badges: a monitor for the screen, a browser window for the page
 import { faDesktop } from '@fortawesome/free-solid-svg-icons/faDesktop'
 import { faWindowMaximize } from '@fortawesome/free-regular-svg-icons/faWindowMaximize'
@@ -32,7 +49,7 @@ import getSaveTestCase from '@/components/save_test_case'
 import { STARTER_SCRIPT } from '@/config/preinstall_js_scripts'
 import { FocusArea } from '@/reducers/state'
 import { getStorageManager } from '@/services/storage'
-import { isScriptPaused, isScriptRunning, onScriptEvent, probeFind, runScript, setScriptBreakpoints, stopScript } from '@/modules/script_runner'
+import { isScriptPaused, isScriptRunning, onScriptEvent, POLYFILL, probeFind, runScript, setScriptBreakpoints, stopScript } from '@/modules/script_runner'
 import { hasUnsavedMacro } from '@/recomputed'
 import './script_view.scss'
 
@@ -56,7 +73,7 @@ import './script_view.scss'
 // Visual world: img / ocr / findImages / ocr.findTexts — always explicit.
 // Input is split by TIER (page / browser / desktop); see the polyfill header.
 const UIV_METHODS = [
-  { text: '$(', displayText: "$('css=#buy') -> FIRST DOM match {x,y,rect,text,value,..} - all frames + shadow roots, auto-waits, throws if none" },
+  { text: '$(', displayText: "$('css=#buy') -> FIRST DOM match {x,y,rect,text,value,attributes,..}; m.getAttribute('href') reads an attribute (find-time snapshot) - all frames + shadow roots, auto-waits, throws if none" },
   { text: '$$(', displayText: "$$('css=tr') -> ALL DOM matches (array)" },
   { text: 'findImage(', displayText: "findImage('button.png') -> FIRST visual match {x,y,rect,score} - computer vision, auto-waits" },
   { text: 'ocr.findText(', displayText: "ocr.findText('Checkout') -> FIRST match of rendered text {x,y,rect,text} - finds WHERE text is (OCR), auto-waits; {scope:'desktop'} searches the SCREEN for uiv.desktop.*" },
@@ -69,12 +86,24 @@ const UIV_METHODS = [
   { text: 'browser.move(', displayText: "browser.move('css=locator' | match | x, y) - trusted mouse-over" },
   { text: 'browser.down(', displayText: 'browser.down(match | x, y) - trusted mouse BUTTON DOWN; pair with browser.up for a drag' },
   { text: 'browser.up(', displayText: 'browser.up(match | x, y) - trusted mouse BUTTON UP; the other half of a browser.down drag' },
+  { text: 'browser.mouse.move(', displayText: 'browser.mouse.move(x, y) - trusted pointer move in viewport CSS pixels' },
+  { text: 'browser.mouse.wheel(', displayText: 'browser.mouse.wheel(deltaX, deltaY) - trusted scrolling at the current pointer; CSS pixels, positive right/down; Chromium only' },
+  { text: 'desktop.keyboard.down(', displayText: "desktop.keyboard.down('Shift') - hold an OS key; released at run end" },
+  { text: 'desktop.keyboard.up(', displayText: "desktop.keyboard.up('Shift') - release an OS key" },
+  { text: 'desktop.keyboard.press(', displayText: "desktop.keyboard.press('Space', {delay:30}) - tap, optional duration in ms" },
+  { text: 'window.move(', displayText: 'window.move(x, y) - move the browser window in screen coordinates' },
+  { text: 'lastCapture(', displayText: 'lastCapture() - last desktop capture ID, epoch time and age in ms' },
+  { text: 'requireAppVersion(', displayText: "requireAppVersion('2.1.40') - require a desktop app version" },
+  { text: 'browser.keyboard.down(', displayText: "browser.keyboard.down('a') - hold one key; consecutive calls hold multiple keys, repeated down sends repeat; release with up" },
+  { text: 'browser.keyboard.up(', displayText: "browser.keyboard.up('a') - release one held key; Playwright key names, including Shift and ControlOrMeta" },
+  { text: 'page.scrollIntoViewIfNeeded(', displayText: "page.scrollIntoViewIfNeeded('css=#target', {timeout: 3000}) - reveal a DOM target only when not fully visible; timeout in milliseconds, 0 disables it; also available on a DOM match" },
   { text: 'desktop.click(', displayText: "desktop.click(match | x, y) - real OS click in SCREEN pixels (XModule); reaches OS dialogs. Needs a desktop-scope match: uiv.findImage(f, {scope:'desktop'})" },
   { text: 'desktop.type(', displayText: 'desktop.type(text) - real OS keystrokes (XModule); works outside the browser too' },
   { text: 'desktop.move(', displayText: 'desktop.move(match | x, y) - real OS mouse-move in SCREEN pixels (XModule)' },
   { text: 'desktop.down(', displayText: 'desktop.down(match | x, y) - real OS mouse BUTTON DOWN; pair with desktop.up for a drag' },
   { text: 'desktop.up(', displayText: 'desktop.up(match | x, y) - real OS mouse BUTTON UP; the other half of a desktop.down drag' },
-  { text: 'window.focus(', displayText: 'window.focus() - bring the BROWSER WINDOW to the front. A PRECONDITION for uiv.desktop.*: OS input goes to whatever window is frontmost, so call it before uiv.open in a desktop macro' },
+  { text: 'desktop.mouse.wheel(', displayText: 'desktop.mouse.wheel(deltaX, deltaY) - native scrolling at the OS pointer; input pixels, positive right/down; Ui.Vision for Desktop 2.1.38+' },
+  { text: 'window.focus(', displayText: 'window.focus() - bring the BROWSER WINDOW to the front. A PRECONDITION for uiv.desktop.*: OS input goes to whatever window is frontmost, so call it before uiv.goto in a desktop macro' },
   { text: 'window.resize(', displayText: 'window.resize(1280, 900) -> the ACHIEVED viewport {width, height} - pins the layout a macro was written for; a narrow window flips responsive sites to their mobile layout' },
   { text: 'window.minimize(', displayText: 'window.minimize() - minimize the browser AND the IDE, to automate an application sitting behind them' },
   { text: 'shot.viewport(', displayText: "shot.viewport('name') -> file name; screenshot of the VISIBLE page. Pipe it: uiv.ocr.read({image: uiv.shot.viewport()})" },
@@ -89,8 +118,8 @@ const UIV_METHODS = [
   { text: 'csv.append(', displayText: "csv.append('log.csv', [ts, value]) - add one row (or an array of rows); creates the file if new" },
   { text: 'csv.write(', displayText: "csv.write('data.csv', rows) - OVERWRITE with a 2D array" },
   { text: 'csv.exists(', displayText: "csv.exists('data.csv') -> true/false, without throwing" },
-  { text: 'exportToDownloads(', displayText: "exportToDownloads('x.png' | 'x.csv' | 'log') - copy a file out of Ui.Vision storage into the browser's Downloads folder. Also uiv.files.exportToDownloads" },
-  { text: 'files.remove(', displayText: "files.remove('x.png' | 'x.csv' | 'x.txt') - DELETE a file from Ui.Vision storage. Takes any stored name, so it pairs with exportToDownloads: export it, then remove it" },
+  { text: 'files.exportToDownloads(', displayText: "files.exportToDownloads('x.png' | 'x.csv' | 'log') - copy ONE file out of Ui.Vision storage into the browser's Downloads folder (the whole store is never exported at once)" },
+  { text: 'files.remove(', displayText: "files.remove('x.png' | 'x.csv' | 'x.txt') - DELETE one file from Ui.Vision storage. Takes any stored name, so it pairs with files.exportToDownloads: export it, then remove it" },
   { text: 'files.list(', displayText: 'files.list() -> names of EVERY stored file, screenshots and CSV/TXT alike (csv.list() is the CSV/TXT tab only)' },
   { text: 'files.exists(', displayText: "files.exists('x.png') -> true/false for any stored file, without throwing" },
   { text: 'download(', displayText: "download('css=a.installer' | url | function, {as: 'name.ext', timeout, wait}) - download from the WEB, returns the on-disk file name; a locator grabs its href/src without clicking, a function runs as the trigger for click-only downloads" },
@@ -104,7 +133,7 @@ const UIV_METHODS = [
   { text: 'open(', displayText: 'open(url) - navigate the tab, waits for page load' },
   { text: 'tabs.select(', displayText: 'tabs.select(2) - switch to tab #2 (ABSOLUTE, 1-based, left to right); returns {index, title, url, active, current} so the script can verify where it landed' },
   { text: 'tabs.list(', displayText: 'tabs.list() -> all tabs of the window as [{index, title, url, active, current}, ...]; current: true = the tab the script acts on (the position read - !CURRENT_TAB_NUMBER is table-macros-only)' },
-  { text: 'tabs.open(', displayText: 'tabs.open(url) - NEW tab on url, waits for load (uiv.open navigates the CURRENT tab instead); returns {index, title, url, active, current}' },
+  { text: 'tabs.open(', displayText: 'tabs.open(url) - NEW tab on url, waits for load (uiv.goto navigates the CURRENT tab instead); returns {index, title, url, active, current}' },
   { text: 'tabs.close(', displayText: 'tabs.close() - close the current tab, land on its neighbour; returns the new current tab' },
   { text: 'eval(', displayText: "eval('return document.title') - run JS in the page, returns the result" },
   { text: 'log(', displayText: "log(text, color) - write to the log panel; color optional (green/red/blue/..., '#shownotification' = browser notification)" },
@@ -154,33 +183,52 @@ function uivHint (cm) {
   return null
 }
 
-// Find button: extract the finder call + its literal first argument from a
-// script line, e.g. `var m = uiv.findImage('buy.png')` or `uiv.page.click('css=#buy')`
-// the optional tier segment matters: a tier call is uiv.page.click('css=..'),
-// and the old flat pattern silently stopped matching every one of them
-const FIND_RE = /uiv\.(?:(?:page|browser|desktop|ocr)\.)?(findElements|findElement|findImages|findImage|findTexts|findText|\$\$|\$|click|move)\(\s*(['"])((?:\\.|(?!\2).)*?)\2/
-// The OPTIONS on the same line, for the ones that change what "find" means.
-// Without these the Find button answered a different question from the script
-// it is sitting in: {scope: 'desktop'} searches the SCREEN, and probing it
-// against the browser viewport reported "no matches" for an image that is
-// plainly there — the whole point of the button is to tell those two apart.
-// minScore/engine/language matter for the same reason: a probe run at the
-// default threshold or the configured OCR engine is not the call on the line.
-// Same-line literals only; the target already has that constraint.
+// Find button: every call on the line whose FIRST argument is a literal
+// string, in source order — `var m = uiv.findImage('buy.png')`,
+// `uiv.page.click('css=#buy')`, `find('buy.png')`. The candidates are read by
+// SHAPE and the NAMES are resolved afterwards (resolveFinderOnLine), because
+// what a finder is called is up to the script. The shipped demos alias the
+// tier and wrap the finder:
+//     const t = uiv.desktop;
+//     const FIND = { scope: 'desktop' };
+//     const find = (name, minScore) => uiv.findImage(name, ... FIND);
+//     t.click(find('draw_text1_dpi_96.png'));
+// and against a pattern rooted in a literal `uiv.` the last line matched
+// nothing: Find answered "put the cursor on a line with a uiv finder" while
+// pointing at a line that has one.
+const CALL_RE = /(?:([A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*)\s*\.\s*)?([A-Za-z_$][\w$]*)\s*\(\s*(['"])((?:\\.|(?!\3).)*?)\3/g
+// Same shape but the first argument is an IDENTIFIER — `uiv.ocr.findTexts(q)`,
+// `uiv.ai.find(what)`. The name is resolved against a one-line string
+// declaration when the script has one; otherwise Find asks the user for the
+// value instead of pretending there is no finder on the line.
+const VAR_CALL_RE = /(?:([A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*)\s*\.\s*)?([A-Za-z_$][\w$]*)\s*\(\s*([A-Za-z_$][\w$]*)\s*[,)]/g
+// `const q = 'Data*';` — resolves an identifier target to its literal
+const STR_DECL_RE = /^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(['"])((?:\\.|(?!\2).)*)\2\s*;?\s*$/
+// The OPTIONS that change what "find" means. Without these the Find button
+// answered a different question from the script it is sitting in:
+// {scope: 'desktop'} searches the SCREEN, and probing it against the browser
+// viewport reported "no matches" for an image that is plainly there — the
+// whole point of the button is to tell those two apart. minScore/engine/
+// language matter for the same reason: a probe run at the default threshold
+// or the configured OCR engine is not the call on the line.
+// Read over the line first, then over the wrapper the line calls — a wrapper
+// holds exactly these options and the line does not show them.
 const FIND_OPT_SCOPE = /\bscope\s*:\s*(['"])(desktop|browser)\1/
 const FIND_OPT_MIN_SCORE = /\bminScore\s*:\s*(\d*\.?\d+)/
 const FIND_OPT_ENGINE = /\bengine\s*:\s*(['"])(\w+)\1/
 const FIND_OPT_LANGUAGE = /\blanguage\s*:\s*(['"])(\w+)\1/
 
-const parseFindOptions = (line) => {
+// `text` is the line, plus (for a wrapped finder) the wrapper's own source
+// after it — first match wins, so the line always overrules the wrapper.
+const parseFindOptions = (text) => {
   const opts = {}
-  const scope = FIND_OPT_SCOPE.exec(line)
+  const scope = FIND_OPT_SCOPE.exec(text)
   if (scope) opts.scope = scope[2]
-  const minScore = FIND_OPT_MIN_SCORE.exec(line)
+  const minScore = FIND_OPT_MIN_SCORE.exec(text)
   if (minScore) opts.minScore = Number(minScore[1])
-  const engine = FIND_OPT_ENGINE.exec(line)
+  const engine = FIND_OPT_ENGINE.exec(text)
   if (engine) opts.engine = engine[2]
-  const language = FIND_OPT_LANGUAGE.exec(line)
+  const language = FIND_OPT_LANGUAGE.exec(text)
   if (language) opts.language = language[2]
   return opts
 }
@@ -217,20 +265,206 @@ const FIND_KIND = {
   findTexts: 'textSearch'
 }
 
+// uiv.ai.find is a finder too — probing it is ONE real (billed) model call,
+// so unlike the free finders it runs only on the explicit button click.
+const finderKind = (tier, name) => (tier === 'ai' && name === 'find' ? 'ai' : FIND_KIND[name])
+
+// --- resolving the names on the line against the rest of the script ---------
+//
+// This is a regex read of the source, not a parse. A declaration that does not
+// fit on one line (plus, for a function, its braces) is simply not resolved,
+// and Find says it found no finder rather than probing a guess.
+
+// The uiv finder inside a wrapper body, and the name it passes as the target.
+const BODY_FINDER_RE = /\buiv\s*\.\s*(?:(page|browser|desktop|ocr|ai)\s*\.\s*)?(findElements|findElement|findImages|findImage|findTexts|findText|find|\$\$|\$|click|move)\s*\(\s*([A-Za-z_$][\w$]*)\s*[,)]/
+// `const FIND = { scope: 'desktop' };` — a wrapper's shared options usually sit
+// in one of these, and a probe that does not follow the name runs in the wrong
+// scope: the very confusion this button exists to clear up.
+const OBJECT_DECL_RE = /^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(\{[^{}]*\})\s*;?\s*$/
+// `const find = uiv.findImage;` — a rename, with no wrapper around it
+const RENAME_DECL_RE = /^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*uiv\s*\.\s*(?:(page|browser|desktop|ocr|ai)\s*\.\s*)?([A-Za-z_$][\w$]*)\s*;?\s*$/
+// `const find = (name, minScore) => ...` / `const find = n => ...`
+const ARROW_DECL_RE = /^\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:\(([^)]*)\)|([A-Za-z_$][\w$]*))\s*=>\s*(.*)$/
+// `function find (name) { ... }` / `const find = function (name) { ... }`
+const FUNC_DECL_RE = /^\s*(?:function\s+([A-Za-z_$][\w$]*)|(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*function\b)\s*\(([^)]*)\)\s*(.*)$/
+
+// `\b` is the wrong boundary for a JS identifier: `$` is a word character to
+// the language and a non-word one to the regex engine. Excluding a leading dot
+// keeps `FIND` from matching the property in `opts.FIND`.
+const identRe = (name, suffix, flags) =>
+  new RegExp('(^|[^\\w$.])' + name.replace(/\$/g, '\\$') + '(?![\\w$])' + (suffix || ''), flags)
+
+const braceDelta = (s) => (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length
+
+// What the rest of the script says about the names used on a finder line:
+// the object literals it may pass as options, and the wrappers it may call
+// instead of a uiv finder.
+const buildScriptContext = (src) => {
+  // split on every line ending, not just \n: a script imported or pasted with
+  // CRLF would otherwise leave a \r on each line, and `.` and `$` do not match
+  // a carriage return — every declaration below ends in one of them, so a
+  // CRLF script resolved no wrappers at all
+  const lines = src.split(/\r\n|\r|\n/)
+  // null-prototype: these are looked up by a name taken from the script, and
+  // a script may well call something toString or constructor
+  const objects = Object.create(null)   // name -> object-literal source
+  const wrappers = Object.create(null)  // name -> { kind, body, params }
+  const strings = Object.create(null)   // name -> string-literal value
+
+  lines.forEach((text, i) => {
+    const obj = OBJECT_DECL_RE.exec(text)
+    if (obj) {
+      objects[obj[1]] = obj[2]
+      return
+    }
+
+    const str = STR_DECL_RE.exec(text)
+    if (str) {
+      strings[str[1]] = str[3].replace(/\\(.)/g, '$1')
+      return
+    }
+
+    const rename = RENAME_DECL_RE.exec(text)
+    if (rename) {
+      const kind = finderKind(rename[2], rename[3])
+      if (kind) wrappers[rename[1]] = { kind, body: '', params: [] }
+      return
+    }
+
+    const arrow = ARROW_DECL_RE.exec(text)
+    const func = arrow ? null : FUNC_DECL_RE.exec(text)
+    if (!arrow && !func) return
+
+    const name = arrow ? arrow[1] : (func[1] || func[2])
+    const paramText = arrow ? (arrow[2] !== undefined ? arrow[2] : arrow[3]) : func[3]
+    const params = paramText.split(',').map(s => s.trim()).filter(Boolean)
+
+    // A body that runs past the declaration line: read on until the braces
+    // balance, bounded — a peek, not a parse. The balance test is what keeps a
+    // one-line arrow from swallowing the statements after it and claiming the
+    // NEXT finder in the file as its own.
+    let body = arrow ? arrow[4] : func[4]
+    let depth = braceDelta(body)
+    for (let j = i + 1; depth > 0 && j < lines.length && j - i <= 12; j++) {
+      body += '\n' + lines[j]
+      depth += braceDelta(lines[j])
+    }
+
+    const f = BODY_FINDER_RE.exec(body)
+    if (!f) return
+    const kind = finderKind(f[1], f[2])
+    // Only a PASS-THROUGH wrapper can be probed with the call site's string.
+    // When the body finds something else (a fixed file name, a computed one),
+    // the literal on the line is not the target, and probing it anyway would
+    // answer a question the script never asked.
+    if (kind && f[3] === params[0]) wrappers[name] = { kind, body, params }
+  })
+
+  return { objects, wrappers, strings }
+}
+
+// One entry is enough: the source is re-read on every cursor move, and it is
+// the same source nearly every time.
+let scriptContextSrc = null
+let scriptContext = null
+const getScriptContext = (getSrc) => {
+  const src = getSrc()
+  if (src !== scriptContextSrc) {
+    scriptContextSrc = src
+    scriptContext = buildScriptContext(src)
+  }
+  return scriptContext
+}
+
+// What would Find search for on this line? -> { kind, target, opts }, or null
+// when the line holds no finder call at all. `getSrc` is a getter rather than
+// the source itself: resolving a name is the slow path, and a plain uiv.* line
+// never needs the rest of the file.
+const resolveFinderOnLine = (line, getSrc) => {
+  CALL_RE.lastIndex = 0
+  let m
+
+  while ((m = CALL_RE.exec(line)) !== null) {
+    const receiver = (m[1] || '').replace(/\s/g, '')
+    const name = m[2]
+    const target = m[4].replace(/\\(.)/g, '$1')
+
+    // Called on something: the method name decides, whatever it is called on.
+    // The receiver may be an alias (`const t = uiv.desktop; t.click('css=..')`)
+    // or the uiv tier itself, and neither changes what the call searches.
+    if (receiver) {
+      const kind = finderKind(/(^|\.)ai$/.test(receiver) ? 'ai' : null, name)
+      if (kind) return { kind, target, opts: parseFindOptions(line) }
+      continue
+    }
+
+    // Bare: only a wrapper the script itself declares.
+    const context = getScriptContext(getSrc)
+    const wrapper = context.wrappers[name]
+    if (!wrapper) continue
+
+    let body = wrapper.body
+    // A positional argument the wrapper turns into an option: `find('x.png',
+    // 0.4)` is the demos' own minScore, and probing at the default threshold
+    // instead produces exactly the "no matches" the button is meant to
+    // explain. Bind the literal to the parameter it lands on — not where that
+    // name is a KEY, or `{minScore: minScore}` would lose its key.
+    const rest = line.slice(m.index + m[0].length)
+    const positional = /^\s*,\s*(-?\d*\.?\d+)\s*\)/.exec(rest)
+    if (positional && /^[A-Za-z_$][\w$]*$/.test(wrapper.params[1] || '')) {
+      body = body.replace(identRe(wrapper.params[1], '(?!\\s*:)', 'g'), '$1' + positional[1])
+    }
+
+    // the wrapper's own source, and the object literals it names — that is
+    // where {scope: 'desktop'} lives when the line does not spell it out
+    const texts = [line, body]
+    Object.keys(context.objects).forEach((key) => {
+      if (identRe(key).test(body)) texts.push(context.objects[key])
+    })
+
+    return { kind: wrapper.kind, target, opts: parseFindOptions(texts.join('\n')) }
+  }
+
+  // No string-literal call on the line — an IDENTIFIER target then:
+  // `uiv.ocr.findTexts(q)`, `uiv.ai.find(what)`. Resolve the name against a
+  // one-line string declaration; unresolved is still a finder — the caller
+  // shows the kind and asks the user for the value on click.
+  VAR_CALL_RE.lastIndex = 0
+  while ((m = VAR_CALL_RE.exec(line)) !== null) {
+    const receiver = (m[1] || '').replace(/\s/g, '')
+    const name = m[2]
+    const varName = m[3]
+    if (!receiver) continue
+    // click/move take coordinate variables all the time — an identifier there
+    // is almost never a locator string, so the variable pass skips them
+    if (name === 'click' || name === 'move') continue
+    const kind = finderKind(/(^|\.)ai$/.test(receiver) ? 'ai' : null, name)
+    if (!kind) continue
+    const context = getScriptContext(getSrc)
+    const resolved = context.strings[varName]
+    return {
+      kind,
+      target: resolved !== undefined ? resolved : null,
+      targetVar: varName,
+      opts: parseFindOptions(line)
+    }
+  }
+
+  return null
+}
+
 // syntax highlighting overlay: color every known uiv.* call, and mark
-// unknown uiv.* names as probable typos
-const KNOWN_UIV = new Set([
-  ...UIV_METHODS.map(m => m.text.replace(/\(.*$/, '')),
-  // the input tiers themselves — `const b = uiv.browser` is a legitimate use
-  // of the bare namespace, and the overlay must not flag it as a typo
-  'page', 'browser', 'desktop', 'csv', 'ocr', 'ai', 'shot',
-  // the rest of the namespaces, same reason (`const t = uiv.tabs`)
-  'tabs', 'window', 'text', 'clipboard',
-  // not a call: the "am I the top-level macro, or included?" flag
-  'main',
-  // aliases kept in the polyfill (log/sleep synonyms)
-  'echo', 'pause'
-])
+// unknown uiv.* names as probable typos.
+// DERIVED from the polyfill, never hand-listed. A hand-list rots the moment
+// the API grows and then LIES about working code: uiv.files shipped in
+// 10.0.105 and the overlay went on painting uiv.files.remove as a typo.
+// Every name in the API — namespace, method, alias, and the uiv.main flag —
+// is a top-level `uiv.x =` or `uiv.x.y =` in the polyfill, so this regex is
+// the whole set by construction. The two-segment cap matches the overlay's
+// own path regex below; the polyfill has no deeper nesting.
+const KNOWN_UIV = new Set(
+  [...POLYFILL.matchAll(/^uiv\.([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\s*=/gm)].map(m => m[1])
+)
 
 const uivOverlay = {
   token: (stream) => {
@@ -258,7 +492,16 @@ class ScriptView extends React.Component {
     imagePreviewName: null,
     // 'desktop' | 'browser' | null — where the finder on the CURSOR's line
     // would search, shown as a badge on Find
-    lineScope: null
+    lineScope: null,
+    // { kind, target } of the finder on the cursor's line (null = none) —
+    // drives the Find button's label: Find Element (locator…) / Find Image /
+    // Find Text (word…) / Find ai.find (question…)
+    lineFinder: null,
+    // seconds left in the delayed-capture countdown ("..." menu);
+    // null = no countdown running
+    captureCountdown: null,
+    // the "..." mini-menu next to Select image
+    captureMenuOpen: false
   }
 
   _lastPreviewFile = null
@@ -276,6 +519,7 @@ class ScriptView extends React.Component {
   errorLine = null
   pendingLine = null
   lineRaf = null
+  lastRevealAt = null
   unsubscribes = []
   // UnControlled CodeMirror replaces the WHOLE document (cursor jump!)
   // whenever its `value` prop changes — and this component re-renders on
@@ -364,6 +608,31 @@ class ScriptView extends React.Component {
       this.lineRaf = null
     }
     this.pendingLine = null
+  }
+
+  // One-shot "Jump to line" request from a log entry's link
+  // (ui.scriptRevealLine). Consumed by `at` nonce; the timestamp guard keeps
+  // a remount (tab switch) from re-jumping on a stale request.
+  maybeReveal () {
+    const reveal = this.props.revealLine
+    if (!this.editor || !reveal || typeof reveal.line !== 'number') return
+    if (this.lastRevealAt === reveal.at) return
+    this.lastRevealAt = reveal.at
+    if (Date.now() - reveal.at > 5000) return
+
+    const line = reveal.line - 1
+    this.editor.setCursor({ line, ch: 0 })
+    this.editor.scrollIntoView({ line, ch: 0 }, 60)
+    this.editor.focus()
+    // flash the line unless the post-run error mark already colors it
+    if (this.errorLine !== reveal.line) {
+      this.editor.addLineClass(line, 'background', 'script-error-line')
+      setTimeout(() => {
+        if (this.editor && this.errorLine !== reveal.line) {
+          this.editor.removeLineClass(line, 'background', 'script-error-line')
+        }
+      }, 2000)
+    }
   }
 
   onDone = ({ ok, error, errorLine }) => {
@@ -624,14 +893,29 @@ class ScriptView extends React.Component {
     if (!this.editor || this.state.running || this.state.finding) return
     const lineNo = this.editor.getCursor().line
     const line = this.editor.getLine(lineNo) || ''
-    const m = FIND_RE.exec(line)
-    if (!m) {
-      message.info("Put the cursor on a line with a uiv finder or click/move ('...') — the argument must be a literal string", 3.5)
+    const found = resolveFinderOnLine(line, () => this.editor.getValue())
+    if (!found) {
+      message.info("Put the cursor on a line that finds something — a uiv finder or click/move, or a wrapper around one, with a literal string ('...') as the target", 3.5)
       return
     }
-    const kind = FIND_KIND[m[1]]
-    const target = m[3].replace(/\\(.)/g, '$1')
-    const opts = parseFindOptions(line)
+    const { kind, opts } = found
+    let target = found.target
+    if (target == null) {
+      // the line's target is a variable the script does not resolve to a
+      // string — ask, rather than pretending there is no finder here
+      target = await prompt({
+        title: 'Find: value needed',
+        message: `The target on this line is the variable '${found.targetVar}', whose value the editor cannot work out. Enter the value to test with:`,
+        value: ''
+      })
+      if (target == null || !String(target).trim()) return
+      target = String(target).trim()
+    }
+    if (kind === 'ai') {
+      // heads-up, not a refusal: unlike the free finders this probe is a real
+      // (billed) model call, and its answer is fresh each run
+      message.info('Testing uiv.ai.find — one real model call…', 2)
+    }
     const onDesktop = opts.scope === 'desktop'
 
     this.setState({ finding: true })
@@ -730,16 +1014,25 @@ class ScriptView extends React.Component {
   // else, so a user working on a desktop macro — scope already set to desktop
   // — could not capture anything outside the browser, and the tool silently
   // did something other than what the rest of the UI said it would.
-  onClickSelectImage = async () => {
-    if (this.state.running || this.state.finding) return
+  onClickSelectImage = () => this.doSelectImage(0)
+
+  // "5s" button: capture after a FIXED 5-second countdown (time to bring
+  // another window to the front before the screen is grabbed). This replaced
+  // the old Settings > Vision "wait N seconds before desktop screenshot"
+  // checkbox — the delay lives on the button that needs it, hard-coded.
+  onClickSelectImageDelayed = () => this.doSelectImage(5)
+
+  doSelectImage = async (delaySec) => {
+    if (this.state.running || this.state.finding || this.state.captureCountdown != null) return
     const onDesktop = isCVTypeForDesktop(this.props.config.cvScope)
     try {
-      // a desktop capture covers the whole screen INCLUDING this panel, so
-      // honour the configured delay that lets the user get out of the way
-      if (onDesktop && this.props.config.waitBeforeDesktopScreenCapture && this.props.config.secondsBeforeDesktopScreenCapture > 0) {
-        message.info(`About to take desktop screenshot in ${this.props.config.secondsBeforeDesktopScreenCapture} seconds`)
-        await delay(() => {}, this.props.config.secondsBeforeDesktopScreenCapture * 1000)
+      // a desktop capture covers the whole screen INCLUDING this panel — the
+      // countdown (shown live on the button) lets the user get out of the way
+      for (let s = delaySec; s > 0; s--) {
+        this.setState({ captureCountdown: s })
+        await delay(() => {}, 1000)
       }
+      this.setState({ captureCountdown: null })
       const res = onDesktop
         ? await selectAreaOnDesktop({ width: screen.availWidth, height: screen.availHeight })
         : await csIpc.ask('PANEL_SELECT_AREA_ON_CURRENT_PAGE')
@@ -748,6 +1041,8 @@ class ScriptView extends React.Component {
       if (finalName) this.insertFinderSnippet('image', finalName, 'Image', onDesktop)
     } catch (e) {
       message.error(`Select image: ${(e && e.message) || e}`, 2.5)
+    } finally {
+      if (this.state.captureCountdown != null) this.setState({ captureCountdown: null })
     }
   }
 
@@ -865,6 +1160,10 @@ class ScriptView extends React.Component {
     ) {
       this.props.updateEditingScript(this.getText())
     }
+
+    // a fresh mount can arrive WITH a pending reveal (jump from the Logs tab
+    // mounts the Macro tab's editor in the same beat)
+    this.maybeReveal()
   }
 
   componentDidUpdate (prevProps) {
@@ -917,6 +1216,8 @@ class ScriptView extends React.Component {
     // the run panel and dev toolbar come and go with dev mode and with script
     // runs; re-point the observer at whatever exists now
     this.reobserveLayout()
+
+    this.maybeReveal()
   }
 
   reobserveLayout () {
@@ -969,8 +1270,27 @@ class ScriptView extends React.Component {
     // app's Vision scope, so the answer changes as the cursor moves — and the
     // badge on the button is where it becomes visible BEFORE clicking. null
     // when the line holds no finder at all, and the badge disappears.
-    const lineScope = FIND_RE.test(line) ? (parseFindOptions(line).scope || 'browser') : null
+    const found = resolveFinderOnLine(line, () => cm.getValue())
+    const lineScope = found ? (found.opts.scope || 'browser') : null
     if (lineScope !== this.state.lineScope) this.setState({ lineScope })
+
+    // ...and WHAT it finds, for the button label. target null = an identifier
+    // the script does not resolve — the label shows the variable name and the
+    // click asks for the value. minScore rides along so the Find Image label
+    // can show the confidence the probe will use.
+    const lineFinder = found
+      ? {
+          kind: found.kind,
+          target: found.target != null ? String(found.target) : null,
+          targetVar: found.targetVar || null,
+          minScore: found.opts && found.opts.minScore != null ? found.opts.minScore : null
+        }
+      : null
+    const prevFinder = this.state.lineFinder
+    const finderKey = (f) => f ? `${f.kind}|${f.target}|${f.targetVar}|${f.minScore}` : ''
+    if (finderKey(lineFinder) !== finderKey(prevFinder)) {
+      this.setState({ lineFinder })
+    }
 
     const m = /['"]([^'"]*\.png)['"]/i.exec(line)
     const file = m ? m[1].split('@')[0] : null
@@ -1037,12 +1357,31 @@ class ScriptView extends React.Component {
   // dev-mode drawer with the script helpers — same collapsed-header pattern
   // as the table's command editor / Logs & Variables panels
   renderToolsDrawer () {
-    const { running, finding, toolsOpen, lineScope } = this.state
-    const busy = running || finding
+    const { running, finding, toolsOpen, lineScope, captureCountdown } = this.state
+    const busy = running || finding || captureCountdown != null
     // the Image tool captures wherever the app's Vision scope points, so the
     // button has to say which — a screen grab and a page grab look identical
     // until the crop comes back showing the wrong thing
     const onDesktopScope = isCVTypeForDesktop(this.props.config.cvScope)
+
+    // Find says WHAT it would test on the cursor's line — "Find" alone made
+    // the user check the line first; the label does that reading for them.
+    // An unresolved variable target shows as (name?) and prompts on click.
+    const trunc = (s) => (s && s.length > 10 ? s.slice(0, 10) + '…' : s)
+    const lf = this.state.lineFinder
+    const lfShown = lf ? (lf.target != null ? trunc(lf.target) : `${trunc(lf.targetVar || '?')}?`) : ''
+    // the confidence the probe will use: the line's own minScore, else the
+    // configured default — shown on the label so a miss at a strict
+    // threshold explains itself
+    const lfScore = lf && lf.kind === 'imageSearch'
+      ? (lf.minScore != null ? lf.minScore : (this.props.config.defaultVisionSearchConfidence || 0.6))
+      : null
+    const findLabel = !lf ? 'Find'
+      : lf.kind === 'elementSearch' ? `Find Element (${lfShown})`
+      : lf.kind === 'imageSearch' ? `Find Image @${lfScore}`
+      : lf.kind === 'textSearch' ? `Find Text (${lfShown})`
+      : lf.kind === 'ai' ? `Find ai.find (${lfShown})`
+      : 'Find'
 
     return (
       <div className="script-tools-drawer">
@@ -1057,6 +1396,9 @@ class ScriptView extends React.Component {
           />
         </div>
         {toolsOpen ? (
+          <>
+          {/* Find row — the button names what the cursor's line finds; for an
+              image line the preview sits DIRECTLY NEXT to the button */}
           <div className="script-tools-row">
             {this.isPlayground() ? (
               running ? (
@@ -1074,30 +1416,11 @@ class ScriptView extends React.Component {
             <Button
               disabled={busy}
               onClick={this.onClickFind}
-              title={"Test the finder on the current line — the LINE decides where it looks, so {scope: 'desktop'} searches the screen and anything else the page. Browser matches flash on the page; screen matches are drawn on the desktop screenshot."}
+              title={"Test the finder on the current line — the LINE decides where it looks, so {scope: 'desktop'} searches the screen and anything else the page. Browser matches flash on the page; screen matches are drawn on the desktop screenshot. An ai.find line makes one real (billed) model call."}
             >
               <FontAwesomeIcon icon={faMagnifyingGlass} />
-              <span> Find</span>
+              <span> {findLabel}</span>
               {scopeBadge(lineScope)}
-            </Button>
-            <Button
-              disabled={busy}
-              onClick={this.onClickSelect}
-              title="Pick an ELEMENT on the page — its locator is inserted at the cursor. Always the browser: the desktop has no elements to pick, only pixels, so capture an image of it instead."
-            >
-              {this.props.status === C.APP_STATUS.INSPECTOR ? 'Cancel' : 'Select'}
-              {scopeBadge('browser')}
-            </Button>
-            <Button
-              disabled={busy}
-              onClick={this.onClickSelectImage}
-              title={onDesktopScope
-                ? 'Vision scope is DESKTOP: drag a rectangle on the SCREEN — the crop is saved and a desktop-scoped imageSearch for it is inserted at the cursor'
-                : 'Vision scope is BROWSER: drag a rectangle on the page — the crop is saved and an imageSearch for it is inserted at the cursor'}
-            >
-              <FontAwesomeIcon icon={faImage} />
-              <span> Image</span>
-              {scopeBadge(onDesktopScope ? 'desktop' : 'browser')}
             </Button>
             {/* The preview is a screenshot of a UI control sitting in a row of
                 UI controls, so without a label it reads as one more button —
@@ -1115,6 +1438,52 @@ class ScriptView extends React.Component {
               </span>
             ) : null}
           </div>
+          {/* Select row */}
+          <div className="script-tools-row">
+            <Button
+              disabled={busy}
+              onClick={this.onClickSelect}
+              title="Pick an ELEMENT on the page — its locator is inserted at the cursor. Always the browser: the desktop has no elements to pick, only pixels, so capture an image of it instead."
+            >
+              {this.props.status === C.APP_STATUS.INSPECTOR ? 'Cancel' : 'Select element'}
+              {scopeBadge('browser')}
+            </Button>
+            {/* main click captures right away; the ... opens a small menu
+                with the fixed 5-second countdown option (shown live on the
+                button). The menu is a PLAIN DIV inside the drawer — the
+                antd Dropdown popup silently never appeared in the docked
+                side panel, with the defaults AND with explicit
+                trigger/placement/zIndex, so: no popup machinery at all. */}
+            <span style={{ position: 'relative', display: 'inline-flex' }}>
+              <Button
+                disabled={busy}
+                onClick={this.onClickSelectImage}
+                title={onDesktopScope
+                  ? 'Vision scope is DESKTOP: drag a rectangle on the SCREEN — the crop is saved and a desktop-scoped imageSearch for it is inserted at the cursor'
+                  : 'Vision scope is BROWSER: drag a rectangle on the page — the crop is saved and an imageSearch for it is inserted at the cursor'}
+              >
+                <FontAwesomeIcon icon={faImage} />
+                <span> {captureCountdown != null ? `Capturing in ${captureCountdown}…` : 'Select image'}</span>
+                {captureCountdown == null ? scopeBadge(onDesktopScope ? 'desktop' : 'browser') : null}
+              </Button>
+              <Button
+                disabled={busy}
+                style={{ marginLeft: -1, paddingLeft: 8, paddingRight: 8 }}
+                onClick={() => this.setState({ captureMenuOpen: !this.state.captureMenuOpen })}
+                title="Timed capture options"
+              >
+                <FontAwesomeIcon icon={faStopwatch} />
+              </Button>
+              {this.state.captureMenuOpen ? (
+                <div className="script-capture-menu" onClick={() => this.setState({ captureMenuOpen: false })}>
+                  <div className="script-capture-menu-item" onClick={this.onClickSelectImageDelayed}>
+                    Capture after 5 s countdown (time to switch windows)
+                  </div>
+                </div>
+              ) : null}
+            </span>
+          </div>
+          </>
         ) : null}
       </div>
     )
@@ -1215,8 +1584,14 @@ class ScriptView extends React.Component {
             gutters: this.showDevTools()
               ? ['CodeMirror-linenumbers', 'breakpoints']
               : ['CodeMirror-linenumbers'],
+            styleActiveLine: true,
+            // showToken: highlight on double-click/selection of a word;
+            // wordsOnly keeps punctuation selections from lighting up noise
+            highlightSelectionMatches: { showToken: /\w/, wordsOnly: true },
             extraKeys: {
-              'Ctrl-Space': (cm) => cm.showHint({ hint: uivHint, completeSingle: false })
+              'Ctrl-Space': (cm) => cm.showHint({ hint: uivHint, completeSingle: false }),
+              'Ctrl-/': 'toggleComment',
+              'Cmd-/': 'toggleComment'
             }
           }}
         />
@@ -1231,6 +1606,7 @@ export default connect(
     editing: state.editor.editing,
     status: state.status,
     pickedLocator: state.ui.scriptPickedLocator,
+    revealLine: state.ui.scriptRevealLine,
     hasUnsaved: hasUnsavedMacro(state),
     devMode: !!state.config.sidebarDevMode,
     // the Vision scope + desktop-capture delay the Select image tool obeys

@@ -18,10 +18,12 @@ import { StorageStrategyType, getStorageManager } from '../../services/storage'
 import { openSettings } from '@/ext/common/tab'
 import { MacroResultStatus } from '../../services/kv_data/macro_extra_data'
 import { isScriptRunning, onScriptEvent } from '../../modules/script_runner'
-import { initMcpBridge } from '@/services/mcp_bridge'
+import { initMcpBridge, emergencyStopMcp } from '@/services/mcp_bridge'
+import { initDesktopAppPanelLink } from '@/services/desktop_app/panel_link'
 import { renderLogType } from '@/common/macro_log'
 import Controlbar from './components/controlbar'
 import MacroSetupDialog from './components/macro_setup_dialog'
+import DaSetupDialog from '@/components/da_setup_dialog'
 import Files from './components/files'
 import Logs from './components/logs'
 import LogsBottomBar from './components/logs/bottom_bar'
@@ -153,20 +155,44 @@ class Sidepanel extends React.Component {
     this.checkIdeWindowOpen()
   }
 
-  // thin banner while the MCP bridge (Claude Code) is executing tool calls —
-  // the user may be working in this very panel, so external control must be
-  // visible the moment it happens. ui.mcpControl is set/cleared by the bridge
-  // client (services/mcp_bridge); it lingers ~2.5s past the last call so a
-  // sequence of calls reads as one session, not a flicker.
+  // MCP strip: on screen the WHOLE time the bridge is connected (Claude Code
+  // can act at any moment), not only during a call — it carries the
+  // connection label ("chrome#1": which browser this is, with several on one
+  // bridge), the tool in flight, and the red STOP that halts the run and cuts
+  // the bridge. It sits above the tabs so it is visible in Data, Macro, Files
+  // and AI Chat alike, and the status bar below keeps doing its own job
+  // (line / result). ui.mcpControl is set/cleared by the bridge client
+  // (services/mcp_bridge); it lingers ~2.5s past the last call so a sequence
+  // of calls reads as one session, not a flicker. state.mcpBridgeLabel is
+  // the connection itself (null = not connected).
   renderMcpControlBanner = () => {
     const mcp = this.props.ui && this.props.ui.mcpControl
-    if (!mcp) return null
+    const label = this.props.mcpBridgeLabel
+    if (!mcp && !label) return null
+    const client = (mcp && mcp.client) || this.props.mcpBridgeClient || 'MCP client'
 
     return (
-      <div className="mcp-control-banner" title="An MCP client (e.g. Claude Code) is driving Ui.Vision through the bridge. Disconnect it in Settings > AI if this is unexpected.">
+      <div
+        className={cn('mcp-control-banner', { active: !!mcp })}
+        title={
+          mcp
+            ? `${client} is executing "${mcp.tool}" through the MCP bridge. STOP halts the macro and switches the bridge off.`
+            : `${client} is connected to this browser via the MCP bridge as "${label}" and can start a tool call at any time. STOP switches the bridge off; manage it in Settings > AI.`
+        }
+      >
         <span className="mcp-dot" />
-        <span>Claude (MCP) is controlling Ui.Vision</span>
-        <span className="mcp-tool">{mcp.tool}</span>
+        <span className="mcp-label">MCP: {label || 'connected'}</span>
+        <span className="mcp-tool">{mcp ? `${client}: ${mcp.tool}` : `${client} connected`}</span>
+        <Button
+          size="small"
+          type="primary"
+          danger
+          className="mcp-stop"
+          title="Emergency stop: stops the running macro and switches the MCP bridge off (re-enable it in Settings > AI)"
+          onClick={emergencyStopMcp}
+        >
+          STOP
+        </Button>
       </div>
     )
   }
@@ -229,6 +255,14 @@ class Sidepanel extends React.Component {
   // first install (flag set by bg.js onInstalled): land on the AI Chat tab
   // once, then clear the persisted flag. Checked from both mount and update
   // because the config may hydrate only after the first render.
+  componentWillUnmount() {
+    window.removeEventListener('hashchange', this.openDebugProviderChoice)
+  }
+
+  openDebugProviderChoice = () => {
+    if (window.location.hash === '#debugbluebutton') this.props.updateUI({ sidebarTab: 'AiChat' })
+  }
+
   maybeOpenAiChatOnFirstRun = () => {
     if (this.props.config.openAiChatTabOnce) {
       this.props.updateConfig({ openAiChatTabOnce: false })
@@ -453,6 +487,11 @@ class Sidepanel extends React.Component {
     // Settings > AI; runs in the panel because the tools need this context
     initMcpBridge()
 
+    // Ui.Vision for Desktop (the helper app): a standing, silent link so the
+    // app can hand a browser macro from its Files tab to this panel
+    // (services/desktop_app/panel_link.ts)
+    initDesktopAppPanelLink()
+
     // JS script runs: one started/ended signal per script (the player status
     // flips once per uiv.* command and is ignored while a script runs).
     // 'paused' and the 'running' after a resume are mid-run states, not new
@@ -483,6 +522,8 @@ class Sidepanel extends React.Component {
 
     this.maybeRestoreLastTab()
     this.maybeOpenAiChatOnFirstRun()
+    this.openDebugProviderChoice()
+    window.addEventListener('hashchange', this.openDebugProviderChoice)
 
     // grey out right away if the IDE window is already open (e.g. the side
     // panel was opened while the pop-out editor was in use)
@@ -613,7 +654,6 @@ class Sidepanel extends React.Component {
                   // A JS script drives the player one command at a time, so
                   // nextCommandIndex is always 0 — permanently "Line 1". The
                   // runner publishes the real script line to ui.scriptLine.
-                  // (no "Round x/y" — the sidebar has no loop-play button)
                   const scriptLine = this.props.ui && this.props.ui.scriptLine
                   // Is this a script run? ui.scriptRunning is published by the runner into
                   // the same redux slice as ui.scriptLine, so the two cannot disagree.
@@ -621,9 +661,14 @@ class Sidepanel extends React.Component {
                   const scriptRun = (this.props.ui && this.props.ui.scriptRunning) ||
                     isScriptRunning() ||
                     typeof (this.props.editing && this.props.editing.script) === 'string'
+                  // "Round x/y" only when it's an actual loop replay ("Play in
+                  // loop.." on a macro or folder) — a plain play has loops = 1
                   const parts = scriptRun
                     ? [scriptLine ? `Line ${scriptLine}` : 'Running']
-                    : [`Line ${nextCommandIndex + 1}`]
+                    : [
+                        `Line ${nextCommandIndex + 1}`,
+                        ...(loops > 1 ? [`Round ${currentLoop}/${loops}`] : [])
+                      ]
 
                   if (timeoutStatus && timeoutStatus.type && timeoutStatus.total) {
                     const { type, total, past } = timeoutStatus
@@ -807,6 +852,9 @@ class Sidepanel extends React.Component {
         {this.renderIdeOpenOverlay()}
         {/* one-time "which editor(s)?" choice; renders nothing once answered */}
         <MacroSetupDialog />
+        {/* "grant the macOS/Wayland permissions" nudge after a native-app
+            install; renders nothing once handled */}
+        <DaSetupDialog />
       </div>
     )
   }
@@ -819,6 +867,8 @@ export default connect(
     player: state.player,
     config: state.config,
     ui: state.ui,
+    mcpBridgeLabel: state.mcpBridgeLabel,
+    mcpBridgeClient: state.mcpBridgeClient,
     logs_: state.logs,
     macrosExtra: state.editor.macrosExtra
   }),

@@ -43,7 +43,15 @@ export function delegateBrowserFileSystemAPI(): IBrowserFileSystem {
             args: JSON.stringify(args)
           } as Payload,
           (response: Response) => {
-            if (response.error.length > 0) {
+            // no answer at all (the background side did not run the handler,
+            // or the message channel died) used to throw inside this callback
+            // and leave the promise pending; an error without text became
+            // "failed: undefined" for the AI agent (OPEN-ISSUES 44.2)
+            if (!response) {
+              const why = (chrome.runtime.lastError && chrome.runtime.lastError.message) || 'no answer from the background filesystem handler'
+              return reject(new Error(`browser file storage: ${why}`))
+            }
+            if (response.error && response.error.length > 0) {
               return reject(new Error(response.error))
             }
 
@@ -109,10 +117,13 @@ export function handleDelegatedBrowserFileSystemAPI(): void {
           error: "",
         })
       },
-      (e: Error) => {
+      (e: any) => {
+        // the idb.filesystem.js polyfill (Firefox) rejects with plain
+        // strings and bare DOMExceptions too — never send an empty reason
+        const reason = (e && e.message) || (e ? String(e) : '') || `browser file storage: ${method} failed without an error message`
         sendResponse({
           result: "",
-          error: e.message
+          error: reason
         })
       }
     )

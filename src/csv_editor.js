@@ -6,7 +6,17 @@ import 'codemirror/lib/codemirror'
 import 'codemirror/mode/javascript/javascript'
 import 'codemirror/addon/edit/matchbrackets'
 import 'codemirror/addon/edit/closebrackets'
+// in-editor search (Ctrl-F / Ctrl-G / Alt-G) + selection-match highlight +
+// active line — same stock addons as the macro editors
+import '@/common/cm_search'
+import 'codemirror/addon/search/searchcursor'
+import 'codemirror/addon/search/jump-to-line'
+import 'codemirror/addon/dialog/dialog'
+import 'codemirror/addon/search/match-highlighter'
+import 'codemirror/addon/selection/active-line'
 import 'codemirror/lib/codemirror.css'
+import 'codemirror/addon/dialog/dialog.css'
+import '@/styles/cm-extras.css'
 
 // import 'antd/dist/antd.css'
 import './csv_editor.scss'
@@ -97,7 +107,9 @@ class App extends React.Component {
           options={{
             lineNumbers: true,
             matchBrackets: true,
-            autoCloseBrackets: true
+            autoCloseBrackets: true,
+            styleActiveLine: true,
+            highlightSelectionMatches: { showToken: /\w/, wordsOnly: true }
           }}
         />
 

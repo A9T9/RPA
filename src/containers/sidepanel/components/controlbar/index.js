@@ -21,6 +21,7 @@ import { Actions as simpleActions } from '@/actions/simple_actions'
 import { range, setIn, updateIn, compose, cn } from '@/common/utils'
 import { getActiveNonExtensionTab, getActiveWebTab } from '@/common/tab_utils'
 import { goUivUrl } from '@/common/uiv_link'
+import { ensureAllUrlsPermission } from '@/common/firefox_permission'
 import { isScriptPaused, isScriptRunning, onScriptEvent, pauseScript, resumeScript, runScript, stopScript } from '@/modules/script_runner'
 import './controlbar.scss'
 import csIpc from '@/common/ipc/ipc_cs'
@@ -55,6 +56,7 @@ class Controls extends React.Component {
   }
 
   componentDidMount () {
+    window.addEventListener('uiv-play-current-macro', this.onRunAgain)
     const type = getStorageManager().getCurrentStrategyType()
     this.setState({ storageMode: type })
     // the JS script runner lives outside redux — mirror its status so
@@ -64,7 +66,12 @@ class Controls extends React.Component {
     })
   }
 
+  onRunAgain = () => {
+    if (this.state.scriptStatus === 'stopped' && this.props.player.status !== C.PLAYER_STATUS.PLAYING && this.props.player.status !== C.PLAYER_STATUS.PAUSED && this.props.status !== C.APP_STATUS.RECORDER) this.playCurrentMacro(false)
+  }
+
   componentWillUnmount () {
+    window.removeEventListener('uiv-play-current-macro', this.onRunAgain)
     if (this.unsubscribeScript) this.unsubscribeScript()
   }
 
@@ -121,6 +128,11 @@ class Controls extends React.Component {
   }
 
   playCurrentMacro = async (isStep)  => {
+    // Firefox MV3: host permissions are opt-in and Record was the only panel
+    // entry point that asked — Play went straight into a run that dies with
+    // Error #170 on an ungranted profile (field-verified 2026-08-19)
+    if (!(await ensureAllUrlsPermission())) return
+
     if (this.isScriptMacro()) {
       return this.playCurrentScript()
     }
@@ -255,17 +267,33 @@ class Controls extends React.Component {
             </Button>
           </div>
           <div className='action-button-container'>
-            <a onClick={() => {
-              chrome.tabs.create({url: goUivUrl("https://go.ui.vision/?help=home")})
-            }}>Ui.Vision</a>
-            {' - '}
-            <a onClick={() => {
-              chrome.tabs.create({url: goUivUrl("https://go.ui.vision/?help=forum")})
-            }}>Forum</a>
-            {' - '}
-            <a onClick={() => {
-              chrome.tabs.create({url: goUivUrl("https://go.ui.vision/?help=github")})
-            }}>Github</a>
+            {this.props.mcpBridgeLabel ? (
+              // MCP bridge connected: the links row becomes the connection
+              // badge — with several browsers on one bridge (chrome#1,
+              // firefox#2, ...) this label is how the user tells THIS
+              // browser's connection apart. Highly visible on purpose.
+              <span
+                className="mcp-bridge-badge"
+                title={`An MCP client is connected to this browser via the MCP bridge as "${this.props.mcpBridgeLabel}" — manage it in Settings > AI`}
+                onClick={() => openSettings('ai')}
+              >
+                MCP: {this.props.mcpBridgeLabel}
+              </span>
+            ) : (
+              <>
+                <a onClick={() => {
+                  chrome.tabs.create({url: goUivUrl("https://go.ui.vision/?help=home")})
+                }}>Ui.Vision</a>
+                {' - '}
+                <a onClick={() => {
+                  chrome.tabs.create({url: goUivUrl("https://go.ui.vision/?help=forum")})
+                }}>Forum</a>
+                {' - '}
+                <a onClick={() => {
+                  chrome.tabs.create({url: goUivUrl("https://go.ui.vision/?help=github")})
+                }}>Github</a>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -281,7 +309,8 @@ export default connect(
     status: state.status,
     config: state.config,
     ui: state.ui,
-    proxy: state.proxy
+    proxy: state.proxy,
+    mcpBridgeLabel: state.mcpBridgeLabel
   }),
   dispatch  => bindActionCreators({...actions, ...simpleActions}, dispatch)
   )(Controls)

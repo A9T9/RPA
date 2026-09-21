@@ -1,3 +1,4 @@
+import { recordRunFrame } from '../../../common/run_frames'
 import EventEmitter from 'eventemitter3'
 import fs, { ReadFileType } from '@/common/filesystem'
 import debounce = require('lodash.debounce')
@@ -251,6 +252,7 @@ export abstract class StandardStorage extends EventEmitter implements IStandardS
   }
 
   write (fileName: string, content: any): Promise<void> {
+    recordRunFrame(fileName, content)   // run pictures: only the finders' __last* working files are taken
     return this.exists(fileName)
     .then(isExist => {
       const next = () => {
@@ -264,6 +266,7 @@ export abstract class StandardStorage extends EventEmitter implements IStandardS
   }
 
   overwrite (fileName: string, content: any): Promise<void> {
+    recordRunFrame(fileName, content)   // run pictures: only the finders' __last* working files are taken
     return this.__overwrite(fileName, content)
     .then(() => {
       this.emitFilesChanged([fileName])
@@ -306,7 +309,13 @@ export abstract class StandardStorage extends EventEmitter implements IStandardS
         return this.list(entry.fullPath)
         .then((entries) => {
           return Promise.all(
-            entries.map((item) => this.remove(item.fullPath, item.isDirectory))
+            // files go straight to removeFile with the LISTED path — routing
+            // them back through remove() would re-stat and re-derive the name
+            // (lowercase, default extension), which misses any file whose
+            // stored name never came from write()
+            entries.map((item) => item.isFile
+              ? this.removeFile(item.fullPath)
+              : this.remove(item.fullPath, item.isDirectory))
           )
           .then(() => this.removeEmptyDirectory(entry.fullPath))
         })
@@ -319,10 +328,25 @@ export abstract class StandardStorage extends EventEmitter implements IStandardS
   clear (): Promise<void> {
     return this.list('/')
     .then((entries) => {
+      const errors: string[] = []
       return Promise.all(
-        entries.map((entry) => this.remove(entry.fullPath))
+        entries.map((entry) => {
+          // remove by the LISTED identity (same reasoning as in remove()'s
+          // directory branch), and attempt EVERY entry — collecting failures
+          // instead of letting the first rejection eat the rest of the report
+          const p = entry.isDirectory
+            ? this.remove(entry.fullPath, true)
+            : this.removeFile(entry.fullPath)
+          return p.catch((e: any) => {
+            errors.push(`${entry.name}: ${(e && e.message) || e}`)
+          })
+        })
       )
-      .then(() => {})
+      .then(() => {
+        if (errors.length) {
+          throw new Error(`${errors.length} item(s) could not be removed — ${errors.join('; ')}`)
+        }
+      })
     })
   }
 
@@ -522,8 +546,14 @@ export abstract class StandardStorage extends EventEmitter implements IStandardS
     // Sort entries in this order
     // 1. Files come before directories (so root macros like "#current" sit
     //    at the top of the tree, above the folders)
-    // 2. Inside directories or files, sort it alphabetically a-z (ignore case)
+    // 2. The shipped demo folders ("Demo and QA Test Scripts", "... (Classic)",
+    //    see PREINSTALL_ROOT_FOLDER in config/preinstall_macros.js - literal
+    //    here so the storage layer does not import the demo set) come after
+    //    the user's own folders: the tree opens on the user's work, the demos
+    //    sit at the bottom (user request 2026-09-16)
+    // 3. Inside directories or files, sort it alphabetically a-z (ignore case)
     const items = [...entries]
+    const pinnedLast = (e: Entry) => e.isDirectory && /^Demo and QA Test Scripts/i.test(e.name)
 
     items.sort((a, b) => {
       if (a.isFile && b.isDirectory) {
@@ -533,6 +563,10 @@ export abstract class StandardStorage extends EventEmitter implements IStandardS
       if (a.isDirectory && b.isFile) {
         return 1
       }
+
+      const aPinned = pinnedLast(a)
+      const bPinned = pinnedLast(b)
+      if (aPinned !== bPinned) return aPinned ? 1 : -1
 
       const aName = a.name.toLowerCase()
       const bName = b.name.toLowerCase()

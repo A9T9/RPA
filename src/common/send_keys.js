@@ -20,6 +20,7 @@ const findParentByTag = (el, tag) => {
 const splitStringToChars = (str) => {
   const specialKeys = [
     'KEY_LEFT', 'KEY_UP', 'KEY_RIGHT', 'KEY_DOWN',
+    'KEY_ARROW_LEFT', 'KEY_ARROW_UP', 'KEY_ARROW_RIGHT', 'KEY_ARROW_DOWN',
     'KEY_PGUP', 'KEY_PAGE_UP', 'KEY_PGDN', 'KEY_PAGE_DOWN',
     'KEY_BKSP', 'KEY_BACKSPACE', 'KEY_DEL', 'KEY_DELETE',
     'KEY_ENTER', 'KEY_TAB'
@@ -46,15 +47,19 @@ const getKeyStrokeAction = (str) => {
   if (match = str.match(reg)) {
     switch (match[1]) {
       case 'KEY_LEFT':
+      case 'KEY_ARROW_LEFT':
         return 'LEFT'
 
       case 'KEY_UP':
+      case 'KEY_ARROW_UP':
         return 'UP'
 
       case 'KEY_RIGHT':
+      case 'KEY_ARROW_RIGHT':
         return 'RIGHT'
 
       case 'KEY_DOWN':
+      case 'KEY_ARROW_DOWN':
         return 'DOWN'
 
       case 'KEY_PGUP':

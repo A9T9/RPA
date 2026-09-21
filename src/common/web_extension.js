@@ -95,7 +95,7 @@
       downloads: ['search', 'setUiOptions'],
       extension: ['isAllowedFileSchemeAccess'],
       contextMenus: ['create', 'update', 'remove', 'removeAll'],
-      'storage.local': ['get', 'set'],
+      'storage.local': ['get', 'set', 'remove'],
       // in-memory, cleared on extension reload/update and browser restart, kept
       // across service-worker restarts — used to stamp ipc cache entries with
       // the extension session they belong to (common/ipc/ipc_cache.ts).

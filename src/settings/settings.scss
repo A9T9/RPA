@@ -53,6 +53,16 @@
     margin-bottom: 10px;
   }
 
+  .settings-nav-group-title.with-icon {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-transform: none;
+    font-size: 12px;
+    letter-spacing: 0;
+    color: #4a5568;
+    img { width: 16px; height: 16px; border-radius: 3px; }
+  }
   .settings-nav-group-title {
     padding: 8px 8px 3px;
     font-size: 11px;

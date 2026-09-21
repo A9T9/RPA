@@ -1,10 +1,10 @@
 import Ext from '../../common/web_extension'
 import storage from '../../common/storage'
 import csIpc from '../../common/ipc/ipc_cs'
-import { postMessage, onMessage } from '../../common/ipc/cs_postmessage'
+import { postMessage, onMessage, setChannelKeySource } from '../../common/ipc/cs_postmessage'
 import inspector from '../../common/inspector'
 import * as C from '../../common/constant'
-import { pick, setIn, updateIn, until, parseQuery, objMap, bindOnce, bind, withTimeout, subjectiveBindOnce } from '../../common/utils'
+import { pick, setIn, updateIn, until, parseQuery, objMap, bindOnce, bind, withTimeout, subjectiveBindOnce, retry } from '../../common/utils'
 import { bindContentEditableChange, setStyle, domText, isFirefox, getElementByLocator } from '../../common/dom_utils'
 import { hackAlertInject } from './eval'
 import { run } from './command_runner'
@@ -24,9 +24,38 @@ interceptLog()
 
 console.log('content_script.js loaded:>>')
 
+// Presence flag for the background's re-injection guard (ext/common/tab.ts,
+// reinjectContentScript). This file runs in the extension's isolated world,
+// and so does a chrome.scripting.executeScript({func}) probe — so the flag
+// says "a content script is alive here" without touching the page's world.
+try { window.__uivContentScriptLoaded = true } catch (e) { /* sandboxed frame */ }
+
 if (window.top === window && !isFirefox()) {
   polyfillTimeoutFunctions(csIpc)
 }
+
+// Window messages between frames are signed with a key only the background
+// hands out (cs_postmessage.js). Every frame's content script fetches it here,
+// top or inner — inner frames have no csIpc but do have runtime messaging.
+// A copy of this file that runs as a page script (command_runner's src-less
+// frame injection) has no runtime and simply never takes signed requests.
+setChannelKeySource(() => {
+  if (!Ext.runtime || !Ext.runtime.sendMessage || !Ext.runtime.getURL) {
+    return Promise.reject(new Error('E355: no extension runtime in this context'))
+  }
+
+  return retry(() => {
+    return Ext.runtime.sendMessage({ type: 'CS_CHANNEL_KEY' })
+    .then(key => {
+      if (typeof key === 'string' && key) return key
+      throw new Error('E355: channel key not available yet')
+    })
+  }, {
+    shouldRetry:    () => true,
+    retryInterval:  500,
+    timeout:        30000
+  })()
+})
 
 const MASK_CLICK_FADE_TIMEOUT = 2000
 const oops = process.env.NODE_ENV === 'production'
@@ -48,8 +77,16 @@ let lastScreenOrigin = null
 document.addEventListener('mousemove', (e) => {
   if (!e.isTrusted) return
   lastScreenOrigin = {
-    ox: e.screenX - e.clientX,
-    oy: e.screenY - e.clientY,
+    // RAW event pair, not screenX - clientX: on a ZOOMED page the two live
+    // in different spaces (Chrome screenX is DIP, clientX is zoomed CSS px),
+    // so their difference is position-dependent garbage at zoom ≠ 100%.
+    // The reader computes the DIP origin as sx - cx * zoom with the tab's
+    // zoom factor it gets from the background (chrome.tabs.getZoom) — the
+    // dpr guard below already pins sample and read to the SAME zoom.
+    sx: e.screenX,
+    sy: e.screenY,
+    cx: e.clientX,
+    cy: e.clientY,
     screenLeft: window.screenLeft,
     screenTop: window.screenTop,
     // inner/outer heights let a later reader detect IN-WINDOW chrome coming or
@@ -825,6 +862,7 @@ const updateStatus = (args) => {
   broadcastToAllFrames('SET_STATUS', args)
 }
 
+let pageInvokePrompted = false
 const bindIPCListener = () => {
   // Note: need to check csIpc in case it's a none-src iframe into which we
   // inject content_script.js. It has no access to chrome api, thus no csIpc available
@@ -836,6 +874,13 @@ const bindIPCListener = () => {
     log(cmd, args)
     
     switch (cmd) {
+      case 'CONFIRM_PAGE_INVOKE': {
+        // Bound to this document, including after a service-worker restart.
+        // Set before showing the dialog so concurrent requests cannot prompt.
+        if (pageInvokePrompted || args.url !== window.location.href) return false
+        pageInvokePrompted = true
+        return confirm('Ui.Vision: Allow this website to start a macro?\n\n' + window.location.origin + '\n\nOnly approve a run you requested. To allow future runs without this dialog, enable website runs and add this origin to the website whitelist in Settings.')
+      }
       case 'HEART_BEAT':
         return {
           secret: csIpc.secret
@@ -1073,10 +1118,24 @@ const bindIPCListener = () => {
           devicePixelRatioService: dprService
         })
 
+        // The display metrics of THIS page's display, riding along with the
+        // rect: the panel consumes them in getDesktopAnchor, where its own
+        // window.devicePixelRatio / window.screen would describe the wrong
+        // display whenever the IDE sits on another monitor than the play
+        // window. dpr here still includes the page zoom — the consumer
+        // divides `zoom` back out to get the display scale.
+        const pageMetrics = {
+          dpr: window.devicePixelRatio,
+          zoom: (args && args.zoom) || 1,
+          availLeft: window.screen.availLeft || 0,
+          availTop: window.screen.availTop || 0,
+          screenWidth: window.screen.width,
+          screenHeight: window.screen.height
+        }
         return viewportRectService.getViewportRectInScreen().then(rect => {
           // Firefox: the service used mozInnerScreenX — exact, nothing to add
           if (typeof window.mozInnerScreenX !== 'undefined') {
-            return { ...rect, source: 'exact' }
+            return { ...rect, source: 'exact', pageMetrics }
           }
           // Chrome: the service DERIVED the origin from screenLeft/outerHeight
           // guesses (fixed 8px border, all vertical chrome assumed above the
@@ -1087,20 +1146,31 @@ const bindIPCListener = () => {
           // probe the XClick path fires when none has happened yet); a window
           // move since then shows up in screenLeft/Top and shifts it.
           if (lastScreenOrigin && lastScreenOrigin.dpr === window.devicePixelRatio) {
+            // The DIP origin from the raw sample pair: screenX is DIP,
+            // clientX is CSS px of the (possibly zoomed) page — subtracting
+            // clientX × zoom converts before the spaces meet. At 100% zoom
+            // this is exactly the old screenX - clientX. The dpr guard above
+            // guarantees the sample was taken at the CURRENT zoom.
+            const zoom = (args && args.zoom) || 1
+            const ox = lastScreenOrigin.sx - lastScreenOrigin.cx * zoom
+            const oy = lastScreenOrigin.sy - lastScreenOrigin.cy * zoom
             // barShift: in-window chrome (Chrome's debugger notice) appearing
             // or disappearing since the sample — innerHeight changed while
             // outerHeight did not. A window RESIZE moves both by the same
             // amount and cancels out; a top-edge resize shows up in screenTop.
-            const barShift = (window.innerHeight - lastScreenOrigin.innerHeight) -
+            // innerHeight is zoomed CSS px, outerHeight is DIP — scale the
+            // inner delta to DIP before mixing them (no-op at 100%).
+            const barShift = (window.innerHeight - lastScreenOrigin.innerHeight) * zoom -
               (window.outerHeight - lastScreenOrigin.outerHeight)
             return {
               ...rect,
-              x: lastScreenOrigin.ox + (window.screenLeft - lastScreenOrigin.screenLeft),
-              y: lastScreenOrigin.oy + (window.screenTop - lastScreenOrigin.screenTop) - barShift,
-              source: 'measured'
+              x: ox + (window.screenLeft - lastScreenOrigin.screenLeft),
+              y: oy + (window.screenTop - lastScreenOrigin.screenTop) - barShift,
+              source: 'measured',
+              pageMetrics
             }
           }
-          return { ...rect, source: 'derived' }
+          return { ...rect, source: 'derived', pageMetrics }
         })
       }
 
@@ -1294,15 +1364,6 @@ const bindOnMessage = () => {
   })
 }
 
-const isUrlInWhiteList = (url) => {
-  const { websiteWhiteList = [] } = state.config
-
-  return websiteWhiteList.reduce((prev, cur) => {
-    if (prev) return prev
-    return url.indexOf(cur) === 0
-  }, false)
-}
-
 const bindInvokeEvent = () => {
   const doesQueriesContainMacroOrTestSuite = (queries = {}) => {
     return queries['macro'] || queries['testsuite'] || queries['folder']
@@ -1358,7 +1419,7 @@ const bindInvokeEvent = () => {
   const isFile  = window.location.protocol === 'file:'
 
   // Macros
-  bind(window, 'kantuRunMacro', (e) => {
+  bindOnce(window, 'kantuRunMacro', (e) => {
     log('invoke event', e)
     window.dispatchEvent(new CustomEvent('kantuInvokeSuccess'))
 
@@ -1392,25 +1453,10 @@ const bindInvokeEvent = () => {
       const storageMode = queries['storage'] || e.detail.storageMode || 'browser'
 
       const msgDirectParam      = 'Ui.Vision: Do you want to import and run this macro?\n\nNote: To remove this dialog, add \'?direct=1\' switch to the URL. Example: file:///xx/xx/macro.html?direct=1  For embedded macros, add "direct: true" to the call.'
-      const msgWebsiteWhiteList = 'Ui.Vision: Do you want to import and run this macro?\n\nNote: To remove this dialog, add this site to whitelist in the Ui.Vision settings'
 
       if (isFile && !direct) {
         const agree = confirm(msgDirectParam)
         if (!agree) return
-      }
-
-      if (!isFile) {
-        if (!state.config.allowRunFromHttpSchema) {
-          return alert('[Message from Ui.Vision] Error #110: To run an embedded macro from a website, you need to allow it in the RPA settings first')
-        }
-
-        if (!isUrlInWhiteList(window.location.href)) {
-          const agree = confirm(msgWebsiteWhiteList)
-          if (!agree) return
-        } else if (!direct) {
-          const agree = confirm(msgDirectParam)
-          if (!agree) return
-        }
       }
 
       if (doesQueriesContainMacroOrTestSuite(queries)) {

@@ -12,14 +12,11 @@ import CONFIG from '@/config'
 import * as actions from '@/actions'
 import { Actions, Actions as simpleActions } from '@/actions/simple_actions'
 import { isCVTypeForDesktop } from '@/common/cv_utils'
-import { cn, updateIn } from '@/common/utils'
-import Ext from '@/common/web_extension'
-import { ocrViewport } from '@/modules/ocr'
+import { cn } from '@/common/utils'
+import { ocrViewport, isXModuleOcrAvailable } from '@/modules/ocr'
 import { store } from '@/redux'
-import { isOcrSpaceFreeKey, testOcrSpaceAPIKey } from '@/services/ocr'
-import { ocrLanguageOptions, tesseractLanguageOptions } from '@/services/ocr/languages'
-import { getXFile } from '@/services/xmodules/xfile'
-import { getXLocal } from '@/services/xmodules/xlocal'
+import { isOcrSpaceFreeKey, testOcrSpaceAPIKey, installedLocalOcrLanguages } from '@/services/ocr'
+import { ocrLanguageOptions } from '@/services/ocr/languages'
 import { State } from '@/reducers/state'
 
 const OSType = (() => {
@@ -36,61 +33,39 @@ interface OcrTabProps {
 
 interface OcrTabState {
   ocrLanguageOptions: Array<{ text: string, value: string }>
-  tesseractLanguageOptions: Array<{ text: string, value: string }>
   userEnteredOCRAPIKey: string
   connectedAPIEndpointType: string | null
   testingOcrAPI: boolean
-  xModuleDataLocal: { [key: string]: any }
+  // Desktop Automation XModule status for the Local OCR section header:
+  // null = still probing
+  xmoduleInstalled: boolean | null
 }
 
 class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
   state: OcrTabState = {
     ocrLanguageOptions: this.props.config.ocrLanguageOption || ocrLanguageOptions,
-    tesseractLanguageOptions: tesseractLanguageOptions,
     userEnteredOCRAPIKey: '',
     connectedAPIEndpointType: null,
     testingOcrAPI: false,
-    xModuleDataLocal: {}
+    xmoduleInstalled: null
   }
 
   componentDidMount () {
+    // Engine1 was removed from the UI; move stored selections to Engine2.
+    if (this.props.config.ocrEngine === 1) {
+      this.props.updateConfig({ ocrEngine: 2 })
+    }
     const key = this.props.config.ocrSpaceApiKey
     if (key) {
       this.setState({ connectedAPIEndpointType: isOcrSpaceFreeKey(key) ? 'free' : 'pro' })
     }
-    this.refreshXLocalStatus(false)
+    isXModuleOcrAvailable()
+      .then(installed => this.setState({ xmoduleInstalled: installed }))
+      .catch(() => this.setState({ xmoduleInstalled: false }))
   }
 
   onConfigChange = (key: string, val: any) => {
     this.props.updateConfig({ [key]: val })
-  }
-
-  refreshXLocalStatus = (notify: boolean) => {
-    getXLocal()
-      .getVersionLocal()
-      .then((data: any) => {
-        const { installed, version } = data
-
-        if (notify) {
-          const msg = installed ? `Installed (v${version})` : 'Not Installed'
-          message.info(`status updated: ${msg}`)
-        }
-
-        const p = !installed ? Promise.resolve() : getXLocal().initConfig()
-        p.catch(() => {}).then(() => {
-          this.setState(
-            updateIn(
-              ['xModuleDataLocal', getXLocal().getName()],
-              (orig: any) => ({
-                ...orig,
-                ...data,
-                config: getXLocal().getCachedConfig()
-              }),
-              this.state
-            )
-          )
-        })
-      })
   }
 
   onChangeDefaultOCREngine = (value: string) => {
@@ -98,61 +73,32 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
     const lastSelectedEngine = this.props.config.ocrEngine
     onConfigChange('ocrEngine', parseInt(value, 10))
     if (value === '99') {
-      if (OSType === 'linux') {
-        const msg = 'Local OCR not supported on Linux yet'
-        message.warn(`${msg}`, 2.5)
-        onConfigChange('ocrEngine', 98)
-      } else {
-        getXFile()
-          .getLangs(OSType)
-          .then(
-            (data: any) => {
-              if (data) {
-                const options = JSON.parse(atob(data))
-                const newOcrlangAr: Array<{ text: string, value: string }> = []
-                this.state.ocrLanguageOptions.map((item) =>
-                  options.indexOf(item.value) > -1
-                    ? newOcrlangAr.push({ text: item.text, value: item.value })
-                    : []
-                )
-
-                this.setState({ ocrLanguageOptions: newOcrlangAr })
-                onConfigChange('ocrLanguageOption', newOcrlangAr)
-                const haveEng = newOcrlangAr.filter((lang) => lang.value === 'eng')
-                if (haveEng.length !== 0) {
-                  onConfigChange('ocrLanguage', 'eng')
-                } else {
-                  onConfigChange('ocrLanguage', newOcrlangAr[0]['value'])
-                }
-              } else {
-                const msg = 'Not Installed'
-                message.info(`status updated: ${msg}`)
-              }
-            },
-            () => {
-              this.setState({ ocrLanguageOptions: this.state.ocrLanguageOptions })
+      // Local OCR = the OS engine inside the Desktop Automation native app.
+      // Narrow the language list to what the OS can actually read.
+      installedLocalOcrLanguages()
+        .then(
+          (codes: string[]) => {
+            const newOcrlangAr = ocrLanguageOptions.filter(item => codes.indexOf(item.value) > -1)
+            if (!newOcrlangAr.length) {
+              // host answered but reported nothing usable — keep the full
+              // list rather than an empty dropdown
+              this.setState({ ocrLanguageOptions: ocrLanguageOptions })
+              onConfigChange('ocrLanguageOption', ocrLanguageOptions)
               onConfigChange('ocrLanguage', 'eng')
-              onConfigChange('ocrLanguageOption', this.state.ocrLanguageOptions)
-              const msg = 'Not Installed'
-              onConfigChange('ocrEngine', lastSelectedEngine)
-              message.info(`status updated: ${msg}`)
+              return
             }
-          )
-      }
-    } else if (value === '98') {
-      const tesseractLangAr = this.state.tesseractLanguageOptions.map((item) => ({
-        text: item.text,
-        value: item.value
-      }))
-
-      this.setState({ tesseractLanguageOptions: tesseractLangAr })
-
-      const haveEng = tesseractLangAr.filter((lang) => lang.value === 'eng')
-      if (haveEng.length !== 0) {
-        this.onConfigChange('ocrLanguage', 'eng')
-      } else {
-        this.onConfigChange('ocrLanguage', tesseractLangAr[0]['value'])
-      }
+            this.setState({ ocrLanguageOptions: newOcrlangAr })
+            onConfigChange('ocrLanguageOption', newOcrlangAr)
+            const haveEng = newOcrlangAr.filter((lang) => lang.value === 'eng')
+            onConfigChange('ocrLanguage', haveEng.length !== 0 ? 'eng' : newOcrlangAr[0]['value'])
+          },
+          () => {
+            onConfigChange('ocrLanguage', 'eng')
+            onConfigChange('ocrLanguageOption', this.state.ocrLanguageOptions)
+            onConfigChange('ocrEngine', lastSelectedEngine)
+            message.info('status updated: Not Installed')
+          }
+        )
     } else {
       this.setState({ ocrLanguageOptions: ocrLanguageOptions })
       onConfigChange('ocrLanguageOption', ocrLanguageOptions)
@@ -190,7 +136,6 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
   render () {
     const { config } = this.props
     const onConfigChange = this.onConfigChange
-    const xLocalData = this.state.xModuleDataLocal[getXLocal().getName()]
 
     const paneClass = cn('ocr-pane', {
       'ocr-disabled': config.ocrMode === 'disabled',
@@ -205,7 +150,18 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
           </p>
         </div>
         <div className="row">
-          <span className="label-text">Local OCR Options:
+          <span className="label-text">Local OCR — needs the{' '}
+            <a
+              href="#desktop-automation"
+              onClick={e => { e.preventDefault(); window.location.hash = 'desktop-automation' }}
+            >
+              Desktop Automation XModule
+            </a>
+            {this.state.xmoduleInstalled === null
+              ? ''
+              : this.state.xmoduleInstalled
+                ? ' (status: installed)'
+                : ' (status: not installed)'}
             {'  ['}
             <a href="https://go.ui.vision/?help=ocr-local" target="_blank">more info</a>
             {']'}
@@ -216,21 +172,26 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
             style={{ marginLeft: '5%' }}
             value={'' + config.ocrEngine}
           >
+            {/* id 98, {engine: 'builtin'} in JS scripts: the ocrs engine in
+                the native app — the SAME recognition on every OS. */}
             <Radio value="98" onClick={() => this.onChangeDefaultOCREngine('98')}>
-              Javascript OCR (Works well for many use cases, additional OCR languages available on
-              <a href="https://go.ui.vision/?help=ocr-request" target="_blank"> request</a>)
+              Built-in Cross-Platform OCR (ID &ldquo;builtin&rdquo;)
             </Radio>
-
-            <Radio value="99" onClick={() => this.onChangeDefaultOCREngine('99')}>
-              XModule Local OCR (Faster/better, especially for text on images)
-            </Radio>
+            {/* id 99: the OS reader (Windows.Media.Ocr / Apple Vision).
+                On Linux there is no separate OS reader — both ids run the
+                cross-platform engine, so only one local option is shown. */}
+            {OSType !== 'linux' ? (
+              <Radio value="99" onClick={() => this.onChangeDefaultOCREngine('99')}>
+                {OSType === 'mac'
+                  ? <>Built-in local macOS OCR (ID &ldquo;builtin_mac&rdquo;)</>
+                  : <>Built-in local Windows OCR (ID &ldquo;builtin_win&rdquo;)</>}
+              </Radio>
+            ) : null}
           </Radio.Group>
         </div>
         <div className="row">
-          <span className="label-text">Use Ocr.Space Online OCR:
-            {'   ['}
-            <a href="https://go.ui.vision/?help=free-ocr-api" target="_blank">Free OCR API account required</a>
-            {']'}
+          <span className="label-text">Cloud OCR — to use Ocr.Space you need a{' '}
+            <a href="https://go.ui.vision/?help=free-ocr-api" target="_blank">Free OCR API account</a>
           </span>
           <br />
           <Radio.Group
@@ -238,14 +199,24 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
             style={{ marginLeft: '5%' }}
             value={'' + config.ocrEngine}
           >
-            <Radio value="1" onClick={() => this.onChangeDefaultOCREngine('1')}>
-              Cloud OCR: OCR.Space, Engine1
-            </Radio>
             <Radio value="2" onClick={() => this.onChangeDefaultOCREngine('2')}>
-              Cloud OCR: OCR.Space, Engine2
+              OCR.Space, Engine2 (ID &ldquo;ocrspace_engine2&rdquo;)
             </Radio>
             <Radio value="3" onClick={() => this.onChangeDefaultOCREngine('3')}>
-              Cloud OCR: OCR.Space, Engine3
+              OCR.Space, Engine3 (ID &ldquo;ocrspace_engine3&rdquo;)
+            </Radio>
+            {/* id 90, {engine: 'aiprovider'}: the configured AI provider as
+                OCR engine — like using ai.ask for OCR, but integrated with
+                findText & Co the way OCR.Space is (proxy task: 'aiocr'). */}
+            <Radio value="90" onClick={() => this.onChangeDefaultOCREngine('90')}>
+              Use{' '}
+              <a
+                href="#ai"
+                onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.hash = 'ai' }}
+              >
+                AI Provider
+              </a>
+              {' '}(ID &ldquo;aiprovider&rdquo;)
             </Radio>
           </Radio.Group>
           <div>
@@ -254,13 +225,13 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
               type="text"
               style={{ width: '120px' }}
               value={this.state.userEnteredOCRAPIKey}
-              disabled={![1, 2, 3].includes(config.ocrEngine)}
+              disabled={![2, 3].includes(config.ocrEngine)}
               onChange={(e) => this.setState({ userEnteredOCRAPIKey: e.target.value })}
             />
             <Button
               type="primary"
               style={{ marginLeft: '8px' }}
-              disabled={![1, 2, 3].includes(config.ocrEngine)}
+              disabled={![2, 3].includes(config.ocrEngine)}
               onClick={this.onTestOcrApiKey}
             >
               Test
@@ -281,16 +252,14 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
               placeholder="OCR Language"
               value={config.ocrLanguage}
               disabled={
-                (config.ocrMode === 'disabled' || config.ocrEngine === 2) &&
-                config.ocrEngine !== 99
+                // engine 2 and the AI provider auto-detect the language;
+                // the local readers (98/99) work with no OCR.Space account
+                config.ocrEngine === 2 || config.ocrEngine === 90 ||
+                (config.ocrMode === 'disabled' && ![98, 99].includes(config.ocrEngine))
               }
               onChange={(val) => onConfigChange('ocrLanguage', val)}
             >
-              {config.ocrEngine === 98 ? this.state.tesseractLanguageOptions.map((item) => (
-                <Select.Option value={item.value} key={item.value}>
-                  {item.text}
-                </Select.Option>
-              )) : this.state.ocrLanguageOptions.map((item) => (
+              {this.state.ocrLanguageOptions.map((item) => (
                 <Select.Option value={item.value} key={item.value}>
                   {item.text}
                 </Select.Option>
@@ -311,9 +280,9 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
               type="primary"
               loading={this.state.testingOcrAPI}
               disabled={
+                // only the OCR.Space engines need the account/key
                 config.ocrMode === 'disabled' &&
-                config.ocrEngine !== 99 &&
-                config.ocrEngine !== 98
+                ![90, 98, 99].includes(config.ocrEngine)
               }
               onClick={() => {
                 this.setState({ testingOcrAPI: true })
@@ -326,7 +295,13 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
                   isDesktop: isDesktopMode
                 })
                   .catch((e: Error) => {
-                    message.error(e.message)
+                    // #150/#160/#170: in Browser Vision mode the overlay
+                    // draws into the last-used WEBSITE tab — being on this
+                    // settings tab (or any extension/chrome:// page) when
+                    // clicking the test leaves it no page to draw on
+                    message.error(/#1[567]0/.test(e.message)
+                      ? 'The overlay test needs a normal website tab: open one (and play any macro once so Ui.Vision targets it), then click the test again. ' + e.message
+                      : e.message)
                   })
                   .then(() => {
                     this.setState({ testingOcrAPI: false })
@@ -336,52 +311,24 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
             >
               Show OCR Overlay
             </Button>
+            <span style={{ marginLeft: '10px' }}>
+              currently in <b>{isCVTypeForDesktop(config.cvScope) ? 'Desktop' : 'Browser'} Vision</b> mode —{' '}
+              <a
+                href="#vision"
+                onClick={e => { e.preventDefault(); window.location.hash = 'vision' }}
+              >
+                change in Vision settings
+              </a>
+            </span>
           </p>
 
           <p>
-            The test runs OCR on the currently active browser tab and
-            displays the result as overlay.
+            {isCVTypeForDesktop(config.cvScope)
+              ? 'The test runs OCR on a desktop screenshot and displays the result as overlay.'
+              : 'The test runs OCR on the currently active browser tab and displays the result as overlay.'}
           </p>
         </div>
 
-        <div style={{ margin: '30px 0 0' }} className="xmodule-item">
-          <div className="xmodule-title">
-            <span>
-              <b>XModule OCR</b> - Fast Local OCR on Windows/Mac
-            </span>
-            <a href={getXLocal().infoLink()} target="_blank">
-              More Info
-            </a>
-            <Button type="primary" onClick={() => this.refreshXLocalStatus(true)}>
-              Test it
-            </Button>
-          </div>
-          <div className="xmodule-status">
-            <label>Status:</label>
-
-            {xLocalData && xLocalData.installed ? (
-              <div className="status-box">
-                <span>Installed (v{xLocalData.version})</span>
-                <a
-                  target="_blank"
-                  href={getXLocal().checkUpdateLink(
-                    xLocalData && xLocalData.version,
-                    Ext.runtime.getManifest().version
-                  )}
-                >
-                  Check for update
-                </a>
-              </div>
-            ) : (
-              <div className="status-box">
-                <span>Not Installed</span>
-                <a href={getXLocal().downloadLink()} target="_blank">
-                  Download it
-                </a>
-              </div>
-            )}
-          </div>
-        </div>
       </div>
     )
   }

@@ -1,4 +1,4 @@
-import { onMessage } from '../common/ipc/cs_postmessage'
+import { onSameWindowMessage } from '../common/ipc/cs_postmessage'
 
 const clone = (data) => {
   const str = JSON.stringify(data)
@@ -25,7 +25,10 @@ const asEvalable = (code) => {
   return code
 }
 
-onMessage(window, ({ cmd, args }) => {
+// Only the content script of this very window may drive this (it posts to
+// its own window); a cross-origin frame or opener holding a reference to
+// this window is refused by the source check inside onSameWindowMessage.
+onSameWindowMessage(window, ({ cmd, args }) => {
   switch (cmd) {
     case 'INJECT_READY': {
       document.body.setAttribute('data-injected', 'done')

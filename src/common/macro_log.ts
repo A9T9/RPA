@@ -12,6 +12,12 @@ export const renderLogType = (log: LogItem): string => {
     case 'reflect':
       return '[info]'
 
+    case 'mcp':
+      // lines the MCP bridge writes (Claude Code driving the extension):
+      // short on purpose — "[info] [Claude bridge]" ate a third of a
+      // 260px panel row before the actual text began
+      return '[MCP]'
+
     case 'error':
       return (log.options && log.options.ignored) ? '[error][ignored]' : '[error]'
 

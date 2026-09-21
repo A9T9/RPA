@@ -6,7 +6,18 @@ import 'codemirror/lib/codemirror'
 import 'codemirror/mode/javascript/javascript'
 import 'codemirror/addon/edit/matchbrackets'
 import 'codemirror/addon/edit/closebrackets'
+// in-editor search (Ctrl-F / Ctrl-G / Alt-G) — same addons as script_view,
+// plus selection-match highlight and active line (no comment toggle: this
+// view is JSON, where // is a syntax error)
+import '@/common/cm_search'
+import 'codemirror/addon/search/searchcursor'
+import 'codemirror/addon/search/jump-to-line'
+import 'codemirror/addon/dialog/dialog'
+import 'codemirror/addon/search/match-highlighter'
+import 'codemirror/addon/selection/active-line'
 import 'codemirror/lib/codemirror.css'
+import 'codemirror/addon/dialog/dialog.css'
+import '@/styles/cm-extras.css'
 
 import * as actions from '@/actions'
 import { FocusArea } from '@/reducers/state'
@@ -86,6 +97,8 @@ class SourceView extends React.Component {
             lineNumbers: true,
             matchBrackets: true,
             autoCloseBrackets: true,
+            styleActiveLine: true,
+            highlightSelectionMatches: { showToken: /\w/, wordsOnly: true },
             readOnly: !getLicenseService().canPerform(Feature.Edit)
           }}
         />

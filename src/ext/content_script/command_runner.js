@@ -170,7 +170,15 @@ export const run = (command, csIpc, helpers) => {
       return ({
         errorMsg: (msg) => {
           if (/element is found but not visible yet/.test(msg)) {
+            if (command.spExtra && command.spExtra.requireVisibleClick) {
+              return `element is found but not visible yet for '${locator}'. uiv.page.click selects the FIRST matching element, which is hidden. Reveal it or narrow the locator to the intended visible control. For an intentional hidden synthetic click, use uiv.setVar('!WAITFORVISIBLE', false); uiv.run('click', locator) with your locator string.`
+            }
             return `element is found but not visible yet for '${locator}' (use !WaitForVisible = false to disable waiting for visible)`
+          }
+          // an unknown or stale ref= never "appears later": keep its own
+          // message so the player can stop waiting (see isUnretryableLocatorError)
+          if (/\bref=\d+/.test(msg) && /is unknown|is gone|no element refs/.test(msg)) {
+            return msg.replace(/^getElementByLocator: /, '')
           }
 
           return `timeout reached when looking for element '${locator}'`
@@ -456,7 +464,7 @@ export const run = (command, csIpc, helpers) => {
     }
     case 'click':
     case 'clickAndWait': {
-      return __getElementByLocator(target, extra.waitForVisible, command, csIpc)
+      return __getElementByLocator(target, !!(command.spExtra && command.spExtra.requireVisibleClick) || extra.waitForVisible, command, csIpc)
       .then(el => {
         try {
           if (extra.playScrollElementsIntoView) el.scrollIntoView({ block: 'center' })
@@ -464,6 +472,15 @@ export const run = (command, csIpc, helpers) => {
         } catch (e) {
           log.error('error in scroll and highlight')
         }
+
+        // A menu/dropdown button that carries aria-expanded="false" and is
+        // STILL false shortly after our synthetic events did not open: menus
+        // built on pointer events (React/Radix/MUI/Headless UI dashboards —
+        // Cloudflare's "Row actions", Google Pay) ignore dispatched clicks
+        // and some check isTrusted. Say so, instead of a silent no-op the
+        // author only discovers via "page unchanged" (OPEN-ISSUES 30.5)
+        const expandable = (el.closest && el.closest('[aria-expanded]')) || (el.getAttribute('aria-expanded') != null ? el : null)
+        const wasExpanded = expandable ? expandable.getAttribute('aria-expanded') : null
 
         ;['mousedown', 'mouseup', 'click'].forEach(eventType => {
           if (eventType === 'click' && typeof el.click === 'function') {
@@ -478,6 +495,19 @@ export const run = (command, csIpc, helpers) => {
             })
           )
         })
+
+        if (wasExpanded === 'false') {
+          setTimeout(() => {
+            try {
+              if (expandable.isConnected && expandable.getAttribute('aria-expanded') === 'false') {
+                const name = (expandable.getAttribute('aria-label') || expandable.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40)
+                csIpc.ask('CS_ADD_LOG', {
+                  warning: `the click on "${name || target}" left it at aria-expanded="false" — the menu did not open. Controls built on pointer events ignore a synthetic click: use a trusted one — uiv.browser.click(locator) in a script, XClick in a table macro.`
+                }).catch(() => {})
+              }
+            } catch (e) { /* the element may be gone — nothing to say */ }
+          }, 400)
+        }
 
         //  csIpc.ask('CS_ON_DOWNLOAD', {
         //   fileName: "",

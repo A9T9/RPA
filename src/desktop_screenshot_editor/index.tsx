@@ -273,8 +273,23 @@ class App extends React.Component<Props, State> {
     return vertical + '-' + horizon
   }
 
+  // OCR word coordinates arrive in CSS-screen units — the capture's pixels
+  // divided by the panel's devicePixelRatio. The image element is displayed
+  // at screen.width * scale CSS px while its NATURAL width is the capture's
+  // pixel width. On macOS those two spaces agree (screen.width is points,
+  // the capture is 2x), so plain `scale * coord` lines up — but on Windows
+  // display scaling and on Linux (where browsers self-scale, dpr 1.25 on a
+  // scale-1.0 monitor) they do not, and every box sat ~25% short of its
+  // word (reported live from the Show OCR Overlay button). Map through the
+  // real displayed-px-per-coordinate-unit ratio instead of assuming 1.
+  ocrCoordScale () {
+    const naturalW = this.state.imageSize.width
+    if (!naturalW || !screen.width) return this.state.scale
+    return this.state.scale * (window.devicePixelRatio || 1) * (screen.width / naturalW)
+  }
+
   ocrMatchStyle (pw: OcrPositionedWord, match: OcrTextSearchMatchForHighlight) {
-    const { scale } = this.state
+    const scale = this.ocrCoordScale()
     const styleByType = (() => {
       switch (match.highlight) {
         case OcrHighlightType.Identified:
@@ -314,7 +329,7 @@ class App extends React.Component<Props, State> {
   }
 
   renderRectForOcrMatch (match: OcrTextSearchMatchForHighlight,allState:any, serial: number) {
-    const { scale } = this.state
+    const scale = this.ocrCoordScale()
     const rect  = ocrMatchRect(match)
     const styles: CSSProperties = {
       boxSizing:        'border-box',

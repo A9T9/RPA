@@ -1,9 +1,15 @@
+import { getAIProviderConfig } from '../computer_use/service'
+import { reportUsage } from '@/services/usage'
+import { captureExecutionCloudCall } from '@/common/execution_locality'
 import ComputerUse from '../computer_use/computer_use'
 import { ComputerUseMessageType } from '../computer_use/model'
 import { SamplingError } from '../computer_use/sampling'
 import { OPENAI_COMPAT } from '@/common/constant'
+import Ext from '@/common/web_extension'
+import { getXModuleVersion } from '@/services/xmodules2/routing'
 import { chatCompletionsUrl } from '@/common/uiv_link'
 import { uivInstallHeader } from '../uivision_free_tier'
+import { openrouterReasoningParam, isReasoningMandatoryError, markReasoningMandatory } from './reasoning'
 
 // Agent sampling loop for OpenAI-compatible chat-completions endpoints
 // (OpenRouter, Ollama, LM Studio, ...). Mirrors the Anthropic Sampling class
@@ -18,6 +24,7 @@ export interface ISamplingEngine {
 }
 
 export interface OpenAICompatSamplingParams {
+  provider: string
   baseURL: string
   apiKey: string
   model: string
@@ -136,6 +143,10 @@ class OpenAICompatSampling implements ISamplingEngine {
     if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`
     headers['X-Title'] = 'Ui.Vision RPA'
     headers['X-UIV-Task'] = this.params.task || 'ai.computerUse'
+    // build cohort marker (retention.md 9.4) — hint, not a trust boundary
+    headers['X-UIV-Version'] = Ext.runtime.getManifest().version
+    // native host (Desktop Automation) version — '' when not installed
+    headers['X-UIV-XModule-Version'] = getXModuleVersion()
     // device id — our proxy only; on PRO the Bearer header is the account key
     Object.assign(headers, uivInstallHeader(this.params.baseURL))
 
@@ -152,13 +163,32 @@ class OpenAICompatSampling implements ISamplingEngine {
       max_tokens: 4096,
       temperature: 0
     }
-    if (/openrouter\.ai/i.test(this.params.baseURL)) body.reasoning = { enabled: false }
+    const onOpenRouter = /openrouter\.ai/i.test(this.params.baseURL)
+    if (onOpenRouter) body.reasoning = openrouterReasoningParam(this.params.model)
 
-    const res = await fetch(chatCompletionsUrl(this.params.baseURL), {
+    captureExecutionCloudCall(this.params.provider)()
+    let res = await fetch(chatCompletionsUrl(this.params.baseURL), {
       method: 'POST',
       headers,
       body: JSON.stringify(body)
     })
+
+    // Models that refuse reasoning-off (HTTP 400 "Reasoning is mandatory",
+    // e.g. gemini-3.7-flash): remember the model, retry once with the
+    // closest legal request, {effort:'low'}.
+    if (!res.ok && onOpenRouter) {
+      const errBody = await res.text().catch(() => '')
+      if (!isReasoningMandatoryError(res.status, errBody)) {
+        throw new Error(`HTTP ${res.status}: ${errBody.slice(0, 400)}`)
+      }
+      markReasoningMandatory(this.params.model)
+      body.reasoning = openrouterReasoningParam(this.params.model)
+      res = await fetch(chatCompletionsUrl(this.params.baseURL), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body)
+      })
+    }
 
     if (!res.ok) {
       const body = await res.text().catch(() => '')
@@ -171,9 +201,12 @@ class OpenAICompatSampling implements ISamplingEngine {
     const data = await res.json()
     if (typeof data?.model === 'string' && data.model) this.upstreamModel = data.model
     const message = data?.choices?.[0]?.message
-    if (!message) {
-      throw new Error(`Empty response from model: ${JSON.stringify(data).slice(0, 400)}`)
+    if (!message || (!message.tool_calls?.length && !(typeof message.content === 'string' && message.content.trim()) &&
+        !(Array.isArray(message.content) && message.content.some((part: any) => part?.type === 'text' && String(part.text || '').trim())))) {
+      throw new Error('The AI returned no text or action. Try again or select another AI engine. No action from this response was executed.')
     }
+    reportUsage('ai', this.params.provider === 'uivision' ? (getAIProviderConfig().tier === 'pro' ? 'pro' : 'free') : this.params.provider === 'local' ? 'local' : 'own-key')
+    window.dispatchEvent(new Event('uiv-allowance-changed'))
     return { message, usage: data.usage }
   }
 

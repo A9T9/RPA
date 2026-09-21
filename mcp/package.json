@@ -1,7 +1,8 @@
 {
   "name": "uivision-mcp-bridge",
-  "version": "1.1.1",
-  "description": "MCP bridge: lets Claude Code (or any MCP client) build and run Ui.Vision RPA macros via the browser extension",
+  "version": "1.7.18",
+  "mcpName": "io.github.A9T9/uivision-mcp",
+  "description": "Ui.Vision MCP: MCP server for browser and desktop automation (RPA) with OCR, image recognition and real mouse/keyboard input. Works with Claude Code, Claude Desktop, Cursor, Windsurf, VS Code, LM Studio and any other MCP client.",
   "main": "uivision-mcp-bridge.js",
   "bin": {
     "uivision-mcp-bridge": "uivision-mcp-bridge.js"
@@ -17,15 +18,34 @@
     "README.md"
   ],
   "license": "MIT",
+  "homepage": "https://ui.vision/mcp",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/A9T9/RPA.git"
   },
   "keywords": [
     "mcp",
+    "mcp-server",
     "ui.vision",
     "rpa",
     "browser-automation",
-    "claude"
+    "desktop-automation",
+    "claude",
+    "claude-code",
+    "anthropic",
+    "ai-agent",
+    "ocr",
+    "computer-vision",
+    "visual-automation",
+    "model-context-protocol",
+    "uivision",
+    "web-automation",
+    "computer-use",
+    "image-recognition",
+    "cursor",
+    "windsurf",
+    "vscode",
+    "lm-studio",
+    "automation"
   ]
 }

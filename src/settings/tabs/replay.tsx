@@ -4,7 +4,9 @@
 import React from 'react'
 import { connect } from 'react-redux'
 import { bindActionCreators, Dispatch } from 'redux'
-import { Checkbox, Form, Input, Select } from 'antd'
+import { Button, Checkbox, Form, Input, message, Modal, Select } from 'antd'
+
+import { requestCrossPageForceReload } from '@/services/storage'
 
 import * as actions from '@/actions'
 import { Actions as simpleActions } from '@/actions/simple_actions'
@@ -18,9 +20,39 @@ const displayConfig = {
 interface ReplayTabProps {
   config: { [key: string]: any }
   updateConfig: (config: { [key: string]: any }) => void
+  restoreDemoMacros: (kind: string) => Promise<any>
 }
 
-class ReplayTab extends React.Component<ReplayTabProps> {
+class ReplayTab extends React.Component<ReplayTabProps, { restoringDemos: string | null }> {
+  state = { restoringDemos: null as string | null }
+
+  restoreDemos = (kind: string, successText: string) => {
+    if (this.state.restoringDemos) return
+    // restore is a FACTORY RESET of the demo folder (deleted, then rewritten
+    // fresh — see restoreDemoMacros): edited demos, stale copies and any of
+    // the user's own macros saved inside that folder are removed with it, so
+    // say so before doing it. Folder names as literals on purpose: importing
+    // them from preinstall_macros would pull the whole demo set into the
+    // settings bundle.
+    const folder = kind === 'classic' ? 'Demo and QA Test Scripts (Classic)' : 'Demo and QA Test Scripts'
+    Modal.confirm({
+      title: 'Restore demo macros?',
+      content: `This resets the "${folder}" folder to the shipped demos: the folder is deleted and written fresh. Changes you made to demo macros — and any of your own macros saved inside that folder — are removed. Macros outside the folder are not touched.`,
+      okText: 'Restore',
+      cancelText: 'Cancel',
+      onOk: () => {
+        this.setState({ restoringDemos: kind })
+        return this.props.restoreDemoMacros(kind)
+          // the restore ran in THIS page's storage manager — tell the side
+          // panel / IDE window to reload their macro tree
+          .then(() => requestCrossPageForceReload())
+          .then(() => message.success(successText, 5))
+          .catch((e: Error) => message.error(e.message))
+          .finally(() => this.setState({ restoringDemos: null }))
+      }
+    })
+  }
+
   onConfigChange = (key: string, val: any) => {
     this.props.updateConfig({ [key]: val })
   }
@@ -47,7 +79,28 @@ class ReplayTab extends React.Component<ReplayTabProps> {
             }
             checked={config.playHighlightElements}
           >
-            Replay animations (adds ~0.2s per command)
+            Replay browser animations (adds ~0.2s per command)
+          </Checkbox>
+
+          <Checkbox
+            onChange={(e: any) =>
+              onConfigChange('playDesktopAnimations', e.target.checked)
+            }
+            checked={config.playDesktopAnimations !== false}
+          >
+            Replay desktop animations (screen border and match boxes)
+          </Checkbox>
+
+          <Checkbox
+            style={{ marginLeft: 24 }}
+            disabled={config.playDesktopAnimations === false}
+            onChange={(e: any) =>
+              onConfigChange('desktopBorderCaptureVisible', e.target.checked)
+            }
+            checked={!!config.desktopBorderCaptureVisible}
+          >
+            Show border even during remote sessions (border then visible on
+            screenshots)
           </Checkbox>
         </Form.Item>
 
@@ -143,6 +196,34 @@ class ReplayTab extends React.Component<ReplayTabProps> {
             placeholder="in seconds"
           />
           <span className="tip">Max. allowed time for file</span>
+        </Form.Item>
+        <Form.Item label="For Tech Support/QA" {...displayConfig}>
+          {/* one flex row: default-height buttons match the label's line
+              height, so the label, the text and the buttons sit on one
+              baseline (small buttons left the label hanging low) */}
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <span>Restore Demo Macros:</span>
+            {/* the restore writes ~50 macros plus csv/vision resources and
+                takes many seconds — without the spinner the button looked
+                hung until the toast finally appeared (user report) */}
+            <Button
+              loading={this.state.restoringDemos === 'js'}
+              disabled={!!this.state.restoringDemos && this.state.restoringDemos !== 'js'}
+              onClick={() => this.restoreDemos('js', 'JavaScript demo macros restored.')}
+            >
+              JavaScript
+            </Button>
+            <Button
+              loading={this.state.restoringDemos === 'classic'}
+              disabled={!!this.state.restoringDemos && this.state.restoringDemos !== 'classic'}
+              onClick={() => this.restoreDemos('classic', 'Classic demo macros restored.')}
+            >
+              Classic
+            </Button>
+          </div>
+          <div style={{ fontSize: '12px', opacity: 0.75, marginTop: '8px' }}>
+            Restore rewrites the &quot;Demo and QA Test Scripts&quot; folder with the shipped demos. Updates refresh it while it exists; a deleted folder stays deleted. Keep your own macros outside it.
+          </div>
         </Form.Item>
       </Form>
     )

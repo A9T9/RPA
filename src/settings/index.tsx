@@ -1,3 +1,4 @@
+import { usageStatisticsDefault } from '@/services/usage/preferences'
 // Settings page entry (options.html) — the ONE settings surface for the
 // side panel, the IDE window and the background. A normal browser tab with
 // its own lightweight store bootstrap: it hydrates config from storage and
@@ -13,9 +14,9 @@ import 'antd/dist/reset.css'
 
 import { store } from '@/redux'
 import storage from '@/common/storage'
-import { updateConfigFromStorage } from '@/actions'
+import { updateConfig, updateConfigFromStorage } from '@/actions'
 import { installGoUivLinkDecorator } from '@/common/uiv_link'
-import { getStorageManager } from '@/services/storage'
+import { getStorageManager, StorageStrategyType } from '@/services/storage'
 import { getXFile } from '@/services/xmodules/xfile'
 import SettingsApp from './settings_app'
 import '@/styles/dark-theme.scss'
@@ -41,13 +42,19 @@ Promise.all([
   getXFile().getConfig().catch(() => null)
 ]).then(([storedConfig]: any[]) => {
   const config = storedConfig || {}
+  config.shareUsageStatistics = usageStatisticsDefault(config)
   applyTheme(!!config.useDarkTheme)
 
   // FIRST call of getStorageManager on this page, and it decides the storage
   // strategy for the whole page: without the explicit mode the singleton
   // defaults to XFile, so Backup/Restore would talk to the FileAccess XModule
   // even for users storing macros in the browser — and hang when it is absent.
-  getStorageManager(config.storageMode, {
+  // '|| Browser': on a FRESH profile this page can load before the background
+  // has persisted the default config — config.storageMode is undefined for a
+  // moment, and the bare singleton default (XFile with no rootDir) made every
+  // storage call here throw 'Arguments to path.join must be strings'
+  // (measured live: the Restore Demo Macros buttons died silently).
+  getStorageManager(config.storageMode || StorageStrategyType.Browser, {
     getConfig: () => (store.getState() as any).config,
     getMaxMacroCount: () => Promise.resolve(Infinity)
   })
@@ -55,6 +62,13 @@ Promise.all([
   // hydrate WITHOUT writing back: every page persists its FULL config object,
   // so a boot-time write here could clobber keys another page just changed
   store.dispatch(updateConfigFromStorage(config))
+
+  // OPEN-ISSUES 38: with the Desktop Automation module up, the shared files
+  // in the home folder win over this copy when they are newer
+  import('@/services/xmodules2/routing').then(r => r.probeXModules2()).then(active => {
+    if (!active) return
+    return import('@/services/shared_settings').then(s => s.pullSharedSettings((store.getState() as any).config, (patch: any) => store.dispatch(updateConfig(patch))))
+  }).catch(() => {})
 
   // live sync with the side panel / IDE (same pattern as the side panel)
   storage.addListener((changes: any[]) => {
@@ -75,6 +89,12 @@ Promise.all([
     if (Object.keys(changedConfig).length) {
       store.dispatch(updateConfigFromStorage(changedConfig))
       if ('useDarkTheme' in changedConfig) applyTheme(!!changedConfig.useDarkTheme)
+      // follow live storage-mode switches (another page changing the mode, or
+      // the background writing the fresh-install default) — the redux config
+      // updated but the page's storage manager stayed on its boot-time mode
+      if ('storageMode' in changedConfig && changedConfig.storageMode) {
+        try { getStorageManager().setCurrentStrategyType(changedConfig.storageMode) } catch (e) { /* mode not usable here */ }
+      }
     }
   })
 

@@ -23,7 +23,17 @@ import 'codemirror/lib/codemirror'
 import 'codemirror/mode/javascript/javascript'
 import 'codemirror/addon/edit/matchbrackets'
 import 'codemirror/addon/edit/closebrackets'
+// in-editor search (Ctrl-F / Ctrl-G / Alt-G) — same addons as the side panel,
+// plus selection-match highlight and active line
+import '@/common/cm_search'
+import 'codemirror/addon/search/searchcursor'
+import 'codemirror/addon/search/jump-to-line'
+import 'codemirror/addon/dialog/dialog'
+import 'codemirror/addon/search/match-highlighter'
+import 'codemirror/addon/selection/active-line'
 import 'codemirror/lib/codemirror.css'
+import 'codemirror/addon/dialog/dialog.css'
+import '@/styles/cm-extras.css'
 import { Column, Table as RcvTable } from "react-virtualized";
 import Draggable from "react-draggable";
 import "react-virtualized/styles.css"; 
@@ -51,7 +61,7 @@ import {
   isFocusOnCommandTable,
   isScriptViewActive
 } from '../../recomputed'
-import { delay, isMac } from '../../common/ts_utils';
+import { isMac } from '../../common/ts_utils';
 import { availableCommands, selectableCommands, selectableCommandsForDesktop, commandText, indentCreatedByCommand, doesCommandSupportTargetOptions, canCommandSelect, canCommandFind } from '../../common/command'
 import { FocusArea } from '../../reducers/state'
 import config from '../../config'
@@ -211,7 +221,7 @@ class DashboardEditor extends React.Component {
             return resolve(true)
           }
 
-          return this.waitBeforeScreenCapture().then(run)
+          return run()
         }
 
         default: {
@@ -245,7 +255,7 @@ class DashboardEditor extends React.Component {
       const takeImage = () => {
         const isDesktop = isCVTypeForDesktop(config.cvScope)
 
-        return this.waitBeforeScreenCapture().then(() => {
+        return Promise.resolve().then(() => {
           if (isDesktop) {
             return selectAreaOnDesktop({
               width: screen.availWidth,
@@ -769,19 +779,6 @@ class DashboardEditor extends React.Component {
     return this.props.player.status === C.PLAYER_STATUS.STOPPED
   }
 
-  waitBeforeScreenCapture () {
-    if (!isCVTypeForDesktop(this.props.config.cvScope)) {
-      return Promise.resolve()
-    }
-
-    if (this.props.config.waitBeforeDesktopScreenCapture && this.props.config.secondsBeforeDesktopScreenCapture > 0) {
-      message.info(`About to take desktop screenshot in ${this.props.config.secondsBeforeDesktopScreenCapture} seconds`)
-      return delay(() => {}, this.props.config.secondsBeforeDesktopScreenCapture * 1000)
-    }
-
-    return Promise.resolve()
-  }
-
   onContextMenu = (e, index) => {
     log('onContextMenu')
 
@@ -1247,7 +1244,9 @@ class DashboardEditor extends React.Component {
             mode: { name: 'javascript', json: true },
             lineNumbers: true,
             matchBrackets: true,
-            autoCloseBrackets: true
+            autoCloseBrackets: true,
+            styleActiveLine: true,
+            highlightSelectionMatches: { showToken: /\w/, wordsOnly: true }
           }}
         />
       </div>
@@ -1694,7 +1693,7 @@ class DashboardEditor extends React.Component {
                             >
                               {isInspecting
                                 ? (<span>{(selectedCmdIsVisualSearch ? '👁' : '') + 'Cancel'}</span>)
-                                : (<span>{(selectedCmdIsVisualSearch ? '👁' : '') + 'Select'}</span>)
+                                : (<span>{selectedCmdIsVisualSearch ? '👁Select image' : 'Select element'}</span>)
                               }
                             </Button>
                             <Button
@@ -1764,7 +1763,9 @@ class DashboardEditor extends React.Component {
                         lineNumbers: true,
                         matchBrackets: true,
                         autoCloseBrackets: true,
-                        readOnly: !getLicenseService().canPerform(Feature.Edit)                        
+                        styleActiveLine: true,
+                        highlightSelectionMatches: { showToken: /\w/, wordsOnly: true },
+                        readOnly: !getLicenseService().canPerform(Feature.Edit)
                       }}
                     />                  
                   </>

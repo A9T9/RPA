@@ -1,4 +1,5 @@
 import EventEmitter from 'eventemitter3'
+import storage from '../../common/storage'
 import { IWithLinkStorage } from './flat/storage'
 import { getBrowserFileSystemStandardStorage } from './std/browser_filesystem_storage'
 import { getNativeFileSystemStandardStorage } from './std/native_filesystem_storage'
@@ -171,6 +172,11 @@ export class StorageManager extends EventEmitter implements IStorageManager {
 
       case StorageStrategyType.XFile: {
         const { rootDir } = getXFile().getCachedConfig()
+        // Without a rootDir every path.join below throws the impenetrable
+        // 'Arguments to path.join must be strings' — name the actual problem
+        if (!rootDir) {
+          throw new Error('E332: hard-drive storage is selected but no root folder is configured — connect the FileAccess XModule (Settings > Desktop Automation > Setup (XModules2)) or switch Storage Mode back to browser storage')
+        }
 
         switch (target) {
           case StorageTarget.Macro: {
@@ -297,3 +303,16 @@ function xFileDecodeImage (data: Content, fileName: string, readFileType: ReadFi
 export const getStorageManager = singletonGetter((strategyType?: StorageStrategyType, extraOptions?: StorageManagerOptions) => {
   return new StorageManager(strategyType || StorageStrategyType.XFile, extraOptions)
 })
+
+// Ask the OTHER extension pages (side panel / IDE window) to reload their
+// file resources. The StorageManager is a per-page EventEmitter, so a
+// ForceReload emitted on the settings page never leaves that page — the file
+// tree lives elsewhere. Bumping this nonce in the persisted config reaches
+// every page through storage.onChanged; the panel pages translate a nonce
+// change into a local ForceReload (bindStorageModeChanged in index.js).
+export const requestCrossPageForceReload = (): Promise<any> => {
+  return storage.get('config').then((config: any) => storage.set('config', {
+    ...(config || {}),
+    storageReloadNonce: Date.now()
+  }))
+}

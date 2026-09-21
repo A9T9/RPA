@@ -1,5 +1,5 @@
+import { captureExecutionCloudCall } from '@/common/execution_locality'
 import request, { Response } from 'superagent'
-import { createWorker } from 'tesseract.js';
 import config from '../../config'
 import {
   FileObject,
@@ -16,11 +16,9 @@ import {
 } from './types'
 import { withTimeout, dataURItoBlob } from '../../common/utils';
 import { or, retry, safeUpdateIn } from '../../common/ts_utils'
-import { getNativeFileSystemAPI, SpecialFolder, NativeFileAPI } from '../filesystem'
-import { getXFile } from "../xmodules/xfile";
-
-import path from '../../common/lib/path'
-import TesseractWrapper, { TesseractWorkerLog } from './tesseract_c'
+import { getNativeFileSystemAPI } from '../filesystem'
+import { getXModule2API } from '../xmodules2/native'
+import { base64 } from '../../common/base64'
 
 
 export type RunOCROptions = {
@@ -36,176 +34,169 @@ export type RunOCROptions = {
   shouldRetry?:       () => boolean | Promise<boolean>;
   scale?:             boolean | 'true' | 'false';
   isTable?:           boolean | 'true' | 'false';
-  engine?:            1 | 2 | 3;
+  engine?:            number;
+  // local (xmodule2) reads only: 'ocrs' = the cross-platform engine
+  // ("builtin"); absent = the OS engine (Windows.Media.Ocr / Apple Vision)
+  localEngine?:       'ocrs';
   os:                 string;
 }
 
-export function runDownloadLog (base64result:any,targetP:any,osType:any): Promise<any> {
-  
+export function runDownloadLog (base64result: any, targetP: any, osType: any): Promise<any> {
   const fsAPI = getNativeFileSystemAPI()
-  return fsAPI.getSpecialFolderPath({ folder: SpecialFolder.UserProfile })
-  .then(profilePath => {
-    const uivision = osType == "mac"?'/Library/uivision-xmodules/2.2.2/xmodules/': path.join(profilePath, '\\AppData\\Roaming\\Ui.Vision\\XModules\\ocr');
-    return fsAPI.ensureDir({ path: uivision })
-    .then(Opath => {
-     const { rootDir } = getXFile().getCachedConfig();
-     let path =uivision;
-     let outputpath = rootDir;
-     let filepath: string = '', targetpath = targetP;
-     if (osType == "mac") {
-        filepath = path+'/ocr3';
-        //targetpath = outputpath+'/images/image.png';
-    }else{
-        filepath = path+'\\ocrexe\\ocrcl1.exe';
-        //targetpath = outputpath+'\\images\\image.png';
-    }
-    
-     let params={
-            fileName: filepath,
-            path: targetpath,
-            content:base64result,
-            waitForExit: true
-          }
-   return fsAPI.writeAllText(params).
-    then(res => {
-      if (res != undefined) {
-        return res
-      }
-    }).
-     catch(() => console.log({result: false}));
-  })
-  })
-  .catch(e => {
-    // Ignore host not found error, `initConfig` is supposed to be called on start
-    // But we can't guarantee that native fs module is already installed
-    if (!/Specified native messaging host not found/.test(e)) {
-      throw e
-    }
-  })
-
+  return fsAPI.writeAllText({ path: targetP, content: base64result })
+    .catch(() => console.log({ result: false }))
 }
 
-export async function runOCRTesseractC (options: RunOCROptions, logCB: (log:TesseractWorkerLog, isNetwork: boolean | undefined)=> void): Promise<any> {
-    const language = options.language;
-    const imageDataURL = options.imageDataURL;
+// The Javascript (Tesseract) OCR engine was removed 2026-08-14: on every
+// benchmarked page it was 2-5x slower than the in-process OS OCR with worse
+// accuracy on UI screenshots. Local OCR = ocr_image (below); cloud =
+// OCR.space. The ocrs ONNX engine is the planned Linux/in-extension
+// fallback (see xmodule2/HANDOVER.md OCR benchmark table).
 
-    let tesseractWrapper = await TesseractWrapper.getInstance();
-    tesseractWrapper.setLogger(logCB);
+// OCR.space language codes -> BCP-47 tags the OS OCR engines take.
+// ('ce' is the settings UI's code for Czech, see services/ocr/languages.ts)
+const OCR_LANGUAGE_TAGS: Record<string, string> = {
+  eng: 'en-US', ger: 'de-DE', deu: 'de-DE', fre: 'fr-FR', fra: 'fr-FR',
+  spa: 'es-ES', ita: 'it-IT', por: 'pt-PT', rus: 'ru-RU', dut: 'nl-NL',
+  nld: 'nl-NL', pol: 'pl-PL', swe: 'sv-SE', dan: 'da-DK', nor: 'nb-NO',
+  fin: 'fi-FI', tur: 'tr-TR', gre: 'el-GR', hun: 'hu-HU', cze: 'cs-CZ',
+  ce: 'cs-CZ', chs: 'zh-Hans', cht: 'zh-Hant', jpn: 'ja-JP', kor: 'ko-KR',
+  ara: 'ar-SA'
+}
 
-    let extractionResult = await tesseractWrapper.start(imageDataURL, language);
-    let retVal = {
-      "ParsedResults": extractionResult.resultData,
-      "ProcessingTimeInMilliseconds": extractionResult.processingTimeInMilliseconds,
-    }    
-    return Promise.resolve(retVal);
+// BCP-47 tag for an OCR.space language code — what the OS engines (and the
+// host's wait_for_text) take. undefined for unknown codes: the host then
+// uses its default (user-profile languages / ocrs' Latin models).
+export const ocrLanguageTag = (code?: string): string | undefined =>
+  OCR_LANGUAGE_TAGS[String(code || '').toLowerCase()]
+
+// Which OCR.space language codes the local OS OCR can read right now, from
+// the host's ocr_language_list (BCP-47 tags, e.g. Windows: the languages
+// installed in Windows Settings > Language). Matched on the primary
+// language subtag — except Chinese, where the script subtag (Hans/Hant)
+// separates the two codes.
+export function installedLocalOcrLanguages (): Promise<string[]> {
+  return getXModule2API().ocrLanguageList().then((tags: string[]) => {
+    const installed = (tags || []).map(t => String(t).toLowerCase())
+    const matches = (wanted: string): boolean => {
+      const w = wanted.toLowerCase()
+      const prefix = w.startsWith('zh') ? w : w.split('-')[0]
+      return installed.some(t => t === w || t.startsWith(prefix))
+    }
+    return Object.keys(OCR_LANGUAGE_TAGS).filter(code => matches(OCR_LANGUAGE_TAGS[code]))
+  })
+}
+
+// The ocrs models the host's cross-platform "builtin" engine reads from
+// disk (~12MB, not bundled): downloaded here on first use and handed to the
+// host over ocr_install_models — the host has no HTTP client, and the
+// extension's fetch + native messaging move the bytes fine.
+// Served from our own mirror (verified byte-identical to the upstream
+// ocrs-models S3 bucket) so the extension does not depend on a third-party
+// bucket staying public; the folder's web.config sends the CORS header and
+// the .rten MIME mapping IIS needs.
+const OCRS_MODEL_URLS = {
+  detection: 'https://download.ui.vision/x2/ocrs/text-detection.rten',
+  recognition: 'https://download.ui.vision/x2/ocrs/text-recognition.rten'
+}
+
+let pModelInstall: Promise<void> | null = null
+
+function installOcrsModels (): Promise<void> {
+  // one download at a time — parallel OCR calls on a fresh install must not
+  // fetch 12MB each
+  if (pModelInstall) return pModelInstall
+  const fetchB64 = (url: string) =>
+    fetch(url).then(r => {
+      if (!r.ok) throw new Error(`model download failed: HTTP ${r.status} for ${url}`)
+      return r.arrayBuffer()
+    }).then(buf => base64.encode(new Uint8Array(buf)))
+  pModelInstall = Promise.all([fetchB64(OCRS_MODEL_URLS.detection), fetchB64(OCRS_MODEL_URLS.recognition)])
+    .then(([detection, recognition]) =>
+      getXModule2API().invoke('ocr_install_models', { detection, recognition }))
+    .then(() => undefined)
+    .catch(e => {
+      pModelInstall = null // a failed download may succeed next time
+      throw e
+    })
+  return pModelInstall
+}
+
+// xmodule2 path: ONE ocr_image RPC in-process — no temp image file, no
+// ocrcl1.exe/ocr3 spawn, no result-file read-back. `localEngine: 'ocrs'`
+// asks the host for the cross-platform ocrs engine (the "builtin" reader,
+// same recognition on every OS — models auto-installed on first use);
+// default is the OS engine (Windows.Media.Ocr / Apple Vision), as before.
+// The result is adapted to the OCR.space schema every caller already parses.
+// This removes the LAST classic-XModule dependency when xmodule2 is active.
+function runOCRLocalViaXModule2 (language: string, imageBase64: string, localEngine?: 'ocrs'): Promise<any> {
+  const tag = OCR_LANGUAGE_TAGS[(language || '').toLowerCase()]
+  const once = () => getXModule2API().ocrImage({
+    content: imageBase64,
+    ...(tag ? { language: tag } : {}),
+    ...(localEngine ? { engine: localEngine } : {})
+  })
+  return once()
+  .catch(e => {
+    // first use of the ocrs engine on this machine: fetch the models, hand
+    // them to the host, and retry the same read once
+    if (localEngine === 'ocrs' && /ocr_models_missing/.test(String((e && e.message) || e))) {
+      return installOcrsModels().then(once)
+    }
+    // No host at all: the raw "Specified native messaging host not found"
+    // used to reach the log as-is, and inside a finder's auto-wait it was
+    // retried until the timeout and then reported as "OCR recognised NO
+    // text" (2% of 10.0.182 chats in the 2026-09-06 drop, OPEN-ISSUES
+    // 35.5). E904 fails fast (retryFind's fatal list) and names the fix.
+    const raw = String((e && e.message) || e)
+    if (/native messaging host|no such native application/i.test(raw)) {
+      throw new Error(`E904: the local OCR reader needs the Desktop Automation XModule, which is NOT installed on this machine (browser reports: ${raw}). Pick a cloud engine under Settings > OCR or pass {engine: ...} to this call — or install the XModule: https://ui.vision/rpa/x/download`)
+    }
+    throw e
+  })
+  .then(result => {
+    const lines = (result.lines || []).map(line => ({
+      LineText: line.text,
+      Words: (line.words || []).map(word => ({
+        WordText: word.text,
+        Left: Math.round(word.rect.x),
+        Top: Math.round(word.rect.y),
+        Width: Math.round(word.rect.width),
+        Height: Math.round(word.rect.height)
+      })),
+      MaxHeight: Math.max(1, ...(line.words || []).map(w => Math.round(w.rect.height))),
+      MinTop: Math.min(...(line.words || []).map(w => Math.round(w.rect.y)))
+    }))
+    const shaped = {
+      ParsedResults: [{
+        TextOverlay: { Lines: lines, HasOverlay: true, Message: 'xmodule2 ocr_image' },
+        TextOrientation: '0',
+        FileParseExitCode: 1,
+        ParsedText: result.text || '',
+        ErrorMessage: '',
+        ErrorDetails: ''
+      }],
+      OCRExitCode: 1,
+      IsErroredOnProcessing: false,
+      ProcessingTimeInMilliseconds: '0'
+    }
+    // Same contract as the old flow's readAllBytes: base64 of the JSON file.
+    return base64.encode(new TextEncoder().encode(JSON.stringify(shaped)))
+  })
 }
 
 export function runOCRLocal (options: RunOCROptions): Promise<any> {
   const language = options.language;
   const base64result = options.image;
-  const osType = options.os;
-  
-  const fsAPI = getNativeFileSystemAPI()
-  return fsAPI.getSpecialFolderPath({ folder: SpecialFolder.UserProfile })
-  .then(profilePath => {
-    const uivision = osType == "mac"?'/Library/uivision-xmodules/2.2.2/xmodules/': path.join(profilePath, '\\AppData\\Roaming\\Ui.Vision\\XModules\\ocr');
-    
-    return fsAPI.ensureDir({ path: uivision })
-    .then(Opath => {
-     const { rootDir } = getXFile().getCachedConfig();
-     let path =uivision;
-     let outputpath = rootDir;
-     let filepath: string = '', targetpath = '';
-     if (osType == "mac") {
-        filepath = path+'/ocr3';
-			  //targetpath = outputpath+'/images/image.png';
-        targetpath = outputpath+'/image.png';
-		}else{
-			  filepath = path+'\\ocrexe\\ocrcl1.exe';
-			  //targetpath = outputpath+'\\images\\image.png';
-        targetpath = outputpath+'/image.png';
-		}
-		
-     let params={
-            fileName: filepath,
-            path: targetpath,
-            content:base64result,
-            waitForExit: true
-          }
-   return fsAPI.writeAllBytes(params).
-    then(res => {
-      if (res != undefined) {
-        let filepath: string = '';
-        let params: any={};
-        if (osType == "mac") {
-          filepath =  path+'/ocr3';
-           params={
-             arguments: '--in '+outputpath+"/image.png"+" --out "+outputpath+"/ocr_output.json --lang "+language,
-             //arguments: '--in '+outputpath+"/image.png"+" --out "+outputpath+"/ocr_output.json --lang "+language,
-             fileName: filepath,
-             waitForExit: true
-          }
-        }else{
-          filepath = path+'\\ocrexe\\ocrcl1.exe';
-          params={
-            arguments: outputpath+"\\image.png"+" "+outputpath+"\\ocr_output.json "+language,
-            //arguments: outputpath+"\\images\\image.png"+" "+outputpath+"\\logs\\ocr_output.json "+language,
-            fileName: filepath,
-            waitForExit: true
-          }
-        }
 
-        return fsAPI.runProcess(params);
-        
-      }else{
-        console.log({result: false})
-        
-      }
-    }).
-    then(res => {
-      if (res != undefined  && res.exitCode !=null && res.exitCode >= 0) {
-            let filepath: string = '';
-            let params: any={};
-            if (osType == "mac") {
-                params={
-                  path: outputpath+"/ocr_output.json",
-                  //path: outputpath+"/logs/ocr_output.json",
-                  waitForExit: true
-                }
-              }else{
-                params={
-                path: outputpath+"\\ocr_output.json",
-                //path: outputpath+"\\logs\\ocr_output.json",
-                waitForExit: true
-                }
-              }
-              console.log('params:>> ',params);
-              return fsAPI.readAllBytes(params);
-      }
-    }).then(json => {
-            if (json){
-              if ( json.errorCode == 0 ) {
-                //console.log(json.content);
-                return json.content;
-              }else{
-                return false;
-              }
-            }
-          }).
-          catch(() => console.log({result: false}));
-  })
-  })
-  .catch(e => {
-    // Ignore host not found error, `initConfig` is supposed to be called on start
-    // But we can't guarantee that native fs module is already installed
-    if (!/Specified native messaging host not found/.test(e)) {
-      throw e
-    }
-  })
-
+  if (typeof base64result !== 'string') {
+    return Promise.reject(new Error('Local OCR needs the capture as a data URL'))
+  }
+  return runOCRLocalViaXModule2(language, base64result, options.localEngine)
 }
 
 export function runOCR (options: RunOCROptions): Promise<any> {
+  const recordCloudCall = captureExecutionCloudCall('ocrspace')
   const scaleStr = (options.scale + '').toLowerCase()
   const scale    = ['true', 'false'].indexOf(scaleStr) !== -1 ? scaleStr : 'true'
   const engine   = [1, 2, 3].indexOf(options.engine || 0) !== -1 ? options.engine : 1
@@ -239,6 +230,7 @@ export function runOCR (options: RunOCROptions): Promise<any> {
       }
 
       return withTimeout(options.singleApiTimeout, () => {
+        recordCloudCall()
         return request.post(url)
         .send(f)
       })
@@ -512,6 +504,52 @@ const getMatchedBlockInfo = (matchedLineWords: any[]) => {
   };
 };
 
+// The XModule Local OCR often returns a whole UI phrase as ONE Word entry —
+// "Al Chat", "Ui.Vision Settings", a sidebar tab row as "Logs Shots CSV/TXT
+// Visual". The matcher below compares per word token, so a search word can
+// never match INSIDE such a token: the text shows up verbatim in the
+// recognised-text dump while ocr.findText finds nothing (the
+// ClearSidebarLogViaGUI failure mode on macOS). Explode multi-word tokens
+// into per-word entries, apportioning the box by character position — the
+// split boxes are approximate, but a word's centre stays well inside it.
+const explodeMultiWordTokens = (words: any[]): any[] => {
+  const out: any[] = []
+  for (const w of words) {
+    const text = String(w.WordText || '')
+    const parts = text.split(/\s+/).filter(s => s.length > 0)
+    if (parts.length <= 1) { out.push(w); continue }
+    const total = text.length || 1
+    let cursor = 0
+    for (const part of parts) {
+      const idx = text.indexOf(part, cursor)
+      cursor = idx + part.length
+      out.push({
+        ...w,
+        WordText: part,
+        Left: w.Left + w.Width * (idx / total),
+        Width: w.Width * (part.length / total)
+      })
+    }
+  }
+  return out
+}
+
+// Short UI words come back from OCR with the classic look-alikes swapped —
+// "Ok" as "0k", "Yes" as "Ye5", l / I / 1 traded freely (OPEN-ISSUES 18.3,
+// the Tesla app's Ok button). For search words of up to 4 characters the
+// exact compare is repeated with both sides folded through the confusable
+// map; longer words keep the strict compare, where a swapped character is
+// more likely a different word than a misread. Wildcard words are untouched.
+const CONFUSABLE: Record<string, string> = { '0': 'o', '1': 'l', 'i': 'l', '|': 'l', '5': 's', '8': 'b', '2': 'z' }
+function confusableFold (s: string): string {
+  return s.replace(/[01i|582]/g, (c) => CONFUSABLE[c] || c)
+}
+export function confusableEqual (wordText: string, searchWord: string): boolean {
+  if (!searchWord || searchWord.length > 4) return false
+  if (/[?*]/.test(searchWord)) return false
+  return confusableFold(wordText) === confusableFold(searchWord)
+}
+
 export function getOcrPositionedWordsFromParseResults (parseResults: OcrParseResult[], searchText:string): OcrPositionedWord[][] {
 
     const searchWords = searchText
@@ -519,23 +557,16 @@ export function getOcrPositionedWordsFromParseResults (parseResults: OcrParseRes
       .split(/\s+/)
       .filter((word) => word !== "");
 
-    // Perform a deep copy of the data to ensure that the original
-    // data is used for each search operation
-    // const cachedDataDeepCopy = JSON.parse(JSON.stringify(cachedData));
-    // const { TextOverlay } = cachedDataDeepCopy[0];
-    // const { Lines } = TextOverlay;
-
-    const { TextOverlay } = parseResults[0];
-    const { Lines } = TextOverlay;
-
-    console.log('TextOverlay:>> ',TextOverlay); 
-    console.log('Lines:>> ',Lines);
+    // Search EVERY parsed result: the recognised-text dump shown on a miss
+    // joins all of them, so a word visible there must be findable here —
+    // reading only parseResults[0] made any later result unmatchable.
+    const Lines = (parseResults || []).flatMap(pr => (pr && pr.TextOverlay && pr.TextOverlay.Lines) || [])
 
     const searchResult = [];
 
     if (searchWords.length !== 0) {
       for (let i = 0; i < Lines.length; i++) {
-        const { Words: lineWords } = Lines[i];
+        const lineWords = explodeMultiWordTokens(Lines[i].Words || []);
         let currentMatch = [];
 
         for (let j = 0; j < lineWords.length; j++) {
@@ -567,7 +598,7 @@ export function getOcrPositionedWordsFromParseResults (parseResults: OcrParseRes
           } else {
             // Matching based on text comparison method.
 
-            if (wordText === currentSearchWord) {
+            if (wordText === currentSearchWord || confusableEqual(wordText, currentSearchWord)) {
               currentMatch.push(word);
             } else {
               currentMatch = [];

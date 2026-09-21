@@ -16,9 +16,10 @@ import M from '../../common/messages';
 import { getPlayer } from '../../common/player';
 import { uid } from '../../common/ts_utils';
 import { hideContextMenu, MenuItemType, showContextMenu } from '../../components/context_menu';
-import { prompt } from '../../components/prompt';
+import { promptLoopRange } from '../../components/loop_prompt';
 import getSaveTestCase from '../../components/save_test_case';
-import { FileNodeType, FileTree } from '../../components/tree_file';
+import { FileNodeType, FileTree, collectMacroFileNodes } from '../../components/tree_file';
+import { ensureAllUrlsPermission } from '../../common/firefox_permission';
 import config from '../../config';
 import { runScript } from '../../modules/script_runner';
 import { getFilteredMacroFileNodeData, getMacroFileNodeData, getMacroFileNodeList, getShouldIgnoreTargetOptions, getShouldLoadResources, isFocusOnSidebar, isMacroFolderNodeListEmpty, isPlaying } from '../../recomputed';
@@ -98,17 +99,39 @@ class SidebarTestCases extends React.Component {
     })
   }
 
-  playTestCase = (id) => {
+  // `loops` is a plain count (n rounds) or a {from, to} range from the loop
+  // dialog — from > 1 resumes an interrupted job (!LOOP = the absolute round)
+  playTestCase = async (id, loops = 1) => {
     if (this.props.status !== C.APP_STATUS.NORMAL)  return
+    const { from, to } = (typeof loops === 'object' && loops) ? loops : { from: 1, to: loops }
+
+    // Firefox MV3: same host-permission ask as the panel Play button
+    // (10.0.162) — without it an ungranted profile dies with Error #170
+    if (!(await ensureAllUrlsPermission())) return
 
     this.changeTestCase(id)
     .then(shouldPlay => {
       if (!shouldPlay)  return
 
       setTimeout(() => {
-        // JS script macro: run it through the interpreter, not the player
+        // JS script macro: run it through the interpreter, not the player.
+        // The player's LOOP mode doesn't apply here, so a loop replay is the
+        // script run to completion for rounds from..to, stopping on the first
+        // round that fails or is stopped manually (same as the classic
+        // player default).
         if (typeof this.props.editing.script === 'string') {
-          runScript(this.props.editing.script).catch(e => {
+          const script   = this.props.editing.script
+          const runRound = (round) => {
+            if (to > 1 || from > 1) {
+              this.props.addLog('status', `Loop round ${round} of ${to}`)
+            }
+
+            return runScript(script).then(({ ok }) => {
+              if (ok && round < to)  return runRound(round + 1)
+            })
+          }
+
+          runRound(from).catch(e => {
             message.error(`Script failed to start: ${(e && e.message) || e}`, 3)
           })
           return
@@ -128,13 +151,25 @@ class SidebarTestCases extends React.Component {
           macroId:    getMacroId(),
           title:      getMacroName(),
           extra:      { id: getMacroId() },
-          mode:       getPlayer().C.MODE.STRAIGHT,
+          // LOOP even for a single round when from > 1: !LOOP must carry the
+          // absolute round number for the resume-from-row workflow
+          mode:       (to > 1 || from > 1) ? getPlayer().C.MODE.LOOP : getPlayer().C.MODE.STRAIGHT,
+          loopsStart: from,
+          loopsEnd:   to,
           startIndex: 0,
           startUrl:   openTc ? openTc.target : null,
           resources:  commands,
           postDelay:  this.props.player.playInterval * 1000
         })
       }, 500)
+    })
+  }
+
+  // Shared loop dialog — used by the macro and folder context menus. Calls
+  // onPlay({from, to}); the classic start/max pair (see components/loop_prompt).
+  promptLoopCount = (onPlay) => {
+    return promptLoopRange().then(range => {
+      if (range) return onPlay(range)
     })
   }
 
@@ -352,12 +387,20 @@ class SidebarTestCases extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Testsuite: Play all in folder',
-            onClick: () => {
+            content: 'Play all in folder',
+            onClick: async () => {
+              if (!(await ensureAllUrlsPermission())) return
+
               const folderName = folderEntry.name
-              const macros = folderEntry.children.filter(item => {
-                return item.type === FileNodeType.File
-              })
+              // subfolders included — a folder of only subfolders (like the
+              // demo root) used to start an empty suite that "completed"
+              // instantly having played nothing
+              const macros = collectMacroFileNodes(folderEntry)
+
+              if (macros.length === 0) {
+                message.error(`No macros in folder '${folderName}'`, 2)
+                return
+              }
 
               getPlayer({ name: 'testSuite' }).play({
                 title:      folderName,
@@ -378,25 +421,24 @@ class SidebarTestCases extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Testsuite: Play in loop',
-            onClick: () => {
-              const playInLoops = (loopsStr) => {
-                const loops = parseInt(loopsStr)
+            content: 'Play all in folder in loop..',
+            onClick: async () => {
+              if (!(await ensureAllUrlsPermission())) return
 
-                if (isNaN(loops) || loops < 1) {
-                  throw new Error(`Invalid loops: ${loopsStr}`)
-                }
+              const folderName = folderEntry.name
+              const macros = collectMacroFileNodes(folderEntry)
 
-                const folderName = folderEntry.name
-                const macros = folderEntry.children.filter(item => {
-                  return item.type === FileNodeType.File
-                })
+              if (macros.length === 0) {
+                message.error(`No macros in folder '${folderName}'`, 2)
+                return
+              }
 
+              return this.promptLoopCount(({ from, to }) => {
                 getPlayer({ name: 'testSuite' }).play({
                   title:      folderName,
-                  mode:       loops === 1 ? getPlayer().C.MODE.STRAIGHT : getPlayer().C.MODE.LOOP,
-                  loopsStart: 1,
-                  loopsEnd:   loops,
+                  mode:       (to > 1 || from > 1) ? getPlayer().C.MODE.LOOP : getPlayer().C.MODE.STRAIGHT,
+                  loopsStart: from,
+                  loopsEnd:   to,
                   startIndex: 0,
                   resources:  macros.map(item => ({
                     id:       item.id,
@@ -407,30 +449,7 @@ class SidebarTestCases extends React.Component {
                     name: folderName
                   }
                 })
-              }
-
-              const run = () => {
-                return prompt({
-                  width: 400,
-                  title: 'How many loops?',
-                  message: '',
-                  value: '2',
-                  placeholder: 'Loops',
-                  inputType: 'number',
-                  selectionStart: 0,
-                  selectionEnd: 1,
-                  okText: 'Play',
-                  cancelText: 'Cancel',
-                  onCancel: () => Promise.resolve(true),
-                  onOk: playInLoops
-                })
-                .catch(e => {
-                  message.error(e.message)
-                  setTimeout(run, 0)
-                })
-              }
-
-              return run()
+              })
             }
           }
         },
@@ -492,8 +511,21 @@ class SidebarTestCases extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Testsuite: Play from here',
+            content: 'Play in loop..',
             onClick: () => {
+              return this.promptLoopCount(loops => {
+                this.playTestCase(macroNode.fullPath, loops)
+              })
+            }
+          }
+        },
+        {
+          type: MenuItemType.Button,
+          data: {
+            content: 'Play folder from here',
+            onClick: async () => {
+              if (!(await ensureAllUrlsPermission())) return
+
               const macroStorage = getStorageManager().getMacroStorage()
               const path      = macroStorage.getPathLib()
               const dirPath   = path.dirname(macroEntry.entryPath)

@@ -1,0 +1,44 @@
+/* Light-theme styling for the CodeMirror quality-of-life addons wired in
+   2026-08-19 (search was first, these follow the same pattern — the addons
+   shipped in node_modules all along, they were never imported).
+
+   - .cm-matchhighlight (addon/search/match-highlighter): select or double-click
+     a token and its other occurrences light up. The amber alpha reads on both
+     the light editor and the dark theme, so one rule serves both.
+   - .CodeMirror-activeline-background (addon/selection/active-line): the dark
+     theme has styled this selector since it was written (cm2-dark-theme.scss,
+     $dark-active-line) — only the light-theme half was missing. Its rule is
+     scoped under html[data-theme="dark"] and outranks this one, so the two
+     compose instead of fighting. */
+.cm-matchhighlight {
+  background: rgba(255, 193, 7, 0.28);
+}
+.CodeMirror-activeline-background {
+  background: rgba(128, 128, 128, 0.10);
+}
+
+/* Live match counter rendered into the search dialog by the forked search
+   addon (src/common/cm_search.js) — "3 of 14 matches" / red "no matches" */
+.CodeMirror-search-count {
+  margin-left: 8px;
+  font-size: 90%;
+  color: #666;
+  white-space: nowrap;
+}
+
+/* The search/replace dialog in dark mode: the dialog addon ships no theme, so
+   without this it stays white-on-white inside the dark editor. Scoped exactly
+   like cm2-dark-theme.scss. */
+html[data-theme="dark"] .CodeMirror-dialog {
+  background: #2e2e2e;
+  color: #ffffff;
+}
+html[data-theme="dark"] .CodeMirror-dialog input {
+  background: #1e1e1e;
+  color: #ffffff;
+  border: 1px solid #555555;
+}
+html[data-theme="dark"] .CodeMirror-search-hint,
+html[data-theme="dark"] .CodeMirror-search-count {
+  color: #cccccc;
+}

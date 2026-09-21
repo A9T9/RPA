@@ -37,11 +37,56 @@ export function genGetTabIpc (tabIdName: string, purpose: string) {
       }
 
       return getIpcCache().get(tab.id, timeout, before)
-      .catch(e => {
-        throw new Error(`Error #170: No ipc available for the ${purpose} tab`)
+      .catch(() => {
+        // No usable content-script connection. The common cause on a tab that
+        // was open BEFORE an extension reload/update: Chrome does not inject
+        // manifest content scripts into existing tabs, so the page has none
+        // until it is reloaded — every page command died with #170 and the
+        // user had to guess "reload the tab" (OPEN-ISSUES 17.1). Inject it
+        // now, once, and retry the lookup; the probe inside makes this a
+        // no-op when a script is alive and something else is wrong.
+        return reinjectContentScript(tab)
+        .then(injected => {
+          if (!injected) throw new Error('no injection')
+          log('content script re-injected into tab', tab.id, '— retrying ipc lookup')
+          return getIpcCache().get(tab.id, 5000, before)
+        })
+        .catch(() => {
+          throw new Error(`Error #170: No ipc available for the ${purpose} tab — the page has no working content script. Typical after an extension reload/update on a tab that was already open: reload the tab (F5) and run again.`)
+        })
       })
     })
   }
+}
+
+// Inject content_script.js into a tab that lost it (an extension reload or
+// update leaves every already-open tab without one — Chrome only injects
+// manifest content scripts on navigation). Returns true when an injection
+// was made, false when the tab cannot take one or already has a live script.
+export async function reinjectContentScript (tab: any): Promise<boolean> {
+  const scripting = (Ext as any).scripting
+  if (!tab || !tab.id || !scripting || typeof scripting.executeScript !== 'function') return false
+  const url = tab.url || tab.pendingUrl || ''
+  // browser-internal and extension pages never take a content script
+  if (!/^(https?|file):/i.test(url)) return false
+  // still loading: the manifest injection is on its way, do not double it
+  if (tab.status && tab.status !== 'complete') return false
+  // isolated-world probe — the content script sets this flag when it runs
+  const alive = await Promise.resolve(scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => !!(window as any).__uivContentScriptLoaded
+  }))
+  .then((r: any) => !!(r && r[0] && r[0].result))
+  .catch(() => true)   // cannot probe (blocked page): never inject blindly
+  if (alive) return false
+  log('reinjecting content_script.js into tab', tab.id, url)
+  await scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, files: ['content_script.js'] })
+  // say so in the panel log — the run continues, but the user should know
+  // why the first command took a moment and that no tab reload was needed
+  getPanelTabIpc()
+    .then(ipc => ipc.ask('ADD_LOG', { type: 'info', text: `content script re-injected into tab #${(tab.index || 0) + 1} (${url.slice(0, 60)}) — the tab was open before the extension was reloaded or updated` }))
+    .catch(() => {})
+  return true
 }
 
 export const getRecordTabIpc = genGetTabIpc('toRecord', 'recording')

@@ -86,6 +86,33 @@
         padding: 0 8px 6px;
       }
 
+      // the "..." mini-menu next to Select image — a plain in-drawer div,
+      // deliberately NOT an antd popup (those never appeared in the docked
+      // side panel); opens upward, above the button
+      .script-capture-menu {
+        position: absolute;
+        right: 0;
+        bottom: calc(100% + 4px);
+        z-index: 10000;
+        background: #fff;
+        border: 1px solid #d9d9d9;
+        border-radius: 6px;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+        padding: 4px;
+        white-space: nowrap;
+      }
+
+      .script-capture-menu-item {
+        padding: 5px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+
+        &:hover {
+          background: #f0f5ff;
+        }
+      }
+
       // Thumbnail of the vision image named on the cursor's line. It has to
       // announce itself as a PICTURE: the images people match on are pictures
       // of buttons, so a bare thumbnail in a toolbar is read as a button and
@@ -97,7 +124,8 @@
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        margin-left: auto;
+        // sits DIRECTLY next to the Find button (user request) — no auto
+        // margin pushing it to the far end of the row
         min-width: 0;
         padding: 2px 4px 2px 6px;
         border-left: 1px solid #e3e8ef;

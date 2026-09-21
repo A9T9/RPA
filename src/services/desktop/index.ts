@@ -1,7 +1,8 @@
 import { MethodTypeInvocationNames } from './constants'
 import { singletonGetter, snakeToCamel, concatUint8Array } from '../../common/ts_utils'
-import { KantuCVHost } from './kantu-cv-host'
 import { KantuCV } from './kantu-cv'
+import { NativeMessagingHost } from '../native_host'
+import { XMODULE2_HOST_NAME } from '../xmodules2/native'
 import { base64 } from './base64'
 import { dataURItoArrayBuffer, blobToDataURL, blobToText, arrayBufferToString } from '../../common/utils'
 import { imageDataFromUrl } from '../../common/dom_utils'
@@ -20,11 +21,32 @@ export interface NativeCVAPI {
   getDesktopDpi:          () => Promise<KantuCV.DpiInfo>;
   getMaxFileRange:        () => Promise<number>;
   getImageInfo:           (params: { content: DataURL }) => Promise<KantuCV.ImageInfo>;
-  captureDesktop:         (params: { path?: FilePath }) => Promise<FilePath>;
+  // displayHint: physical bounds of the display to capture/search (from
+  // getDesktopCaptureHint) — overrides the host's foreground-browser display
+  // heuristic; omitted = old behavior. See services/desktop_dip.ts.
+  // rect (host 2.1.27+): crop the capture to this rectangle (global physical
+  // px, the space selectRegion answers in); it also pins the display.
+  captureDesktop:         (params: { path?: FilePath, displayHint?: Rect | null, rect?: Rect | null }) => Promise<FilePath>;
+  // The host's own area picker (Windows, host 2.1.27+): dims the screen, the
+  // user drags a rectangle on the live desktop, Esc cancels. BLOCKS until the
+  // user is done (timeoutMs, default 120 s). Older hosts reject with
+  // "Unknown method"; other platforms with not_available.
+  selectRegion:           (params: { display?: Rect | null, color?: string, hint?: string, timeoutMs?: number, captureVisible?: boolean }) => Promise<{ cancelled: boolean, reason?: string, x?: number, y?: number, width?: number, height?: number }>;
   searchImage:            (params: { image: KantuCV.Image, pattern: KantuCV.Image, options: KantuCV.ImageSearchOptions }) => Promise<KantuCV.ImageSearchResult>;
   searchImageWithGuard:   (params: { image: KantuCV.Image, pattern: KantuCV.Image, options: KantuCV.ImageSearchOptions }) => Promise<KantuCV.ImageSearchResult>;
-  searchDesktop:          (params: { pattern: KantuCV.Image, options: KantuCV.ImageSearchOptions }) => Promise<KantuCV.ImageSearchResult>;
-  searchDesktopWithGuard: (params: { pattern: KantuCV.Image, options: KantuCV.ImageSearchOptions }) => Promise<KantuCV.ImageSearchResult>;
+  searchDesktop:          (params: { pattern: KantuCV.Image, options: KantuCV.ImageSearchOptions, displayHint?: Rect | null }) => Promise<KantuCV.ImageSearchResult>;
+  searchDesktopWithGuard: (params: { pattern: KantuCV.Image, options: KantuCV.ImageSearchOptions, displayHint?: Rect | null }) => Promise<KantuCV.ImageSearchResult>;
+  // Desktop border + match-mark overlays (border.rs) — see
+  // services/desktop_border.ts. captureVisible skips DWM capture-exclusion
+  // (the "show border even during remote sessions" setting). The rect is
+  // optional on macOS only: omitted, the host frames the active display
+  // itself (Windows requires it — units are physical px there).
+  showDisplayBorder:      (params: { x?: number, y?: number, width?: number, height?: number, color?: string, thickness?: number, captureVisible?: boolean }) => Promise<{ shown: boolean, reason?: string }>;
+  hideDisplayBorder:      (params?: {}) => Promise<boolean>;
+  // per-mark thickness/alpha (host 2.0.14+) single out the selected match
+  showMatchMarks:         (params: { marks: Array<{ x: number, y: number, width: number, height: number, thickness?: number, alpha?: number }>, color?: string, thickness?: number, durationMs?: number, captureVisible?: boolean }) => Promise<{ shown: number | boolean, reason?: string }>;
+  showInputCue:           (params: { x: number, y: number, kind?: 'click' | 'move' | 'down' | 'up', color?: string, radius?: number, captureVisible?: boolean }) => Promise<{ shown: boolean, reason?: string }>;
+  showSearchArea:         (params: { x: number, y: number, width: number, height: number, display?: Rect | null, color?: string, durationMs?: number, captureVisible?: boolean }) => Promise<{ shown: boolean, reason?: string }>;
   getFileSize:            (params: { path: FilePath }) => Promise<number>;
   readFileRange:          (params: { path: FilePath, rangeStart?: number, rangeEnd?: number }) => Promise<KantuCV.FileRangeBuffer>;
   reconnect:              () => Promise<NativeCVAPI>;
@@ -36,8 +58,7 @@ export interface NativeCVAPI {
   getImageFromDataUrl:    (dataUrl: DataURL, dpi?: number) => Promise<KantuCV.Image>;
 }
 
-export const getNativeCVAPI = singletonGetter(() => {
-  const nativeHost    = new KantuCVHost()
+const makeCVAPI = (nativeHost: NativeMessagingHost): NativeCVAPI => {
   let pReady          = nativeHost.connectAsync().catch(e => {
     log.warn('pReady - error', e)
     throw e
@@ -159,7 +180,11 @@ export const getNativeCVAPI = singletonGetter(() => {
   })
 
   return <NativeCVAPI>(<any>api)
-})
+}
+
+// The xmodule2 host (desktop search + capture + shared file methods) — the
+// only cv backend since 10.0.151.
+export const getNativeCVAPI = singletonGetter(() => makeCVAPI(new NativeMessagingHost(XMODULE2_HOST_NAME)))
 
 export function guardSearchResult (result: KantuCV.ImageSearchResult): KantuCV.ImageSearchResult {
   switch (result.errorCode) {
@@ -192,8 +217,15 @@ export type ConvertResultItem = {
   reference: teamdocs.FindResult | null;
 }
 
-export function convertImageSearchResultIfAllCoordiatesBasedOnTopLeftScreen (result: KantuCV.ImageSearchResult, scale: number = 1, searchArea?: Rect): ConvertResultItem[] {
+// `dipShift` (Windows mixed-DPI, see services/desktop_dip.ts): added to the
+// ABSOLUTE fields (viewport/page) so they line up with Chrome's DIP screen
+// coordinates when scale = 1/dPR maps physical px down. The offset* fields
+// are search-area-RELATIVE — both operands are physical, the shift cancels —
+// so they stay untouched. Omitted or {0,0} reproduces the old behavior.
+export function convertImageSearchResultIfAllCoordiatesBasedOnTopLeftScreen (result: KantuCV.ImageSearchResult, scale: number = 1, searchArea?: Rect, dipShift?: Point): ConvertResultItem[] {
   const { errorCode, containsGreenPinkBoxes, regions } = result
+  const shiftX = dipShift?.x ?? 0;
+  const shiftY = dipShift?.y ?? 0;
   const convert = (region: KantuCV.ImageSearchRegion): ConvertResultItem => {
     const searchAreaX = searchArea?.x ?? 0;
     const searchAreaY = searchArea?.y ?? 0;
@@ -204,10 +236,10 @@ export function convertImageSearchResultIfAllCoordiatesBasedOnTopLeftScreen (res
         matched: {
           offsetLeft:   scale * region.matchedRect.x - scale * searchAreaX,
           offsetTop:    scale * region.matchedRect.y - scale * searchAreaY,
-          viewportLeft: scale * region.matchedRect.x,
-          viewportTop:  scale * region.matchedRect.y,
-          pageLeft:     scale * region.matchedRect.x,
-          pageTop:      scale * region.matchedRect.y,
+          viewportLeft: scale * region.matchedRect.x + shiftX,
+          viewportTop:  scale * region.matchedRect.y + shiftY,
+          pageLeft:     scale * region.matchedRect.x + shiftX,
+          pageTop:      scale * region.matchedRect.y + shiftY,
           width:        scale * region.matchedRect.width,
           height:       scale * region.matchedRect.height,
           score:        region.score
@@ -219,10 +251,10 @@ export function convertImageSearchResultIfAllCoordiatesBasedOnTopLeftScreen (res
         matched: {
           offsetLeft:   scale * region.relativeRect.x - scale * searchAreaX,
           offsetTop:    scale * region.relativeRect.y - scale * searchAreaY,
-          viewportLeft: scale * region.relativeRect.x,
-          viewportTop:  scale * region.relativeRect.y,
-          pageLeft:     scale * region.relativeRect.x,
-          pageTop:      scale * region.relativeRect.y,
+          viewportLeft: scale * region.relativeRect.x + shiftX,
+          viewportTop:  scale * region.relativeRect.y + shiftY,
+          pageLeft:     scale * region.relativeRect.x + shiftX,
+          pageTop:      scale * region.relativeRect.y + shiftY,
           width:        scale * region.relativeRect.width,
           height:       scale * region.relativeRect.height,
           score:        region.score
@@ -230,10 +262,10 @@ export function convertImageSearchResultIfAllCoordiatesBasedOnTopLeftScreen (res
         reference: {
           offsetLeft:   scale * region.matchedRect.x - scale * searchAreaX,
           offsetTop:    scale * region.matchedRect.y - scale * searchAreaY,
-          viewportLeft: scale * region.matchedRect.x,
-          viewportTop:  scale * region.matchedRect.y,
-          pageLeft:     scale * region.matchedRect.x,
-          pageTop:      scale * region.matchedRect.y,
+          viewportLeft: scale * region.matchedRect.x + shiftX,
+          viewportTop:  scale * region.matchedRect.y + shiftY,
+          pageLeft:     scale * region.matchedRect.x + shiftX,
+          pageTop:      scale * region.matchedRect.y + shiftY,
           width:        scale * region.matchedRect.width,
           height:       scale * region.matchedRect.height,
           score:        region.score

@@ -1,3 +1,6 @@
+import { reportUsage } from '@/services/usage'
+import { startExecutionLocality, visitScriptExecutionLine, finishExecutionLocality } from '../common/execution_locality'
+import { startRunFrames, setRunFrameStep, flushRunFrames, describeRunFrames } from '../common/run_frames'
 import * as act from '@/actions'
 import { CaptureScreenshotService } from '@/common/capture_screenshot'
 import clipboard from '@/common/clipboard'
@@ -6,8 +9,12 @@ import { isCVTypeForDesktop } from '@/common/cv_utils'
 import { getStorageManager, StorageStrategyType } from '@/services/storage'
 import csIpc from '@/common/ipc/ipc_cs'
 import { getPlayer, Player } from '@/common/player'
-import { milliSecondsToStringInSecond, safeUpdateIn, isMac as isMacOS } from '@/common/ts_utils'
+import { milliSecondsToStringInSecond, safeUpdateIn, isMac as isMacOS, isWindows as isWindowsOS, isLinux as isLinuxOS } from '@/common/ts_utils'
 import { getNativeFileSystemAPI } from '@/services/filesystem'
+import { getNativeXYAPI } from '@/services/xy'
+import { findBeaconRect } from '@/services/xy/beacon'
+import semver from 'semver'
+import { getXModule2API } from '@/services/xmodules2/native'
 import { getVarsInstance, getDeprecatedVariable } from '@/common/variables'
 import Interpreter from '@/common/vendor/js-interpreter'
 import Ext from '@/common/web_extension'
@@ -20,20 +27,34 @@ import { MacroResultStatus } from '@/services/kv_data/macro_extra_data'
 // getOcrResponse asserts on (same pattern as initPlayer)
 import { xCmdCounter } from '@/modules/counters'
 import { transpileScript } from '@/modules/js_transpile'
-import { locateMergedLine, resolveIncludes } from '@/modules/js_includes'
+import { installEvaluateFunctionSource } from '@/modules/evaluate_function'
+import { frameMergedPosition, locateMergedLine, resolveIncludes } from '@/modules/js_includes'
 import { getOcrResponse, guardOcrSettings } from '@/modules/ocr'
-import { askBackgroundToRunCommand, runCsFreeCommands } from '@/modules/run_command'
+import { askBackgroundToRunCommand, runCsFreeCommands, getCdpInputFallbackCount } from '@/modules/run_command'
+import { isCdpInputAvailable, isCdpAttached, primeCdpAttach, holdCdpAttachDuringRun, cdpEvaluate, sendCdpWheelEvent, sendCdpKeyEvent, releaseCdpKeys } from '@/services/cdp_input'
+import { pickBridgeTab, setBridgeTab } from '@/common/tab_utils'
+import { getLastDownloadPath, getLastDownloadInfo } from '@/common/last_download'
+import { getFileBufferFromScreenshotStorage } from '@/common/ai_vision'
 import { getMacroCallStack } from '@/services/player/call_stack/call_stack'
 import { getMacroMonitor } from '@/services/player/monitor/macro_monitor'
 import { hasUnsavedMacro } from '@/recomputed'
 import { store } from '@/redux'
 import { searchVision } from '@/search_vision'
-import { ocrMatchRect, searchTextInOCRResponse } from '@/services/ocr'
-import { delayMs, setIn, dataURItoBlob, ensureExtName } from '@/common/utils'
+import { ocrLanguageTag, ocrMatchRect, searchTextInOCRResponse } from '@/services/ocr'
+import { OcrHighlightType } from '@/services/ocr/types'
+import { delayMs, setIn, dataURItoBlob, ensureExtName, cloneSerializableLocalStorage } from '@/common/utils'
+import { subImage } from '@/common/dom_utils'
 import * as C from '@/common/constant'
 import { DesktopScreenshot } from '@/desktop_screenshot_editor/types'
-import { captureImage } from '@/modules/helper'
+import { captureImage, withDesktopCaptureCover } from '@/modules/helper'
+import { getDesktopCaptureHint } from '@/services/desktop_dip'
+import { showDesktopBorder, hideDesktopBorder, showDesktopMatchMarksDip, showDesktopSearchArea, desktopOverlayCaptureVisible } from '@/services/desktop_border'
+import { xmoduleOutdatedWarning } from '@/services/xmodules2/routing'
 import getSaveTestCase from '@/components/save_test_case'
+import { ensureDesktopApp, getDesktopAppClient } from '@/services/desktop_app'
+import { macroCallName, standaloneDesktopCall } from '@/services/desktop_app/call_contract'
+import { scriptLocator } from '@/common/script_locator'
+import { measureCallViewport, callViewportUnchanged } from '@/services/desktop_app/call_viewport'
 
 // Runner for JS script macros (V11 experiment, branch js-macro-test1).
 //
@@ -51,8 +72,8 @@ import getSaveTestCase from '@/components/save_test_case'
 //          page is the thing that decides whether it works:
 //            uiv.page.click/type/select      content script, synthetic events
 //            uiv.browser.click/type/move    CDP, trusted, no XModule
-//            uiv.desktop.click/type/move    XModule, real OS input
-//   page:  uiv.open(url), uiv.eval(code)
+//            uiv.desktop.mouse.click/type/move    XModule, real OS input
+//   page:  uiv.goto(url), uiv.evaluate(pageFunction, arg) / uiv.evaluate(code)
 //   misc:  uiv.log, uiv.sleep, uiv.getVar, uiv.setVar, uiv.prompt (later)
 //   legacy bridge: uiv.run(cmd, target, value) — any classic command
 //
@@ -65,7 +86,28 @@ import getSaveTestCase from '@/components/save_test_case'
 // interpreter-side polyfill: turns bridge results into return values and
 // real JS exceptions (so try/catch works around any uiv call)
 // ---------------------------------------------------------------------------
-const POLYFILL = `var uiv = {};
+// Precomputed NFD decompositions for the sandbox's String.normalize polyfill:
+// Latin-1 Supplement + Latin Extended-A/B, Greek with tonos, Cyrillic, and
+// Latin Extended Additional — the slice macro code folds in practice
+// (accent-stripping via .normalize('NFD').replace(/[\u0300-\u036f]/g, '')).
+// Built with the engine's own normalize so the data cannot drift, and
+// emitted as ONE line so POLYFILL_LINES stays honest.
+const NFD_TABLE_JSON = JSON.stringify((() => {
+  const t = {}
+  for (const [lo, hi] of [[0x00C0, 0x024F], [0x0386, 0x03CE], [0x0400, 0x045F], [0x1E00, 0x1EFF]]) {
+    for (let c = lo; c <= hi; c++) {
+      const s = String.fromCharCode(c)
+      const d = s.normalize('NFD')
+      if (d !== s) t[s] = d
+    }
+  }
+  return t
+})())
+
+// Exported because the script editor's syntax overlay derives the set of real
+// uiv.* names from it (script_view.js) — a hand-kept copy of the API there
+// went stale the moment uiv.files shipped.
+export const POLYFILL = `var uiv = {};
 // true for the file being run. With @include, the resolver re-stamps the flag
 // per segment (false before included parts, true before the main body) — but a
 // script WITHOUT includes never went through that injection, so without this
@@ -86,6 +128,8 @@ uiv.__xy = function (x, y, fn) {
   var frameLocal = false
   var scope = ''
   var tag = ''
+  var elementId = null
+  var elementSignature = null
   // A finder given {required: false} reports a miss as null. Acting on that
   // null is the single most common way to misuse the option, and the generic
   // "need finite (x, y)" below points at the ACTION, not at the missing check —
@@ -94,27 +138,71 @@ uiv.__xy = function (x, y, fn) {
     throw new Error(fn + ": the finder found no match, so there is nothing to act on. {required: false} makes a miss return null INSTEAD of throwing, which means the result has to be CHECKED: var m = uiv.findImage('file.png', {required: false, timeout: 2}); if (m) { " + fn + "(m); }");
   }
   var offscreen = false
+  var find = null
+  var findIndex = 0
+  var findOffset = null
   if (x !== null && typeof x === 'object') {
     frameId = x.frameId || 0
     frameLocal = !!x.frameLocal
     scope = x.scope || ''
     tag = x.tag || ''
+    elementId = x.elementId || null
+    elementSignature = x.elementSignature || null
     offscreen = !!x.offscreen
+    if (typeof x.__f === 'number' && uiv.__finds[x.__f]) {
+      find = uiv.__finds[x.__f]; findIndex = x.__i || 0;
+      // a uiv.offset() point: the re-find lands on the ANCHOR, so the offset
+      // has to be re-applied to the fresh position
+      if (x.__dx || x.__dy) { findOffset = { dx: x.__dx || 0, dy: x.__dy || 0 }; }
+    }
     y = x.y
     x = x.x
   }
   if (typeof x !== 'number' || typeof y !== 'number' || !isFinite(x) || !isFinite(y)) { throw new Error(fn + ': need finite (x, y) numbers or a match object from a finder'); }
-  // tag travels with the point so the click can skip the navigation watch for
-  // elements that cannot navigate (text fields) - see settleAfterClick.
+  // tag travels with the point so DOM clicks can detect a stale target.
   // offscreen marks a match the finder could NOT scroll into the viewport
   // (position:fixed container larger than the window) - the DOM point
   // actions refuse it with the real reason instead of clicking blind.
-  var r = { x: x, y: y, frameId: frameId, frameLocal: frameLocal, scope: scope, tag: tag };
+  var r = { x: x, y: y, frameId: frameId, frameLocal: frameLocal, scope: scope, tag: tag, elementId: elementId, elementSignature: elementSignature };
   if (offscreen) { r.offscreen = true; }
+  if (find) {
+    r.find = find; r.findIndex = findIndex;
+    if (findOffset) { r.findOffset = findOffset; }
+  }
   return r;
 };
-uiv.open = function (url) { return uiv.__bridge('open', { url: String(url) }); };
-uiv.eval = function (code) { return uiv.__bridge('eval', { code: String(code) }); };
+uiv.goto = function (url) { return uiv.__bridge('open', { url: String(url) }); };
+uiv.evaluate = function (pageFunction, arg) {
+  if (arguments.length > 2 || (typeof pageFunction !== 'function' && typeof pageFunction !== 'string')) {
+    throw new Error("uiv.evaluate in this macro runtime accepts a script string or a page function with one optional data argument: uiv.evaluate(selector => document.querySelector(selector).textContent, '#title'). Pass multiple values in one object or array. Macro calls remain sequential; do not add async/await.");
+  }
+  if (typeof pageFunction === 'string') {
+    if (arguments.length > 1) throw new Error("uiv.evaluate script strings do not accept a second argument. Use uiv.evaluate(data => document.querySelector(data.selector).textContent, {selector: '#title'}) to pass data, or uiv.evaluate('return document.title') without an argument.");
+    return uiv.__bridge('eval', { code: pageFunction });
+  }
+  var source = __uiv_evaluate_source(pageFunction);
+  if (!source.ok) throw new Error(source.error);
+  var seen = [];
+  function validate(value) {
+    var type = typeof value;
+    if (value === null || type === 'string' || type === 'boolean' || (type === 'number' && isFinite(value))) return;
+    if (type !== 'object' || seen.indexOf(value) !== -1 ||
+        (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
+      throw new Error("uiv.evaluate data must be JSON-compatible: null, strings, booleans, finite numbers, arrays or plain objects, without cycles, functions or nested undefined. Convert other values explicitly before passing them; DOM handles are not supported. Only the whole argument may be undefined or omitted.");
+    }
+    seen.push(value);
+    if (Array.isArray(value)) { for (var i = 0; i < value.length; i++) validate(value[i]); }
+    else { var keys = Object.keys(value); for (var j = 0; j < keys.length; j++) validate(value[keys[j]]); }
+    seen.pop();
+  }
+  if (arg !== undefined) validate(arg);
+  var argumentCode = arg === undefined ? 'void 0' : 'JSON.parse(' + JSON.stringify(JSON.stringify(arg)) + ')';
+  try {
+    return uiv.__bridge('eval', { code: 'return (' + source.source + ')(' + argumentCode + ');', pageFunction: true });
+  } catch (e) {
+    throw new Error('uiv.evaluate page function failed: ' + e.message + '. The function runs in the page; macro variables and uiv are unavailable there. Pass data explicitly: uiv.evaluate(data => data.text, {text: "hello"}).');
+  }
+};
 // FINDERS. Singular returns ONE match (or null with {required:false}),
 // plural returns an ARRAY — the name's number is the return's number.
 //   uiv.$ / uiv.$$                        DOM, by locator
@@ -132,12 +220,28 @@ uiv.eval = function (code) { return uiv.__bridge('eval', { code: String(code) })
 // when the search happens inside the right one's rect. Same shapes as
 // uiv.ocr.read({area}); a bare rect is read in the finder's scope, a match
 // from the OTHER scope is rejected (viewport px are not screen px).
+// uiv.ocr.findText(s) also takes {image: 'x.png'} like uiv.ocr.read: search a
+// STORED image instead of the live viewport/screen. Matches are in IMAGE
+// pixels (scope 'image', not clickable), {area} then crops in image pixels,
+// and there is no auto-wait — a stored image cannot change.
 // The DOM finder also takes CONTENT wait-conditions: {hasText: true} retries
 // until a match's text/value is NON-EMPTY, {hasText: 'substring'} until it
 // contains the substring (case-insensitive), {textMatches: 'regex' | /re/}
 // until it matches the regex. Matches are SNAPSHOTS — copies taken at find
 // time, never live handles — so these options are THE way to wait for text
 // to appear; re-reading a stored match in a loop polls frozen data forever.
+// A DOM match also carries the element's attributes: m.getAttribute('href')
+// reads them Selenium-style (find-time copy, like .text/.value — null when
+// the attribute is absent), and m.attributes is the whole map.
+uiv.__getAttr = function (name) {
+  if (typeof name !== 'string' || !name) { throw new Error("getAttribute: needs an attribute name, e.g. m.getAttribute('href')"); }
+  var a = this.attributes || {};
+  if (a[name] !== undefined) { return a[name]; }
+  // HTML attribute names are lowercase in the DOM however the page spelled
+  // them; SVG ones (viewBox) are case-sensitive, hence exact-first
+  var lower = name.toLowerCase();
+  return a[lower] !== undefined ? a[lower] : null;
+};
 uiv.findElements = function (locator, opts) {
   var o = uiv.__opts({ locator: String(locator) }, opts);
   // a RegExp cannot cross the JSON bridge (it stringifies to {}) — send its parts
@@ -147,11 +251,62 @@ uiv.findElements = function (locator, opts) {
       flags: o.textMatches.flags !== undefined ? String(o.textMatches.flags) : ((o.textMatches.ignoreCase ? 'i' : '') + (o.textMatches.multiline ? 'm' : ''))
     };
   }
-  return uiv.__bridge('elementSearch', o);
+  var matches = uiv.__bridge('elementSearch', o);
+  // remember the find call behind each match (registry id, not the spec
+  // itself, so variable dumps stay readable): uiv.browser.click re-runs it
+  // right before the CDP dispatch and clicks the element's CURRENT position
+  var fid = uiv.__finds.push(o) - 1;
+  for (var i = 0; i < matches.length; i++) { matches[i].getAttribute = uiv.__getAttr; matches[i].__f = fid; matches[i].__i = i; uiv.__domMethods(matches[i]); }
+  return matches;
 };
-uiv.findImages = function (image, opts) { return uiv.__bridge('imageSearch', uiv.__opts({ image: String(image) }, opts)); };
+// Playwright's locator methods on a DOM match (find-time copies, like .text
+// and .value): innerText(), textContent(), inputValue(), isVisible(),
+// isChecked(), isEnabled(). The universal fields stay .text/.value/.rect on
+// EVERY match — an OCR or image match (browser or desktop) has no DOM, so
+// there these methods say so instead of "not a function".
+uiv.__domMethods = function (m) {
+  m.innerText = function () { return m.text || ''; };
+  m.textContent = function () { return m.text || ''; };
+  m.inputValue = function () {
+    if (m.value === undefined || m.value === null) { throw new Error('inputValue(): this ' + (m.tag || 'element') + ' is not an input, textarea or select — read .text (innerText()) instead'); }
+    return String(m.value);
+  };
+  m.scrollIntoViewIfNeeded = function (opts) { return uiv.page.scrollIntoViewIfNeeded(m, opts); };
+  m.isVisible = function () { return m.visible !== false; };
+  m.isEnabled = function () { return !m.disabled; };
+  m.isChecked = function () {
+    if (m.checked === undefined) { throw new Error("isChecked(): this " + (m.tag || 'element') + " is not a checkbox or radio button, and no checkbox belongs to it (a <label> resolves to its box, a wrapper to the single box inside it) - find the input itself, e.g. uiv.$('css=input[type=checkbox]')"); }
+    return !!m.checked;
+  };
+  return m;
+};
+uiv.__nonDomMethods = function (list, kind) {
+  var names = ['innerText', 'textContent', 'inputValue', 'isVisible', 'isChecked', 'isEnabled', 'scrollIntoViewIfNeeded'];
+  for (var i = 0; i < list.length; i++) {
+    (function (m) {
+      for (var n = 0; n < names.length; n++) {
+        (function (name) {
+          m[name] = function () { throw new Error(name + '() is a DOM method — this is ' + kind + ' match' + (m.scope === 'desktop' ? ' on the desktop' : '') + ', it has no DOM: use .text' + (kind === 'an OCR' ? ' (the recognised words)' : '') + ', .rect and .x/.y, or uiv.ocr.read / uiv.ai.ask to read what is there'); };
+        })(names[n]);
+      }
+    })(list[i]);
+  }
+  return list;
+};
+uiv.__finds = [];
+// Visual finders remember their call too (same registry as the DOM finder):
+// a BROWSER match was measured on a screenshot, and the first trusted CDP
+// click after it attaches the debugger, whose infobar shrinks the viewport —
+// uiv.browser.* re-run the finder when that happened (settleVisualPointForCdp)
+uiv.__visualFind = function (op, spec, kind) {
+  var ms = uiv.__nonDomMethods(uiv.__bridge(op, spec), kind);
+  var fid = uiv.__finds.push({ __visual: op, spec: spec }) - 1;
+  for (var i = 0; i < ms.length; i++) { if (ms[i] && ms[i].scope === 'browser') { ms[i].__f = fid; ms[i].__i = i; } }
+  return ms;
+};
+uiv.findImages = function (image, opts) { return uiv.__visualFind('imageSearch', uiv.__opts({ image: String(image) }, opts), 'an image'); };
 uiv.ocr = {};
-uiv.ocr.findTexts = function (text, opts) { return uiv.__bridge('textSearch', uiv.__opts({ text: String(text) }, opts)); };
+uiv.ocr.findTexts = function (text, opts) { return uiv.__visualFind('textSearch', uiv.__opts({ text: String(text) }, opts), 'an OCR'); };
 uiv.__first = function (arr) { return arr.length ? arr[0] : null; };
 
 // Act at a fixed offset FROM a match — what the classic *Relative commands
@@ -175,18 +330,92 @@ uiv.offset = function (match, dx, dy) {
   for (var k in match) { out[k] = match[k]; }
   out.x = match.x + dx;
   out.y = match.y + dy;
+  // the finder recipe (__f/__i) travels with the point so the click can re-run
+  // the finder — and then it must re-apply THIS offset, or a re-found anchor
+  // would be clicked instead of the target beside it
+  out.__dx = (match.__dx || 0) + dx;
+  out.__dy = (match.__dy || 0) + dy;
   // the rect moves WITH the point - an offset match is the whole match
   // shifted, so uiv.shot.area / uiv.ocr.read({area}) crop where the offset
   // points, not where the anchor was
   if (match.rect) {
     out.rect = { left: match.rect.left + dx, top: match.rect.top + dy, width: match.rect.width, height: match.rect.height };
   }
+  // provenance ping for the post-run picture: anchor -> landing. A wrong
+  // dx/dy is otherwise invisible until the click that uses the result.
+  uiv.__bridge('offsetTrace', { ax: match.x, ay: match.y, x: out.x, y: out.y, scope: match.scope || '' });
   return out;
 };
 uiv.$ = function (locator, opts) { return uiv.__first(uiv.findElements(locator, opts)); };
 uiv.$$ = uiv.findElements;
+// Finders by ACCESSIBLE NAME, named like Playwright's (OPEN-ISSUES 30.18):
+// what browser_snapshot's tree prints — 'button "Rechnung erstellen"', 'textbox
+// "Unternehmen/Institution"' — is directly usable, and survives the
+// re-renders that renumber refs. Each returns the FIRST match (like uiv.$);
+// {all: true} returns every match; {exact: true} = whole-string, case-
+// sensitive (default: case-insensitive substring, Playwright's default);
+// timeout/required/includeHidden as for uiv.$. The match is a locator too:
+// uiv.page.click(uiv.getByRole('button', {name: 'Speichern'})).
+uiv.by = function (kind, spec) { return 'by=' + JSON.stringify(Object.assign({ kind: kind }, spec)); };
+uiv.__getBy = function (kind, spec, opts) {
+  opts = opts || {};
+  var loc = uiv.by(kind, Object.assign(spec, { exact: !!opts.exact }));
+  var o = {}; for (var k in opts) { if (k !== 'exact' && k !== 'all' && k !== 'name') o[k] = opts[k]; }
+  var list = uiv.findElements(loc, o);
+  return opts.all ? list : uiv.__first(list);
+};
+uiv.getByLabel = function (text, opts) { return uiv.__getBy('label', { text: String(text) }, opts); };
+uiv.getByRole = function (role, opts) { opts = opts || {}; return uiv.__getBy('role', { role: String(role), name: opts.name != null ? String(opts.name) : undefined }, opts); };
+uiv.getByText = function (text, opts) { return uiv.__getBy('text', { text: String(text) }, opts); };
+uiv.getByPlaceholder = function (text, opts) { return uiv.__getBy('placeholder', { text: String(text) }, opts); };
+uiv.getByTitle = function (text, opts) { return uiv.__getBy('title', { text: String(text) }, opts); };
+uiv.getByAltText = function (text, opts) { return uiv.__getBy('alt', { text: String(text) }, opts); };
+uiv.getByTestId = function (id, opts) { return uiv.__getBy('testid', { text: String(id) }, Object.assign({ exact: true }, opts || {})); };
+// Playwright's verbs for verbs that already exist (same feature, same name —
+// resolved at call time, so the order of definition does not matter):
+//   goto -> open, evaluate -> eval, page.fill -> page.type (SETS the value),
+//   page.selectOption -> page.select, browser.hover -> browser.move,
+//   browser.press('Control+S') / desktop.press -> type with the KEY_ names
+// the older spellings stay as aliases of the Playwright-named originals
+uiv.__pressKeys = function (combo) {
+  var parts = String(combo).split('+');
+  var mods = [], key = parts.length ? parts[parts.length - 1] : '';
+  if (parts.length > 1 && key === '') { key = '+'; parts.pop(); }
+  for (var i = 0; i < parts.length - 1; i++) {
+    var m = parts[i].toLowerCase();
+    mods.push(m === 'control' || m === 'ctrl' ? 'KEY_CTRL' : m === 'shift' ? 'KEY_SHIFT' : m === 'alt' ? 'KEY_ALT' : (m === 'meta' || m === 'command' || m === 'cmd') ? 'KEY_META' : 'KEY_' + parts[i].toUpperCase());
+  }
+  var names = { enter: 'KEY_ENTER', return: 'KEY_ENTER', tab: 'KEY_TAB', escape: 'KEY_ESC', esc: 'KEY_ESC', backspace: 'KEY_BACKSPACE', delete: 'KEY_DELETE', del: 'KEY_DELETE',
+    arrowup: 'KEY_UP', arrowdown: 'KEY_DOWN', arrowleft: 'KEY_LEFT', arrowright: 'KEY_RIGHT', up: 'KEY_UP', down: 'KEY_DOWN', left: 'KEY_LEFT', right: 'KEY_RIGHT',
+    home: 'KEY_HOME', end: 'KEY_END', pageup: 'KEY_PAGE_UP', pagedown: 'KEY_PAGE_DOWN', space: 'KEY_SPACE' };
+  var k = key.toLowerCase();
+  var name = names[k] || (/^f([1-9]|1[0-5])$/.test(k) ? 'KEY_' + k.toUpperCase() : null);
+  if (name) return mods.length ? '\${' + mods.join('+') + '+' + name + '}' : '\${' + name + '}';
+  if (key.length === 1) return mods.length ? '\${' + mods.join('+') + '+' + (/[A-Za-z]/.test(key) ? key.toLowerCase() : key) + '}' : key;
+  throw new Error("press: unknown key '" + key + "' — Playwright key names (Enter, Tab, Escape, ArrowDown, Control+S, F5) or a single character");
+};
 uiv.findElement = uiv.$;
-uiv.findImage = function (image, opts) { return uiv.__first(uiv.findImages(image, opts)); };
+// findImages returns READING order (click-the-3rd semantics); the singular
+// finder still acts on the BEST match, which the plural list flags
+uiv.findImage = function (image, opts) {
+  var ms = uiv.findImages(image, opts);
+  if (ms && ms.length) { for (var i = 0; i < ms.length; i++) { if (ms[i].best) return ms[i]; } }
+  return uiv.__first(ms);
+};
+// Color finder — for SOLID areas, which template matching is deliberately
+// blind to (a flat pattern has zero variance; findImage defines it as
+// matching nothing). Status LEDs, progress fills, color-coded badges.
+// Same geometry contract as the other finders; reading order; 'best' flags
+// the LARGEST region and uiv.findColor returns it.
+uiv.findColors = function (color, opts) { return uiv.__visualFind('colorSearch', uiv.__opts({ color: String(color) }, opts), 'a color'); };
+// The real on-screen colours of a patch: a display colour profile changes what a CSS colour looks like, so sample it and search for THAT.
+uiv.pixels = function (area, opts) { return uiv.__bridge('pixels', uiv.__opts({ area: area }, opts)); };
+uiv.pixel = function (x, y, opts) { return uiv.pixels({ x: x, y: y, width: 1, height: 1 }, opts).colors[0]; };
+uiv.findColor = function (color, opts) {
+  var ms = uiv.findColors(color, opts);
+  if (ms && ms.length) { for (var i = 0; i < ms.length; i++) { if (ms[i].best) return ms[i]; } }
+  return uiv.__first(ms);
+};
 uiv.ocr.findText = function (text, opts) { return uiv.__first(uiv.ocr.findTexts(text, opts)); };
 // (The 2026-07 rename of the OCR finder into uiv.ocr.* kept top-level
 // uiv.findText/findTexts as shims that threw the new spelling. Dropped: the
@@ -214,18 +443,33 @@ uiv.ocr.read = function (opts) { return uiv.__bridge('ocrRead', opts || {}); };
 // classic bookkeeping leaves stale next to these calls and getVar refuses.
 // 'active' is the browser's active tab; the two differ if the user clicks
 // another tab mid-run.
-//   uiv.tabs.list()      -> all tabs as [{index, title, url, active, current}, ...]
-//   uiv.tabs.select(2)   -> switch to tab #2
-//   uiv.tabs.open(url)   -> NEW tab on url (uiv.open navigates the CURRENT tab)
-//   uiv.tabs.close()     -> close the current tab, land on its neighbour
+//   uiv.tabs.list()             -> the run's window as [{index, window, title, url, active, current}, ...]
+//   uiv.tabs.list({all: true})  -> every window (window = 1-based window number)
+//   uiv.tabs.select(2)          -> switch to tab #2 of the run's window
+//   uiv.tabs.select(entry)      -> an entry from uiv.tabs.list() (any window)
+//   uiv.tabs.select({url: 'stripe.com'}) / {title: 'Invoice'} -> substring match, any window
+//   uiv.tabs.select({newest: true}) -> the tab opened LAST (a click's target=_blank, a popup)
+//   uiv.tabs.open(url)          -> NEW tab on url (uiv.goto navigates the CURRENT tab)
+//   uiv.tabs.close()            -> close the current tab, land on its neighbour
+//   uiv.tabs.close(which)       -> close that tab (same forms as select), stay where we are
+// (OPEN-ISSUES 21.2/21.3: the classic selectWindow | tab=open CREATES a tab —
+// it never adopts one a click opened; that is what {newest: true} is for.)
 uiv.tabs = {};
-uiv.tabs.list = function () { return uiv.__bridge('tabsList', {}); };
-uiv.tabs.select = function (n) {
-  if (typeof n !== 'number' || !isFinite(n)) { throw new Error('uiv.tabs.select: needs a tab number, 1-based left to right — uiv.tabs.list() shows them'); }
-  return uiv.__bridge('tabsSelect', { index: n });
+uiv.tabs.__which = function (fn, which, optional) {
+  if (which === undefined || which === null) { if (optional) return {}; }
+  else if (typeof which === 'number' && isFinite(which)) return { index: which };
+  else if (which && typeof which === 'object') {
+    if (typeof which.index === 'number') return { index: which.index, window: which.window };
+    if (typeof which.url === 'string') return { url: which.url };
+    if (typeof which.title === 'string') return { title: which.title };
+    if (which.newest) return { newest: true };
+  }
+  throw new Error(fn + ": pass a tab number (1-based, uiv.tabs.list() shows them), an entry from uiv.tabs.list(), or a matcher: {url: 'stripe.com'} / {title: 'Invoice'} (substring, any window) / {newest: true} for the tab opened last (a click's target=_blank link, a popup)");
 };
+uiv.tabs.list = function (opts) { return uiv.__bridge('tabsList', { all: !!(opts && opts.all) }); };
+uiv.tabs.select = function (which) { return uiv.__bridge('tabsSelect', uiv.tabs.__which('uiv.tabs.select', which, false)); };
 uiv.tabs.open = function (url) { return uiv.__bridge('tabsOpen', { url: String(url) }); };
-uiv.tabs.close = function () { return uiv.__bridge('tabsClose', {}); };
+uiv.tabs.close = function (which) { return uiv.__bridge('tabsClose', uiv.tabs.__which('uiv.tabs.close', which, true)); };
 // WINDOW: uiv.window.resize(width, height) sets the PAGE VIEWPORT size by
 // resizing the browser window (window chrome and the side panel's width are
 // accounted for). Returns the ACHIEVED viewport {width, height} — verify it,
@@ -244,11 +488,20 @@ uiv.window.resize = function (width, height) {
 // the clicks land in another application. Browser-scope X commands front the
 // window by themselves; DESKTOP scope deliberately does not, because a desktop
 // macro may be aiming at another app on purpose. So the macro says when.
-// Call it first, before the uiv.open.
+// Call it first, before the uiv.goto.
 uiv.window.focus = function () { return uiv.__bridge('windowFocus', {}); };
 // The opposite: minimize the browser AND the IDE, e.g. to automate an
 // application sitting behind them.
 uiv.window.minimize = function () { return uiv.__bridge('windowMinimize', {}); };
+// The browser window's TRUE position and size on screen, in CSS-screen
+// coordinates — the coordinate space desktop {area} rectangles use — plus
+// viewport: {width,height} in CSS px, the size uiv.window.resize takes. On
+// Wayland window.screenX/screenY REPORT 0 (the compositor hides window
+// positions), so any area built from them slides to the screen corner and
+// reads the wrong pixels; this call measures the real origin instead
+// (visual beacon located by the native host). Use it wherever a macro
+// would have used window.screenX/screenY.
+uiv.window.rect = function () { return uiv.__bridge('windowRect', {}); };
 uiv.__domTarget = function (s, fn) {
   if (/\.png\s*$/i.test(s) || /^\s*(img|image|ocr|text)\s*=/i.test(s)) {
     throw new Error(fn + ": '" + s + "' looks like a VISUAL target - locator strings are DOM only (css= id= name= link= xpath=); use " + fn + "(uiv.findImage('file.png')) or " + fn + "(uiv.ocr.findText('word')) for visual targets");
@@ -276,7 +529,18 @@ uiv.__domTarget = function (s, fn) {
 // names. Switching any of them to this.__bridge would break that silently.
 uiv.page = {};
 uiv.browser = {};
+uiv.browser.mouse = {};
+uiv.browser.keyboard = {};
+uiv.__browserKey = function (key, down) {
+  if (typeof key !== 'string' || !key) { throw new Error('keyboard.down/up: key must be a nonempty string'); }
+  return uiv.__bridge('bKey', { key: key, down: down });
+};
+uiv.browser.keyboard.down = function (key) { return uiv.__browserKey(key, true); };
+uiv.browser.keyboard.up = function (key) { return uiv.__browserKey(key, false); };
 uiv.desktop = {};
+// Playwright shape: uiv.desktop.mouse.{click, move, down, up} and uiv.desktop.keyboard.{press, type, insertText, down, up}
+uiv.desktop.mouse = {};
+uiv.desktop.keyboard = {};
 
 // A match from uiv.$/uiv.img/uiv.ocr carries scope: browser matches are
 // VIEWPORT css px, desktop matches are SCREEN px. Feeding one to the other
@@ -290,6 +554,29 @@ uiv.__requireScope = function (p, want, fn) {
   }
 };
 
+// Same operation, same Playwright name. A DOM match re-resolves its finder;
+// a screenshot/OCR point cannot identify an element outside the viewport.
+uiv.page.scrollIntoViewIfNeeded = function (target, opts) {
+  var spec;
+  if (typeof target === 'string') { spec = { locator: target, index: 0 }; }
+  else if (target && target.__f !== undefined && uiv.__finds[target.__f] && !uiv.__finds[target.__f].__visual) {
+    spec = { find: uiv.__finds[target.__f], locator: uiv.__finds[target.__f].locator, index: target.__i || 0 };
+  } else { throw new Error('scrollIntoViewIfNeeded: pass a DOM locator or a DOM finder match; image/OCR matches have no DOM element'); }
+  if (opts && opts.timeout !== undefined) {
+    if (typeof opts.timeout !== 'number' || !isFinite(opts.timeout) || opts.timeout < 0) { throw new Error('scrollIntoViewIfNeeded: timeout must be a non-negative number of milliseconds'); }
+    spec.timeout = opts.timeout;
+  }
+  return uiv.__bridge('domScrollIntoView', spec);
+};
+uiv.__wheel = function (op, dx, dy, fn) {
+  if (typeof dx !== 'number' || typeof dy !== 'number' || !isFinite(dx) || !isFinite(dy)) {
+    throw new Error(fn + ': needs finite numeric (deltaX, deltaY), horizontal first; positive is right/down');
+  }
+  return uiv.__bridge(op, { deltaX: dx, deltaY: dy });
+};
+uiv.browser.mouse.wheel = function (deltaX, deltaY) { return uiv.__wheel('bWheel', deltaX, deltaY, 'uiv.browser.mouse.wheel'); };
+uiv.desktop.mouse.wheel = function (deltaX, deltaY) { return uiv.__wheel('xWheel', deltaX, deltaY, 'uiv.desktop.mouse.wheel'); };
+
 uiv.page.click = function (target, opts) {
   if (opts && opts.button !== undefined && String(opts.button).toLowerCase() !== 'left') {
     throw new Error("uiv.page.click: synthetic DOM clicks are left-button only - a synthetic right-click reaches almost nothing (no native menu, most pages ignore it). Use uiv.browser.click(target, {button: '" + opts.button + "'}) for a trusted click");
@@ -299,24 +586,39 @@ uiv.page.click = function (target, opts) {
   uiv.__requireScope(p, 'browser', 'uiv.page.click');
   return uiv.__bridge('domClickAt', p);
 };
-uiv.page.type = function (target, text) {
-  if (arguments.length < 2) { throw new Error("uiv.page.type: needs the field AND the text - uiv.page.type('id=email', 'a@b.com'). To send keystrokes to whatever has focus, use uiv.browser.type(text)"); }
+uiv.page.fill = function (target, text) {
+  if (arguments.length < 2) { throw new Error("uiv.page.fill: needs the field AND the text - uiv.page.fill('id=email', 'a@b.com'). To send keystrokes to whatever has focus, use uiv.browser.type(text)"); }
   // a match from a finder is filled where it was FOUND: re-resolving a locator
   // would be slower, and for a match inside a cross-origin frame impossible
   if (target !== null && typeof target === 'object') {
-    var p = uiv.__xy(target, undefined, 'uiv.page.type');
-    uiv.__requireScope(p, 'browser', 'uiv.page.type');
+    var p = uiv.__xy(target, undefined, 'uiv.page.fill');
+    uiv.__requireScope(p, 'browser', 'uiv.page.fill');
     p.text = String(text);
     return uiv.__bridge('domTypeAt', p);
   }
   return uiv.__bridge('domType', { locator: String(target), text: String(text) });
 };
-uiv.page.select = function (locator, option, opts) {
+uiv.page.selectOption = function (locator, option, opts) {
   // Without this the missing option becomes the STRING "undefined" and the
   // call burns the full auto-wait searching the dropdown for an option by
   // that name - reported as "no option matching 'undefined'", which reads
   // like a page problem rather than a typo in the script.
-  if (arguments.length < 2) { throw new Error("uiv.page.select: needs the dropdown AND the option - uiv.page.select('id=sort', 'Most recent'). The option is matched by its VISIBLE LABEL; 'value=xyz' or 'index=2' pick it by value or position instead"); }
+  if (arguments.length < 2) { throw new Error("uiv.page.selectOption: needs the dropdown AND the option - uiv.page.selectOption('id=sort', 'Most recent'). The option is matched by its VISIBLE LABEL; 'value=xyz' or 'index=2' pick it by value or position instead"); }
+  // A match object stringifies to '[object Object]', which then burns the
+  // full auto-wait searching the page for that literal selector (seen in the
+  // field). Unlike click/type, select cannot act at a point - it resolves
+  // the <select> element itself, so it needs the locator STRING.
+  // A finder MATCH (uiv.$, findImage, ocr.findText) instead of a locator: the
+  // page side resolves the <select> under that point — or the one a label /
+  // wrapper at the point belongs to. Used to be refused (38 chats/week kept
+  // making the call anyway, OPEN-ISSUES 35.8). Cross-origin frame matches
+  // carry frame-local coordinates the top document cannot resolve.
+  if (locator !== null && typeof locator === 'object') {
+    var p = uiv.__xy(locator, undefined, 'uiv.page.selectOption');
+    uiv.__requireScope(p, 'browser', 'uiv.page.selectOption');
+    if (p.frameLocal) { throw new Error("uiv.page.selectOption: this match sits inside a cross-origin frame - pass the dropdown's LOCATOR STRING instead: uiv.page.selectOption('id=country', 'Germany')"); }
+    return uiv.__bridge('domSelect', uiv.__opts({ locator: 'point=' + p.x + ',' + p.y, option: String(option) }, opts));
+  }
   return uiv.__bridge('domSelect', uiv.__opts({ locator: String(locator), option: String(option) }, opts));
 };
 
@@ -346,11 +648,11 @@ uiv.browser.click = function (x, y, opts) {
   if (button) { p.button = button; }
   return uiv.__bridge('bClick', p);
 };
-uiv.browser.move = function (x, y) {
-  if (typeof x === 'string') { return uiv.browser.move(uiv.__domTarget(x, 'uiv.browser.move')); }
-  var p = uiv.__xy(x, y, 'uiv.browser.move');
-  uiv.__requireScope(p, 'browser', 'uiv.browser.move');
-  if (p.frameLocal) { throw new Error('uiv.browser.move: matches inside cross-origin frames support click only (their coordinates are frame-local); use uiv.img/uiv.ocr for hover'); }
+uiv.browser.hover = function (x, y) {
+  if (typeof x === 'string') { return uiv.browser.hover(uiv.__domTarget(x, 'uiv.browser.hover')); }
+  var p = uiv.__xy(x, y, 'uiv.browser.hover');
+  uiv.__requireScope(p, 'browser', 'uiv.browser.hover');
+  if (p.frameLocal) { throw new Error('uiv.browser.hover: matches inside cross-origin frames support click only (their coordinates are frame-local); use uiv.img/uiv.ocr for hover'); }
   return uiv.__bridge('bMove', p);
 };
 // {nav: true}: a click that navigates is waited for automatically, but a
@@ -359,7 +661,7 @@ uiv.browser.move = function (x, y) {
 //   uiv.browser.type('\${KEY_ENTER}', {nav: true});   // next call sees the NEW page
 uiv.browser.type = function (text, opts) { return uiv.__bridge('bType', uiv.__opts({ text: String(text) }, opts)); };
 // Drag: press at one point, release at another. The button stays held between
-// the two calls, and every uiv.browser.move in between drags with it — which
+// the two calls, and every uiv.browser.hover in between drags with it — which
 // is what sliders and drag handles need, since they only follow mousemove
 // events that carry the pressed-button state.
 //   b.down(uiv.findImage('handle.png'));  b.up(x + 200, y);
@@ -395,31 +697,155 @@ uiv.__desktopPoint = function (x, y, opts, fn) {
   if (!p.scope) { p.scope = 'desktop'; }
   return p;
 };
-uiv.desktop.click = function (x, y, opts) {
+uiv.desktop.mouse.click = function (x, y, opts) {
   if (y !== null && typeof y === 'object' && opts === undefined) { opts = y; y = undefined; }
-  var p = uiv.__desktopPoint(x, y, opts, 'uiv.desktop.click');
-  var button = uiv.__button(opts, 'uiv.desktop.click');
+  var p = uiv.__desktopPoint(x, y, opts, 'uiv.desktop.mouse.click');
+  var button = uiv.__button(opts, 'uiv.desktop.mouse.click');
   if (button) { p.button = button; }
   return uiv.__bridge('xClick', p);
 };
-uiv.desktop.move = function (x, y, opts) {
+uiv.desktop.mouse.move = function (x, y, opts) {
   if (y !== null && typeof y === 'object' && opts === undefined) { opts = y; y = undefined; }
-  return uiv.__bridge('xMove', uiv.__desktopPoint(x, y, opts, 'uiv.desktop.move'));
+  return uiv.__bridge('xMove', uiv.__desktopPoint(x, y, opts, 'uiv.desktop.mouse.move'));
 };
-uiv.desktop.type = function (text) { return uiv.__bridge('xType', { text: String(text) }); };
+uiv.desktop.keyboard.type = function (text) { return uiv.__bridge('xType', { text: String(text) }); };
+// Playwright's verbs on the tiers (same feature, same name):
+uiv.page.type = uiv.page.fill;
+uiv.page.select = uiv.page.selectOption;
+// Playwright's check / uncheck / setChecked. A label, a styled wrapper or the
+// text next to the box resolves to the checkbox (label.control, the single
+// input inside, aria-labelledby) — the shapes the model kept handing to
+// isChecked() and getting "this label is not a checkbox" for (12 chats in the
+// 09-09 proxy drop; "uiv.page.check does not exist" 11 more, OPEN-ISSUES 44.5).
+// A string locator is resolved by uiv.$ first (any strategy, the usual
+// dom-not-found diagnosis); a match acts where it was found.
+uiv.page.setChecked = function (target, checked, opts) {
+  if (arguments.length < 2) { throw new Error("uiv.page.setChecked: needs the checkbox AND true/false - uiv.page.setChecked('id=agree', true); uiv.page.check(target) / uiv.page.uncheck(target) are the short forms"); }
+  var m = (typeof target === 'string') ? uiv.$(target, opts) : target;
+  var p = uiv.__xy(m, undefined, 'uiv.page.setChecked');
+  uiv.__requireScope(p, 'browser', 'uiv.page.setChecked');
+  if (p.frameLocal) {
+    // a cross-origin frame: the classic command resolves locators in every frame
+    if (typeof target !== 'string') { throw new Error("uiv.page.setChecked: this match sits inside a cross-origin frame - pass the checkbox's LOCATOR STRING instead: uiv.page.check('id=agree')"); }
+    return uiv.run(checked ? 'check' : 'uncheck', target);
+  }
+  return uiv.__bridge('domCheck', { locator: 'point=' + p.x + ',' + p.y, checked: !!checked, what: typeof target === 'string' ? target : ('the match at ' + p.x + ',' + p.y) });
+};
+uiv.page.check = function (target, opts) { return uiv.page.setChecked(target, true, opts); };
+uiv.page.uncheck = function (target, opts) { return uiv.page.setChecked(target, false, opts); };
+uiv.browser.move = uiv.browser.hover;
+// Existing flat names remain aliases; new mouse examples use Playwright's shape.
+uiv.browser.mouse.move = uiv.browser.move;
+uiv.browser.mouse.click = uiv.browser.click;
+uiv.browser.press = function (combo, opts) { return uiv.browser.type(uiv.__pressKeys(combo), opts); };
+uiv.desktop.keyboard.press = function (combo) { return uiv.desktop.keyboard.type(uiv.__pressKeys(combo)); };
+// Text in WITHOUT keystrokes for its characters: the OS clipboard plus ONE
+// paste chord. Keyboard layouts, dead keys and AltGr never come into it, so
+// this is the way to enter arbitrary text into a window on the far side of
+// a remote-control viewer — AnyDesk re-synthesises keystrokes through the
+// FAR side's layout and dropped every "|" of a shell command even as real
+// keystrokes (OPEN-ISSUES 32.7), while it syncs the clipboard verbatim.
+// Playwright's name (keyboard.insertText = text in, no key events); paste
+// is the alias. opts.chord: the paste shortcut of the focused app — default
+// Control+V (Meta+V on macOS); a Linux terminal wants 'Control+Shift+V'.
+// opts.settle: ms between the clipboard write and the chord, for the sync
+// to reach the target (default 1000; 0 is fine locally). A viewer WITH a
+// VM inside is two syncs — AnyDesk to the host, VMware Tools into the
+// guest — and 600 ms delivered the PREVIOUS clipboard content there
+// (measured 2026-09-05): give such a target 2000–3000. The clipboard KEEPS
+// the text afterwards, like a manual copy would.
+// opts.focus: a point ([x, y] or {x, y}) or a finder match to CLICK after
+// the clipboard write and before the chord. ORDER MATTERS for a VM: VMware
+// Tools copies the host clipboard into the guest when the VM window is
+// grabbed (clicked) — a click BEFORE the write pulls the previous content
+// and the paste delivers stale text (measured 2026-09-05, twice). So: write,
+// settle, focus-click, paste.
+// hold / release one key (press() is the tap): uiv.desktop.keyboard.down('ArrowDown'); ... uiv.desktop.keyboard.up('ArrowDown');
+uiv.__holdKeys = function (combo) {
+  // a bare modifier ('Shift', 'Control', 'Alt', 'Meta') can be held on its own
+  var m = { shift: 'KEY_SHIFT', control: 'KEY_CTRL', ctrl: 'KEY_CTRL', alt: 'KEY_ALT', option: 'KEY_ALT', meta: 'KEY_META', command: 'KEY_META', cmd: 'KEY_META' }[String(combo).toLowerCase()];
+  return m ? '\${' + m + '}' : uiv.__pressKeys(combo);
+};
+uiv.desktop.keyboard.down = function (combo) { return uiv.__bridge('keyDown', { text: uiv.__holdKeys(combo) }); };
+uiv.desktop.keyboard.up = function (combo) { return uiv.__bridge('keyUp', { text: uiv.__holdKeys(combo) }); };
+// move the browser window (screen points): uiv.window.move(0, 30)
+uiv.window.move = function (x, y) { return uiv.__bridge('windowMove', { x: Number(x), y: Number(y) }); };
+// press with a hold (Playwright's \`delay\`: ms between key down and key up): a 2 ms tap is dropped by
+// games and canvas apps now and then, 30 ms is not — uiv.desktop.keyboard.press('Space', { delay: 30 })
+uiv.__pressTap = uiv.desktop.keyboard.press;
+uiv.desktop.keyboard.press = function (combo, opts) {
+  if (opts && opts.delay > 0) { uiv.desktop.keyboard.down(combo); try { uiv.sleep(opts.delay); } finally { uiv.desktop.keyboard.up(combo); } return; }
+  return uiv.__pressTap(combo);
+};
+// the most recent screen read: { captureId, captureTimeMs, captureAgeMs } — also when a finder found nothing
+uiv.lastCapture = function () { return uiv.__bridge('lastCapture', {}); };
+// Fail early with a useful upgrade message; compare numeric version parts.
+uiv.requireAppVersion = function (minimum) {
+  minimum = String(minimum);
+  if (!/^\\d+\\.\\d+\\.\\d+$/.test(minimum)) throw new Error('uiv.requireAppVersion: use a minimum version such as 2.1.10');
+  var actual = String(uiv.getVar('!XMODULE_VERSION', ''));
+  var match = /^(\\d+)\\.(\\d+)\\.(\\d+)(-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$/.exec(actual);
+  var needed = minimum.split('.').map(Number), comparison = 0;
+  if (match) for (var i = 0; i < 3; i++) {
+    if (Number(match[i + 1]) !== needed[i]) { comparison = Number(match[i + 1]) > needed[i] ? 1 : -1; break; }
+  }
+  if (!match || comparison < 0 || (comparison === 0 && match[4])) {
+    throw new Error('This macro requires Ui.Vision Desktop ' + minimum + ' or newer; running ' + (actual || 'an unknown version') + '. Update Ui.Vision for Desktop and restart it.');
+  }
+  return actual;
+};
+
+uiv.desktop.keyboard.insertText = function (text, opts) {
+  opts = opts || {};
+  var chord = opts.chord || (uiv.getVar('!OS') === 'mac' ? 'Meta+V' : 'Control+V');
+  var settle = opts.settle === undefined ? 1000 : Number(opts.settle);
+  uiv.clipboard.write(text === undefined || text === null ? '' : String(text));
+  if (settle > 0) uiv.sleep(settle);
+  if (opts.focus !== undefined && opts.focus !== null) {
+    var f = opts.focus;
+    if (Array.isArray(f)) uiv.desktop.mouse.click(f[0], f[1]); else uiv.desktop.mouse.click(f);
+    uiv.sleep(opts.focusPause === undefined ? 300 : Number(opts.focusPause));
+  }
+  return uiv.desktop.keyboard.press(chord);
+};
+// WAIT FOR MOTION TO SETTLE (or to start) — the desktop-scope answer to
+// every guessed sleep after an animation, spinner, load bar or transition:
+//   uiv.desktop.waitStill({x, y, width, height})            -> waits until the
+//     area's pixels STOP CHANGING for stillMs (default 800), then returns
+//     {waitedMs}. Options: {stillMs, timeout (s, default 15), required}.
+//     Screen px, same space as the desktop finders' rects.
+//   uiv.desktop.waitChange(area, opts)  -> the inverse: returns the moment
+//     the area CHANGES at all (a result rendered, a counter ticked).
+// Both throw on timeout like the finders; {required: false} returns
+// {waitedMs, timedOut: true} instead. Sampling runs in-host at native rate
+// (region capture), so the answer is precise to ~60ms.
+//   uiv.desktop.mouse.click('Export'); uiv.desktop.waitStill(progressArea); ...
+uiv.desktop.waitStill = function (area, opts) { return uiv.__bridge('waitStill', uiv.__opts({ area: area, until: 'still' }, opts)); };
+uiv.desktop.waitChange = function (area, opts) { return uiv.__bridge('waitStill', uiv.__opts({ area: area, until: 'change' }, opts)); };
+// undocumented / experimental — see xmodule2/host/src/reflex.rs
 // drag with real OS input — same press/move/release shape as uiv.browser;
 // both coordinate spaces work here too (see uiv.__desktopPoint above)
-uiv.desktop.down = function (x, y, opts) {
+uiv.desktop.mouse.down = function (x, y, opts) {
   if (y !== null && typeof y === 'object' && opts === undefined) { opts = y; y = undefined; }
   return uiv.__bridge('xDown', uiv.__desktopPoint(x, y, opts, 'uiv.desktop.down'));
 };
-uiv.desktop.up = function (x, y, opts) {
+uiv.desktop.mouse.up = function (x, y, opts) {
   if (y !== null && typeof y === 'object' && opts === undefined) { opts = y; y = undefined; }
   return uiv.__bridge('xUp', uiv.__desktopPoint(x, y, opts, 'uiv.desktop.up'));
 };
+// The flat names from before the Playwright shape (uiv.desktop.click / move /
+// down / up / type / press, v10.0.12 - 10.0.2xx) stay as aliases: they are a
+// published API, shipped demos and user macros were written against them, and
+// dropping them (d3fb7ca, 2026-09-12) killed two accuracy tests with
+// "x.click is not a function" (2026-09-16). No this binding, same rule as above.
+uiv.desktop.click = function () { return uiv.desktop.mouse.click.apply(null, arguments); };
+uiv.desktop.move = function () { return uiv.desktop.mouse.move.apply(null, arguments); };
+uiv.desktop.down = function () { return uiv.desktop.mouse.down.apply(null, arguments); };
+uiv.desktop.up = function () { return uiv.desktop.mouse.up.apply(null, arguments); };
+uiv.desktop.type = function () { return uiv.desktop.keyboard.type.apply(null, arguments); };
+uiv.desktop.press = function () { return uiv.desktop.keyboard.press.apply(null, arguments); };
 uiv.run = function (cmd, target, value) { return uiv.__bridge('run', { cmd: String(cmd), target: target === undefined ? '' : String(target), value: value === undefined ? '' : String(value) }); };
 uiv.log = function (text, color) { __uiv_log(String(text), color === undefined ? '' : String(color)); };
-uiv.echo = uiv.log;
 // ON-PAGE progress banner — uiv.log's sibling for the PERSON WATCHING the
 // browser, not the log panel. Shows text (HTML allowed) as an overlay on the
 // current page; each call replaces the previous banner. uiv.banner('') hides
@@ -429,7 +855,6 @@ uiv.sleep = function (ms) {
   var r = __uiv_pause(ms === undefined ? 0 : ms);
   if (!r.ok) { throw new Error(r.error); }
 };
-uiv.pause = uiv.sleep;
 // END THE RUN EARLY, AS A SUCCESS — the graceful ending for guard clauses
 // ("wrong browser", "nothing left to do today"): the run stops right here,
 // is reported green, logs the reason and keeps the current banner up.
@@ -504,7 +929,7 @@ uiv.shot.area = function (target, name, opts) {
   if (typeof x !== 'number' || typeof y !== 'number' || !isFinite(x) || !isFinite(y)) {
     throw new Error('uiv.shot.area: cannot work out the crop position from that value');
   }
-  return uiv.__bridge('shotArea', { rect: { x: x, y: y, width: w, height: h }, scope: target.scope || '', name: String(name) });
+  return uiv.__bridge('shotArea', { rect: { x: x, y: y, width: w, height: h }, scope: target.scope || '', name: String(name), store: opts.store || '' });
 };
 
 // THE MODEL. Three calls, because they are three different things — only the
@@ -520,16 +945,7 @@ uiv.shot.area = function (target, name, opts) {
 //                  at the same screenshot rarely gives a different answer.
 //                  Wait for the page yourself (uiv.$ on something stable, or
 //                  uiv.sleep) before asking.
-//   uiv.ai.computerUse  the agent LOOP (screenshot -> action -> repeat), which
-//                       CLICKS AND TYPES to carry out a task
-//
-// ask vs computerUse — not interchangeable. ask is ONE round trip that
-// answers a question and touches nothing; computerUse is an agent LOOP that
-// clicks and types in the browser until the task is done. Reaching for
-// computerUse because ask is unavailable means sending an agent off to ACT
-// when all you wanted was an answer.
-//
-// PROVIDER SUPPORT: all three run on whatever AI is configured — the free
+// PROVIDER SUPPORT: both run on whatever AI is configured — the free
 // Ui.Vision tier, Anthropic, OpenRouter or a local model. Anthropic keeps its
 // own request path; everything else goes through an OpenAI-compatible one.
 uiv.ai = {};
@@ -573,36 +989,52 @@ uiv.text.read = function (file) { return uiv.__bridge('textRead', { file: String
 uiv.text.write = function (file, text) { return uiv.__bridge('textWrite', { file: String(file), text: text === undefined || text === null ? '' : String(text) }); };
 
 // The file STORE itself. uiv.csv.* and uiv.text.* DECODE a file (as rows, as
-// a string) and uiv.shot.* CAPTURES one — listing, testing and deleting do
-// none of that. They take a NAME and do not care what is inside it, so they
-// live together here instead of being copied into every format namespace.
-// That is also what lets a name FLOW: uiv.shot.viewport() hands back a name
-// and uiv.files.remove(name) accepts it without the caller ever working out
-// which kind of file it was.
-//   uiv.files.list()                    every stored file, both tabs
-//   uiv.files.exists('article.png')     true/false, never throws
-//   uiv.files.remove('results.csv')     delete it from Ui.Vision storage
-//   uiv.files.exportToDownloads(name)   copy it to the browser's Downloads
-// .csv and .txt are the CSV/TXT tab, .png the Screenshots tab; a name with no
-// extension is looked up as .txt, then .csv, then .png.
+// a string) and uiv.shot.* CAPTURES one — listing, testing, deleting and
+// copying one out do none of that. They take a NAME and do not care what is
+// inside it, so they live together here instead of being copied into every
+// format namespace. That is also what lets a name FLOW: uiv.shot.viewport()
+// hands back a name and uiv.files.remove(name) accepts it without the caller
+// ever working out which kind of file it was.
+//   uiv.files.list()                       every stored file, all three tabs
+//   uiv.files.exists('article.png')        true/false, never throws
+//   uiv.files.remove('results.csv')        delete it from Ui.Vision storage
+//   uiv.files.exportToDownloads('a.png')   copy ONE file to the Downloads folder
+// Every verb but list() acts on the ONE name it is given — the namespace is
+// where the file verbs live, not a plural to export or delete in bulk.
+//
+// WHICH TAB a name means: .csv and .txt are the CSV/TXT tab. .png is in TWO —
+// Screenshots (captures: uiv.shot.viewport/page/element) and Vision (the match
+// images uiv.findImage and XClick search for: uiv.shot.area, and the AI chat's
+// save_element_image). You do NOT normally say which: the name is looked up,
+// and whichever tab holds it wins, so a name still flows straight from the call
+// that made it — uiv.files.remove(uiv.shot.area(m, 'btn.png')) just works.
+// Only a name sitting in BOTH tabs is ambiguous, and then every verb takes
+// {store: 'vision'} / {store: 'screenshots'} / {store: 'csv'} to settle it:
+//   uiv.files.remove('btn.png', {store: 'vision'})
+//   uiv.files.list({store: 'vision'})      just the Vision tab
+// A name with no extension is looked up as .txt, then .csv, then .png.
 uiv.files = {};
-uiv.files.list = function () { return uiv.__bridge('filesList', {}); };
-uiv.files.exists = function (name) { return uiv.__bridge('filesExists', { name: String(name) }); };
-uiv.files.remove = function (name) { return uiv.__bridge('filesRemove', { name: String(name) }); };
+uiv.files.list = function (opts) { return uiv.__bridge('filesList', uiv.__opts({}, opts)); };
+uiv.files.exists = function (name, opts) { return uiv.__bridge('filesExists', uiv.__opts({ name: String(name) }, opts)); };
+uiv.files.remove = function (name, opts) { return uiv.__bridge('filesRemove', uiv.__opts({ name: String(name) }, opts)); };
 
-// Copy a file OUT of Ui.Vision's own storage into the browser's Downloads
+// Copy ONE file OUT of Ui.Vision's own storage into the browser's Downloads
 // folder. File-type agnostic on purpose — a screenshot, a CSV and the log are
 // the same operation, and splitting it across uiv.shot and uiv.csv would have
 // made the caller pick a namespace for something that does not care.
-//   uiv.exportToDownloads('article.png')
-//   uiv.exportToDownloads('results.csv')
-//   uiv.exportToDownloads('notes.txt')    raw text from the CSV/TXT tab
-//   uiv.exportToDownloads('log')          the run log as a text file
-// Also reachable as uiv.files.exportToDownloads — same function, and the
-// spelling that reads right next to list/exists/remove. 'log' works only on
-// this verb: the run log has no entry to list or delete.
-uiv.exportToDownloads = function (name) { return uiv.__bridge('exportToDownloads', { name: String(name) }); };
-uiv.files.exportToDownloads = uiv.exportToDownloads;
+//   uiv.files.exportToDownloads('article.png')
+//   uiv.files.exportToDownloads('results.csv')
+//   uiv.files.exportToDownloads('notes.txt')   raw text from the CSV/TXT tab
+//   uiv.files.exportToDownloads('log')         the run log as a text file
+// 'log' works only on this verb: the run log is rendered on the spot, so
+// there is no entry to list or delete. Same tab rules as the other verbs,
+// {store} included — a vision image exports like any other file.
+uiv.files.exportToDownloads = function (name, opts) { return uiv.__bridge('exportToDownloads', uiv.__opts({ name: String(name) }, opts)); };
+// MOVED. It was reachable both ways for one release, which bought nothing and
+// cost the editor overlay, which knew only the short spelling and painted the
+// documented one as a typo. One verb, one place — and it takes a name, so the
+// place is uiv.files. The stub stays so the old spelling says where it went
+// instead of failing with "not a function".
 
 // Download a file from the WEB the way the user would, and get the name it
 // got on disk back (the browser's Downloads folder). Three forms, one verb:
@@ -616,13 +1048,45 @@ uiv.files.exportToDownloads = uiv.exportToDownloads;
 // completion (default !TIMEOUT_DOWNLOAD), {wait: false} fire-and-forget.
 // Replaces the classic onDownload/saveItem pair and reading
 // !LAST_DOWNLOADED_FILE_NAME by hand.
+//   {blob: true} (trigger form only): for a "PDF" button that BUILDS the file
+//   in the page (fetch -> Blob -> URL.createObjectURL) and window.open()s it
+//   into a viewer tab — that starts no download, so the plain trigger form
+//   times out with "no download started" while uiv.tabs.list shows a new
+//   blob: tab (Vodafone's invoice archive, OPEN-ISSUES 30.7). With the flag
+//   the runtime hooks the page's blob creation before the trigger, keeps the
+//   viewer tab from opening, waits for the blob, and saves it under 'as'
+//   through a page-side download link inside the armed window. Needs
+//   uiv.evaluate (a strict-CSP page refuses it — then the fallback is the
+//   viewer's own download button, desktop scope).
+uiv.__blobHook = function () {
+  uiv.evaluate("if (!window.__uivBlobHook) { window.__uivBlobHook = true; var o = URL.createObjectURL.bind(URL); URL.createObjectURL = function (b) { var u = o(b); window.__uivBlobLast = { blob: b, url: u, t: Date.now() }; return u; }; window.open = function () { return { focus: function () {}, close: function () {}, location: {}, document: { write: function () {} } }; }; } window.__uivBlobLast = null; return 1");
+};
+uiv.__blobSave = function (as, startS) {
+  var deadline = Date.now() + Math.max(1, startS) * 1000;
+  var have = false;
+  while (!have && Date.now() < deadline) {
+    uiv.sleep(250);
+    have = uiv.evaluate("return !!(window.__uivBlobLast && window.__uivBlobLast.blob)");
+  }
+  if (!have) { throw new Error('uiv.download {blob: true}: the trigger created no blob within ' + startS + 's (URL.createObjectURL was never called) — the button may download or navigate the ordinary way; try without the flag, or raise !TIMEOUT_WAIT for a slow server'); }
+  return uiv.evaluate("var a = document.createElement('a'); a.href = window.__uivBlobLast.url; a.download = " + JSON.stringify(String(as || 'download')) + "; document.body.appendChild(a); a.click(); a.remove(); return window.__uivBlobLast.blob.size");
+};
 uiv.download = function (what, opts) {
   opts = opts || {};
   var base = { as: opts.as ? String(opts.as) : '', wait: opts.wait !== false };
   if (opts.timeout !== undefined) { base.timeout = Number(opts.timeout); }
+  if (opts.blob && typeof what !== 'function') { throw new Error("uiv.download: {blob: true} goes with the TRIGGER form — uiv.download(function () { uiv.browser.click(btn); }, {as: 'x.pdf', blob: true})"); }
   if (typeof what === 'function') {
+    if (opts.blob) { uiv.__blobHook(); }
     uiv.__bridge('downloadArm', base);
-    what(); // the script's own trigger — usually a click
+    try {
+      what(); // the script's own trigger — usually a click
+      if (opts.blob) { uiv.__blobSave(base.as, parseFloat(uiv.getVar('!TIMEOUT_WAIT')) || 10); }
+    } catch (e) {
+      // the arm would otherwise outlive this call and block the next one
+      uiv.__bridge('downloadDisarm', { reason: 'uiv.download: the trigger threw before a download started: ' + (e && e.message ? e.message : e) });
+      throw e;
+    }
     return uiv.__bridge('downloadWait', base);
   }
   // a finder MATCH is none of the three forms — stringified it becomes
@@ -631,10 +1095,22 @@ uiv.download = function (what, opts) {
     throw new Error("uiv.download takes a locator STRING, a URL, or a trigger function - not a finder match. To download an element picked by position, pass the position AS a locator: uiv.download('xpath=(//img)[4]')");
   }
   var s = String(what);
-  if (/^(https?|file):/i.test(s)) { base.url = s; } else { base.locator = s; }
+  // a blob: URL belongs to the document that made it — the downloads API
+  // cannot fetch it, and treating it as a LOCATOR used to burn the whole
+  // element timeout on "looking for element 'blob:…'" (30.7)
+  if (/^blob:/i.test(s)) { throw new Error("uiv.download: a blob: URL can only be saved by the page that created it — use the trigger form with {blob: true}: uiv.download(function () { uiv.browser.click(btn); }, {as: 'x.pdf', blob: true})"); }
+  if (/^(https?|file|data):/i.test(s)) { base.url = s; } else { base.locator = s; }
   return uiv.__bridge('download', base);
 };
+// uiv.screenshot({element: match | locator, as: 'name.png'}) — crop the tab
+// capture to that element; {area: {x, y, width, height}} crops a viewport
+// region; nothing = the whole viewport. Saved under Shots as the name and,
+// with 'as', exported to the download folder in the same call. Returns
+// {name, exported, cropped}. (OPEN-ISSUES 24.3)
 uiv.getVar = function (name, fallback) {
+  if (/^\\s*!xmodule_version\\s*$/i.test(String(name))) {
+    try { return uiv.__bridge('appVersion', {}); } catch (e) { if (arguments.length > 1) return fallback; throw e; }
+  }
   // !CLIPBOARD is the OS clipboard — read it FRESH through the bridge (the
   // variable-pool copy is only refreshed by classic commands, so in a script
   // it would silently hand back stale data)
@@ -661,16 +1137,99 @@ uiv.setVar = function (name, value) {
 // OS clipboard, first-class: read() returns the current clipboard text fresh,
 // write(text) replaces it. getVar/setVar('!CLIPBOARD') are aliases of these
 // (kept for classic-macro parity) — both talk to the REAL clipboard.
-uiv.clipboard = {
-  read: function () { return uiv.__bridge('clipboardRead', {}); },
-  write: function (text) { uiv.__bridge('clipboardWrite', { text: text === undefined || text === null ? '' : String(text) }); }
+// (assignment style, not an object literal, like every other namespace here:
+// the editor overlay derives the known-name set from these uiv.x.y = lines)
+uiv.clipboard = {};
+uiv.clipboard.read = function () { return uiv.__bridge('clipboardRead', {}); };
+uiv.clipboard.write = function (text) { uiv.__bridge('clipboardWrite', { text: text === undefined || text === null ? '' : String(text) }); };
+// ---------------------------------------------------------------------------
+// WRONG-NAME SHIMS. One week of production proxy logs (Aug 2026) shows the
+// AI agent inventing these names at scale (uiv.text.exists 268x, uiv.refresh
+// 196x, uiv.page.check 182x, uiv.findTexts 177x, uiv.page.executeScript 176x,
+// uiv.runMacro 90x, uiv.browser.executeScript 80x) — and a bare "is not a
+// function" leaves the user pasting an opaque error back into the chat.
+// Each shim throws the name that EXISTS, so the model self-corrects in one
+// round — same pattern as the uiv.exportToDownloads move shim above.
+// BRACKET assignments on purpose: the editor overlay (script_view.js
+// KNOWN_UIV) collects real API names from top-level "uiv.x =" lines, and
+// these names must KEEP flagging as unknown there — they are errors with
+// better wording, not API.
+uiv['findText'] = function () { throw new Error("uiv.findText does not exist - OCR text search is uiv.ocr.findText(text, opts) (first match) / uiv.ocr.findTexts (all matches); a DOM element is found with uiv.$(locator)"); };
+uiv['findTexts'] = function () { throw new Error("uiv.findTexts does not exist - it is uiv.ocr.findTexts(text, opts) (all OCR matches; singular uiv.ocr.findText returns the first)"); };
+uiv['refresh'] = function () { throw new Error("uiv.refresh does not exist - reload the page through the classic bridge: uiv.run('refresh') (the reload is waited for automatically)"); };
+uiv['runMacro'] = function () { throw new Error("uiv.runMacro does not exist - a JS script reuses code via include: put the shared functions in a .js macro and splice it in with a comment line // @include Folder/Name.js (resolved before compile; uiv.main stays true only in the started file)"); };
+uiv.text['exists'] = function () { throw new Error("uiv.text.exists does not exist - file existence lives once in the STORE api: uiv.files.exists(name). uiv.text.read/write only decode a stored file as raw text"); };
+uiv.page['executeScript'] = function () { throw new Error("uiv.page.executeScript does not exist - page JavaScript is uiv.evaluate(code): the code STRING runs in the page and its return value comes back, e.g. uiv.evaluate('return document.title')"); };
+uiv.browser['executeScript'] = function () { throw new Error("uiv.browser.executeScript does not exist - page JavaScript is uiv.evaluate(code); uiv.browser.* only carries CDP input (click/type/move)"); };
+// NO-DOM SHIMS. "document is not defined" is the #3 sandbox error in the
+// same logs (749x/week): the model writes page-DOM code at macro scope.
+// Concrete methods that throw the working replacement turn that dead end
+// into a one-round self-correct. Only FUNCTIONS are defined (no body /
+// innerText data properties): a property read cannot throw a helpful
+// error in ES5, and half-real data would be worse than a clear miss.
+var document = {};
+(function () {
+  function noDom (n) { return function () { throw new Error("document." + n + ": the macro sandbox has NO DOM. Find elements with uiv.$(locator) / uiv.$$(locator) (each match carries .text/.value/.rect), or run real page JS with uiv.evaluate(code) - the code string executes in the page: uiv.evaluate('return document.title')"); }; }
+  var fns = ['querySelector', 'querySelectorAll', 'getElementById', 'getElementsByClassName', 'getElementsByTagName', 'getElementsByName', 'createElement', 'addEventListener', 'evaluate', 'write'];
+  for (var i = 0; i < fns.length; i++) { document[fns[i]] = noDom(fns[i]); }
+})();
+var prompt = function () { throw new Error("prompt() dialogs do not exist in the sandbox - ask through the classic command: uiv.run('prompt', 'Your question@default value', 'answer'); var answer = uiv.getVar('answer');"); };
+var confirm = function () { throw new Error("confirm() dialogs do not exist in the sandbox - use uiv.run('prompt', 'Type y to continue@y', 'ok') and test uiv.getVar('ok')"); };
+// Cross-runtime subroutines pass explicit JSON snapshots, not shared globals.
+uiv.args = typeof __uiv_call_data === 'undefined' ? {} : __uiv_call_data.args;
+uiv.context = typeof __uiv_call_data === 'undefined' ? {} : __uiv_call_data.context;
+uiv.__callData = function(value) {
+  var seen=[];
+  function check(v, depth) {
+    if(depth>64)throw Error('Macro data is nested too deeply');
+    if(v===null || typeof v==='string' || typeof v==='boolean')return;
+    if(typeof v==='number' && isFinite(v))return;
+    if(typeof v!=='object')throw Error('Macro data must contain only JSON values (no functions, undefined or non-finite numbers)');
+    if(seen.indexOf(v)>=0)throw Error('Macro data cannot contain circular references');
+    if(!Array.isArray(v) && Object.getPrototypeOf(v)!==Object.prototype && Object.getPrototypeOf(v)!==null)throw Error('Macro data must use plain objects or arrays');
+    seen.push(v);
+    if(Array.isArray(v)){for(var i=0;i<v.length;i++)check(v[i],depth+1);}
+    else {var keys=Object.keys(v);for(var j=0;j<keys.length;j++)check(v[keys[j]],depth+1);}
+    seen.pop();
+  }
+  check(value,0);
+  var text=JSON.stringify(value);if(text.length>1048576)throw Error('Macro data exceeds 1 MB');
+  return JSON.parse(text);
 };
+uiv.__macroCall = function(op,name,args,opts) {
+  args=args===undefined?{}:args; opts=opts===undefined?{}:opts;
+  if(!args || Array.isArray(args) || typeof args!=='object')throw Error('Macro arguments must be a plain object');
+  if(!opts || Array.isArray(opts) || typeof opts!=='object')throw Error('Macro call options must be a plain object');
+  if(opts.timeoutMs!==undefined && (typeof opts.timeoutMs!=='number' || !isFinite(opts.timeoutMs) || opts.timeoutMs<1 || opts.timeoutMs>3600000 || Math.floor(opts.timeoutMs)!==opts.timeoutMs))throw Error('timeoutMs must be an integer between 1 and 3600000');
+  if(typeof name!=='string')throw Error('Macro name must be a string');
+  return uiv.__bridge(op,{name:name,args:uiv.__callData(args),options:uiv.__callData(opts)});
+};
+uiv.app = uiv.app || {};
+uiv.app.run = function(name,args,opts){return uiv.__macroCall('appRun',name,args,opts);};
+uiv.browser.run = function(name,args,opts){return uiv.__macroCall('browserRun',name,args,opts);};
+// Sets the value returned when the macro finishes successfully. It does not exit.
+uiv.result = function(value){return uiv.__bridge('macroResult',{value:uiv.__callData(value)});};
+var alert = function () { throw new Error("alert() dialogs do not exist in the sandbox - uiv.log(text) writes to the log; uiv.run('echo', text, '#shownotification') shows a browser notification"); };
 ` +
-// ES6 BUILT-INS. Babel compiles syntax, not library: a script may say
-// `rows.includes(x)` and the sandbox (ES5.1) has no such method. These are the
-// ones macro code actually reaches for. Each is guarded, so a future
-// interpreter that ships them natively wins. Map/Set/Promise are deliberately
-// absent — they need real engine support, and the uiv API is synchronous.
+// ES6+ BUILT-INS. Babel compiles syntax, not library: a script may say
+// `rows.includes(x)` and the sandbox (ES5.1) has no such method. These are
+// the ones macro code actually reaches for — ranked by one week of
+// production proxy logs (Aug 2026: normalize ~1300x, URL 857x, Set 476x,
+// fromEntries 329x). Each is guarded, so a future interpreter that ships
+// them natively wins. Set and Map are ARRAY-BACKED on purpose: the
+// transpiler compiles [...set] with iterableIsArray (array concat), so an
+// object-based polyfill would silently concat the OBJECT — an instance that
+// IS an array with methods attached spreads, Array.froms and for...ofs
+// correctly (tradeoff: `x instanceof Set` is false; size is a maintained
+// property, not a getter). matchAll and Array.prototype.entries return
+// ARRAYS instead of iterators — the correct shape under iterableIsArray.
+// normalize does real NFD/NFKD for the European ranges via the table
+// computed above (NFD_TABLE_JSON); NFC/NFKC pass through unchanged, which
+// is exactly what accent-stripping needs. URL handles absolute URLs plus
+// base-relative resolution; searchParams edits do NOT write back to .href.
+// Promise stays absent — it needs real engine support and the uiv API is
+// synchronous; the AI agent still catches it at save time
+// (checkSandboxUnsupported in macro_agent/tools.ts).
 `if (!Array.prototype.includes) { Array.prototype.includes = function (v) { for (var i = 0; i < this.length; i++) { if (this[i] === v || (v !== v && this[i] !== this[i])) return true; } return false; }; }
 if (!Array.prototype.find) { Array.prototype.find = function (fn, t) { for (var i = 0; i < this.length; i++) { if (fn.call(t, this[i], i, this)) return this[i]; } return undefined; }; }
 if (!Array.prototype.findIndex) { Array.prototype.findIndex = function (fn, t) { for (var i = 0; i < this.length; i++) { if (fn.call(t, this[i], i, this)) return i; } return -1; }; }
@@ -688,6 +1247,111 @@ if (!Object.values) { Object.values = function (o) { return Object.keys(o).map(f
 if (!Object.entries) { Object.entries = function (o) { return Object.keys(o).map(function (k) { return [k, o[k]]; }); }; }
 if (!Number.isInteger) { Number.isInteger = function (v) { return typeof v === 'number' && isFinite(v) && Math.floor(v) === v; }; }
 if (!Number.isNaN) { Number.isNaN = function (v) { return v !== v; }; }
+if (!Number.isFinite) { Number.isFinite = function (v) { return typeof v === 'number' && isFinite(v); }; }
+if (!Math.imul) { Math.imul = function (a, b) { var ah = (a >>> 16) & 0xffff; var al = a & 0xffff; var bh = (b >>> 16) & 0xffff; var bl = b & 0xffff; return ((al * bl) + (((ah * bl + al * bh) << 16) >>> 0)) | 0; }; }
+if (!String.prototype.padEnd) { String.prototype.padEnd = function (n, p) { var s = String(this); p = p === undefined ? ' ' : String(p); while (s.length < n && p.length) { s += p.charAt((s.length - String(this).length) % p.length); } return s; }; }
+if (!String.prototype.replaceAll) { String.prototype.replaceAll = function (s, r) { if (s instanceof RegExp) { if (!s.global) { throw new TypeError('replaceAll called with a non-global RegExp - add the g flag'); } return this.replace(s, r); } return this.replace(new RegExp(String(s).replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&'), 'g'), r); }; }
+if (!String.prototype.matchAll) { String.prototype.matchAll = function (re) { var r; if (re instanceof RegExp) { if (!re.global) { throw new TypeError('matchAll called with a non-global RegExp - add the g flag'); } r = new RegExp(re.source, 'g' + (re.ignoreCase ? 'i' : '') + (re.multiline ? 'm' : '')); } else { r = new RegExp(String(re), 'g'); } var s = String(this); var out = []; var m; while ((m = r.exec(s)) !== null) { out.push(m); if (m.index === r.lastIndex) { r.lastIndex++; } } return out; }; }
+if (!Array.prototype.at) { Array.prototype.at = function (i) { i = i < 0 ? Math.ceil(i) : Math.floor(i); if (i < 0) { i += this.length; } return i >= 0 && i < this.length ? this[i] : undefined; }; }
+if (!Array.prototype.flat) { Array.prototype.flat = function (d) { d = d === undefined ? 1 : d; var out = []; for (var i = 0; i < this.length; i++) { var v = this[i]; if (d > 0 && Array.isArray(v)) { var f = v.flat(d - 1); for (var j = 0; j < f.length; j++) { out.push(f[j]); } } else { out.push(v); } } return out; }; }
+if (!Array.prototype.flatMap) { Array.prototype.flatMap = function (fn, t) { return this.map(function (v, i, a) { return fn.call(t, v, i, a); }).flat(1); }; }
+if (!Array.prototype.entries) { Array.prototype.entries = function () { var out = []; for (var i = 0; i < this.length; i++) { out.push([i, this[i]]); } return out; }; }
+if (!Object.fromEntries) { Object.fromEntries = function (pairs) { var o = {}; for (var i = 0; i < pairs.length; i++) { o[pairs[i][0]] = pairs[i][1]; } return o; }; }
+if (!Number.parseFloat) { Number.parseFloat = parseFloat; }
+if (!Number.parseInt) { Number.parseInt = parseInt; }
+var __uivNFD = ${NFD_TABLE_JSON};
+if (!String.prototype.normalize) { String.prototype.normalize = function (form) { form = form === undefined ? 'NFC' : String(form); if (form !== 'NFC' && form !== 'NFD' && form !== 'NFKC' && form !== 'NFKD') { throw new RangeError('normalize: form must be NFC, NFD, NFKC or NFKD'); } var s = String(this); if (form === 'NFC' || form === 'NFKC') { return s; } var out = ''; for (var i = 0; i < s.length; i++) { out += __uivNFD[s.charAt(i)] || s.charAt(i); } return out; }; }
+if (typeof Set === 'undefined') {
+var Set = function (init) {
+  var a = [];
+  a.size = 0;
+  a.has = function (v) { return a.indexOf(v) !== -1; };
+  a.add = function (v) { if (a.indexOf(v) === -1) { a.push(v); a.size = a.length; } return a; };
+  a['delete'] = function (v) { var i = a.indexOf(v); if (i === -1) { return false; } a.splice(i, 1); a.size = a.length; return true; };
+  a.clear = function () { a.length = 0; a.size = 0; };
+  a.forEach = function (fn, t) { for (var i = 0; i < a.length; i++) { fn.call(t, a[i], a[i], a); } };
+  a.values = function () { return a.slice(); };
+  a.keys = a.values;
+  if (init) { for (var i = 0; i < init.length; i++) { a.add(init[i]); } }
+  return a;
+};
+}
+if (typeof Map === 'undefined') {
+var Map = function (init) {
+  var a = [];
+  a.size = 0;
+  function idx (k) { for (var i = 0; i < a.length; i++) { if (a[i][0] === k) { return i; } } return -1; }
+  a.get = function (k) { var i = idx(k); return i === -1 ? undefined : a[i][1]; };
+  a.set = function (k, v) { var i = idx(k); if (i === -1) { a.push([k, v]); a.size = a.length; } else { a[i][1] = v; } return a; };
+  a.has = function (k) { return idx(k) !== -1; };
+  a['delete'] = function (k) { var i = idx(k); if (i === -1) { return false; } a.splice(i, 1); a.size = a.length; return true; };
+  a.clear = function () { a.length = 0; a.size = 0; };
+  a.forEach = function (fn, t) { for (var i = 0; i < a.length; i++) { fn.call(t, a[i][1], a[i][0], a); } };
+  a.keys = function () { var out = []; for (var i = 0; i < a.length; i++) { out.push(a[i][0]); } return out; };
+  a.values = function () { var out = []; for (var i = 0; i < a.length; i++) { out.push(a[i][1]); } return out; };
+  a.entries = function () { return a.slice(); };
+  if (init) { for (var i = 0; i < init.length; i++) { a.set(init[i][0], init[i][1]); } }
+  return a;
+};
+}
+if (typeof URLSearchParams === 'undefined') {
+var URLSearchParams = function (init) {
+  var p = [];
+  function dec (s) { try { return decodeURIComponent(s.replace(/\\+/g, ' ')); } catch (e) { return s; } }
+  init = init === undefined || init === null ? '' : String(init);
+  if (init.charAt(0) === '?') { init = init.substring(1); }
+  if (init) {
+    var parts = init.split('&');
+    for (var i = 0; i < parts.length; i++) {
+      if (!parts[i]) { continue; }
+      var eq = parts[i].indexOf('=');
+      p.push([dec(eq === -1 ? parts[i] : parts[i].substring(0, eq)), eq === -1 ? '' : dec(parts[i].substring(eq + 1))]);
+    }
+  }
+  this.__p = p;
+};
+URLSearchParams.prototype.get = function (k) { k = String(k); for (var i = 0; i < this.__p.length; i++) { if (this.__p[i][0] === k) { return this.__p[i][1]; } } return null; };
+URLSearchParams.prototype.getAll = function (k) { k = String(k); var out = []; for (var i = 0; i < this.__p.length; i++) { if (this.__p[i][0] === k) { out.push(this.__p[i][1]); } } return out; };
+URLSearchParams.prototype.has = function (k) { return this.get(k) !== null; };
+URLSearchParams.prototype.append = function (k, v) { this.__p.push([String(k), String(v)]); };
+URLSearchParams.prototype.set = function (k, v) { k = String(k); var kept = []; var done = false; for (var i = 0; i < this.__p.length; i++) { if (this.__p[i][0] === k) { if (!done) { kept.push([k, String(v)]); done = true; } } else { kept.push(this.__p[i]); } } if (!done) { kept.push([k, String(v)]); } this.__p = kept; };
+URLSearchParams.prototype['delete'] = function (k) { k = String(k); var kept = []; for (var i = 0; i < this.__p.length; i++) { if (this.__p[i][0] !== k) { kept.push(this.__p[i]); } } this.__p = kept; };
+URLSearchParams.prototype.forEach = function (fn, t) { for (var i = 0; i < this.__p.length; i++) { fn.call(t, this.__p[i][1], this.__p[i][0], this); } };
+URLSearchParams.prototype.keys = function () { var out = []; for (var i = 0; i < this.__p.length; i++) { out.push(this.__p[i][0]); } return out; };
+URLSearchParams.prototype.values = function () { var out = []; for (var i = 0; i < this.__p.length; i++) { out.push(this.__p[i][1]); } return out; };
+URLSearchParams.prototype.entries = function () { return this.__p.slice(); };
+URLSearchParams.prototype.toString = function () { var out = []; for (var i = 0; i < this.__p.length; i++) { out.push(encodeURIComponent(this.__p[i][0]) + '=' + encodeURIComponent(this.__p[i][1])); } return out.join('&'); };
+}
+if (typeof URL === 'undefined') {
+var URL = function (url, base) {
+  url = String(url);
+  var m = url.match(/^([a-zA-Z][a-zA-Z0-9+.\\-]*:)\\/\\/([^\\/?#]*)([^?#]*)(\\?[^#]*)?(#[\\s\\S]*)?$/);
+  if (!m && base !== undefined && base !== null) {
+    var b = base instanceof URL ? base : new URL(String(base));
+    if (url.indexOf('//') === 0) { return new URL(b.protocol + url); }
+    if (url.charAt(0) === '/') { return new URL(b.origin + url); }
+    if (url.charAt(0) === '?' || url.charAt(0) === '#') { return new URL(b.origin + b.pathname + url); }
+    return new URL(b.origin + b.pathname.substring(0, b.pathname.lastIndexOf('/') + 1) + url);
+  }
+  if (!m) { throw new TypeError('Invalid URL: ' + url + (base === undefined ? ' (a relative URL needs a base: new URL(path, absoluteBase))' : '')); }
+  this.protocol = m[1];
+  var h = m[2];
+  var at = h.lastIndexOf('@');
+  if (at !== -1) { h = h.substring(at + 1); }
+  this.host = h;
+  var br = h.indexOf(']');
+  var ci = h.lastIndexOf(':');
+  if (ci > br) { this.hostname = h.substring(0, ci); this.port = h.substring(ci + 1); } else { this.hostname = h; this.port = ''; }
+  this.pathname = m[3] || '/';
+  this.search = m[4] || '';
+  this.hash = m[5] || '';
+  this.origin = this.protocol + '//' + this.host;
+  this.href = this.origin + this.pathname + this.search + this.hash;
+  this.searchParams = new URLSearchParams(this.search);
+};
+URL.prototype.toString = function () { return this.href; };
+URL.prototype.toJSON = function () { return this.href; };
+}
 `
 // Lines the polyfill occupies — subtracted so reported lines match the
 // user's script (the polyfill is prepended to the same interpreter program).
@@ -700,7 +1364,11 @@ const listeners = {
   wait: []    // ({ label, remainingS } | null) — auto-wait countdown ticks
 }
 
+const heldDesktopKeys = new Set()
 let running = false
+let scriptReturnValue = null
+let activeAppCall = null
+let executionMacroId = null
 let stopRequested = false
 let firstCommandDone = false
 // uiv.exit(reason): the reason string (may be ''), or null when no exit was
@@ -765,6 +1433,7 @@ export function isScriptRunning () {
 export function stopScript () {
   if (!running) return
   stopRequested = true
+  if (activeAppCall) activeAppCall.cancel()
   paused = false
   pauseRequested = false
   // a legacy-bridge command may be mid-run in the player — stop that too
@@ -815,6 +1484,46 @@ function describeScriptLine (interpLine) {
   const at = locateMergedLine(scriptSegments, merged)
   if (!at) return null
   return at.isMain ? `line ${at.line}` : `${at.path} line ${at.line}`
+}
+
+// When the merged @include program fails to compile, Babel's position is
+// often the END of the program — an unclosed brace consumes everything after
+// it, so the parser only gives up at EOF, far from the mistake and always in
+// merged-line numbering that matches no file the user can open (field report
+// 2026-09-01: an error pinned to the blank last line of every script that
+// pulled in one broken library). Re-parsing each spliced file on its own
+// pinpoints the real one: a file that fails alone holds a genuine syntax
+// error, and its positions need no mapping. If every file parses alone (the
+// failure only emerges from the concatenation, e.g. an ASI edge at a file
+// boundary), fall back to mapping the merged position.
+async function locateCompileError (mergedCode, segments, e) {
+  const mergedLines = String(mergedCode).split('\n')
+
+  for (const seg of segments) {
+    const part = mergedLines.slice(seg.startLine - 1, seg.startLine - 1 + seg.lineCount).join('\n')
+    try {
+      await transpileScript(part)
+    } catch (partErr) {
+      if (typeof partErr.scriptLine !== 'number') continue
+      return {
+        errorLine: seg.isMain ? partErr.scriptLine : null,
+        errorWhere: seg.isMain ? `line ${partErr.scriptLine}` : `${seg.path} line ${partErr.scriptLine}`,
+        // positions in a lone file are exact, so Babel's own message —
+        // embedded code frame included — is right as it stands
+        message: (partErr && partErr.message) || String(partErr)
+      }
+    }
+  }
+
+  const hit = locateMergedLine(segments, e.scriptLine)
+  if (!hit) return { errorLine: null, errorWhere: null, message: null }
+  const firstLine = String((e && e.message) || e).split('\n')[0].replace(/\s*\(\d+:\d+\)$/, '')
+  const frame = frameMergedPosition(mergedCode, segments, e.scriptLine, e.scriptColumn)
+  return {
+    errorLine: hit.isMain ? hit.line : null,
+    errorWhere: hit.isMain ? `line ${hit.line}` : `${hit.path} line ${hit.line}`,
+    message: firstLine + (frame ? '\n\n' + frame : '') + (e.hint ? '\n\n' + e.hint : '')
+  }
 }
 
 // Current line of the user's script, from the deepest stack node that carries
@@ -899,6 +1608,27 @@ function perfReset () {
   perfStats = { n: 0, tab: 0, dispatch: 0, wait: 0, run: 0, total: 0, first: 0, max: 0, maxCmd: '' }
 }
 
+// the uiv.* spelling of a bridge op, for log lines a script author reads
+// (OPEN-ISSUES 23.2) — '' for ops that have none (uiv.run keeps the classic name)
+function uivNameForOp (op) {
+  const map = {
+    bClick: 'uiv.browser.click', bMove: 'uiv.browser.hover', bDown: 'uiv.browser.down', bUp: 'uiv.browser.up', bType: 'uiv.browser.type',
+    xClick: 'uiv.desktop.mouse.click', xMove: 'uiv.desktop.mouse.move', xDown: 'uiv.desktop.down', xUp: 'uiv.desktop.up', xType: 'uiv.desktop.keyboard.type',
+    domClickLocator: 'uiv.page.click', domClickAt: 'uiv.page.click', domType: 'uiv.page.fill', domTypeAt: 'uiv.page.fill', pageSelect: 'uiv.page.selectOption',
+    open: 'uiv.goto', eval: 'uiv.evaluate', elementSearch: 'uiv.$', imageSearch: 'uiv.findImage', ocrRead: 'uiv.ocr.read', ocrFind: 'uiv.ocr.findText',
+    download: 'uiv.download', downloadArm: 'uiv.download', downloadWait: 'uiv.download', screenshot: 'uiv.screenshot',
+    tabsList: 'uiv.tabs.list', tabsSelect: 'uiv.tabs.select', tabsOpen: 'uiv.tabs.open', tabsClose: 'uiv.tabs.close', windowResize: 'uiv.window.resize', windowFocus: 'uiv.window.focus'
+  }
+  return map[op] || ''
+}
+let bridgeOpLabel = ''
+// the uiv.* line logBridgeCall wrote for the op in flight ('' when it wrote
+// none): the player's per-command "Executing: | saveItem | …" reflect line is
+// skipped while this is set — the locator form of uiv.download used to log
+// BOTH, and the second one named the very command the guide tells scripts
+// never to use (OPEN-ISSUES 30.2)
+let bridgeOpLogged = ''
+
 function perfRecord (cmd, t) {
   if (!perfStats) return
 
@@ -915,7 +1645,7 @@ function perfRecord (cmd, t) {
   if (perfStats.n === 1) perfStats.first = total
   if (total > perfStats.max) {
     perfStats.max = total
-    perfStats.maxCmd = cmd
+    perfStats.maxCmd = bridgeOpLabel || cmd
   }
 }
 
@@ -941,11 +1671,24 @@ function rememberScriptScopeOverride (name, value) {
   }
 }
 
-async function getTargetTab () {
+// Which-tab notice for a fallback pick (see below): when the pick happens for
+// a command that does not USE the tab (tabFree — desktop scope, store/echo),
+// saying "the macro plays tab X" would be wrong, so the notice is parked here
+// and emitted by the first getTargetTab call that actually needs the tab.
+let pendingTabPickNotice = null
+
+async function getTargetTab (opts) {
+  const tabFree = !!(opts && opts.tabFree)
   let lostPinReason = null
   if (scriptTabId !== null) {
     const pinned = await Ext.tabs.get(scriptTabId).catch(() => null)
-    if (isWebTab(pinned)) return pinned
+    if (isWebTab(pinned)) {
+      if (pendingTabPickNotice && !tabFree) {
+        store.dispatch(act.addLog(pendingTabPickNotice.level, pendingTabPickNotice.msg))
+        pendingTabPickNotice = null
+      }
+      return pinned
+    }
     // re-resolve below — and SAY so: the fallback lands on the focused
     // window's active tab, i.e. whatever the user is looking at, and a run
     // that silently switches tabs mid-flight is a debugging trap
@@ -956,7 +1699,8 @@ async function getTargetTab () {
   // prefer the focused window's active tab (query without lastFocusedWindow
   // returns one active tab per window, in window order — not recency)
   let tab = null
-  const focusedActive = (await Ext.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => [])).filter(isWebTab)
+  const focusedActiveRaw = await Ext.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => [])
+  const focusedActive = focusedActiveRaw.filter(isWebTab)
   if (focusedActive.length) tab = focusedActive[0]
 
   if (!tab) {
@@ -976,9 +1720,54 @@ async function getTargetTab () {
     scriptTabId = tab.id
     if (lostPinReason) {
       store.dispatch(act.addLog('info', `script tab → #${(tab.index || 0) + 1} "${(tab.title || tab.url || '').slice(0, 50)}" (${lostPinReason})`))
+    } else if (!focusedActive.length) {
+      // The tab the user is LOOKING AT is unusable (a browser/extension page,
+      // or no focused window at all), so the run plays a tab they may not see
+      // — possibly in an unfocused window, where pages even load invisibly.
+      // Field data (OPEN-ISSUES #11) shows this silent fallback reads as
+      // "the macro does nothing", so name the tab out loud, once per pin.
+      const looking = focusedActiveRaw[0]
+      const ownPage = looking && (looking.url || '').startsWith(Ext.runtime.getURL(''))
+      const target = `the macro plays tab "${(tab.title || tab.url || '').slice(0, 50)}"${tab.active ? '' : ' (background)'}`
+      let notice
+      if (ownPage) {
+        // run started from our own IDE window / panel / settings page — the
+        // fallback IS the designed behavior, just say which tab was picked
+        notice = { level: 'info', msg: `${target}.` }
+      } else {
+        const from = looking ? `the current tab is a browser page (${(looking.url || '').slice(0, 40)})` : 'no browser window has focus'
+        notice = {
+          level: 'warning',
+          msg: `${from} — ${target} instead. Bring that tab to front to watch the run.`
+        }
+      }
+      if (tabFree) {
+        // this command never touches the tab (desktop scope, store/echo…) —
+        // park the notice for the first command that does; a desktop-only
+        // macro then never emits it at all
+        pendingTabPickNotice = notice
+      } else {
+        store.dispatch(act.addLog(notice.level, notice.msg))
+      }
     }
   }
   return tab
+}
+
+// A JavaScript run owns its tab independently of the classic player. Focus
+// that exact tab; the classic background play tab can still name an older one.
+// Preserve tab-free focus for a script which has not selected a web tab yet.
+async function getWindowTargetTab () {
+  if (scriptTabId !== null) {
+    const tab = await Ext.tabs.get(scriptTabId).catch(() => null)
+    if (tab) return tab
+  }
+  return getStartTabForOpen()
+}
+
+async function bringScriptWindowForward () {
+  if (scriptTabId !== null) await activateTab(scriptTabId, true)
+  else await csIpc.ask('PANEL_BRING_PLAYING_WINDOW_TO_FOREGROUND')
 }
 
 // Restore the run's base tab right before a command runs — bg rebases
@@ -1045,7 +1834,7 @@ async function createTabForOpen (url) {
 }
 
 // ---------------------------------------------------------------------------
-// uiv.open — native implementation
+// uiv.goto — native implementation
 // ---------------------------------------------------------------------------
 // Navigates the pinned tab with tabs.update and waits on the browser's own
 // load state. The classic pipeline ran `open` THROUGH the page: the old
@@ -1075,7 +1864,7 @@ async function waitForOpenLoad (tabId, url, navSeqBefore, seenLoading) {
   while (Date.now() - start < capMs) {
     if (stopRequested) return { ok: false, error: 'Script stopped' }
     const t = await Ext.tabs.get(tabId).catch(() => null)
-    if (!t) return { ok: false, error: 'uiv.open: the tab was closed while the page was loading' }
+    if (!t) return { ok: false, error: 'uiv.goto: the tab was closed while the page was loading' }
     last = t
     // three detectors, because each can miss alone: status polling (misses
     // sub-50ms loads), pendingUrl (Chrome only), the run watcher's event
@@ -1099,7 +1888,7 @@ async function nativeOpen (url, timing) {
   // this path takes the url as the JS value it already is. Refuse the syntax
   // rather than navigating to it literally.
   if (/\$\{[^}]*\}/.test(url)) {
-    return { ok: false, error: `uiv.open: '${url}' contains a \${...} token — a JS script passes values directly, e.g. uiv.open('https://example.com/page/' + n)` }
+    return { ok: false, error: `uiv.goto: '${url}' contains a \${...} token — a JS script passes values directly, e.g. uiv.goto('https://example.com/page/' + n)` }
   }
 
   let tab = await getTargetTab()
@@ -1129,10 +1918,16 @@ async function nativeOpen (url, timing) {
   if (!tab) return { ok: false, error: E901_NO_TAB }
 
   // open's job is to SHOW a page — and Chrome throttles loading in background
-  // tabs, so fronting the tab is also what keeps the load from crawling
+  // tabs, so fronting the tab is also what keeps the load from crawling.
+  // Check the WINDOW too: when the user's focused tab is unusable (e.g. the
+  // settings page), the fallback tab is often the active tab of another,
+  // unfocused window — `t.active` alone is true there and the page loaded
+  // invisibly behind whatever the user was looking at (field report
+  // 2026-08-27, BrowserClickAccuracyRange with options.html focused).
   try {
     const t = await Ext.tabs.get(tab.id)
-    if (!t.active) {
+    const win = await Ext.windows.get(t.windowId).catch(() => null)
+    if (!t.active || (win && !win.focused)) {
       await activateTab(t.id, true)
       store.dispatch(act.addLog('info', `script tab → #${(t.index || 0) + 1} brought to front for open`))
     }
@@ -1156,7 +1951,7 @@ async function nativeOpen (url, timing) {
     try {
       updated = await Ext.tabs.update(tab.id, { url: finalUrl })
     } catch (e) {
-      return { ok: false, error: `uiv.open: the browser rejected '${finalUrl}' — ${(e && e.message) || e}` }
+      return { ok: false, error: `uiv.goto: the browser rejected '${finalUrl}' — ${(e && e.message) || e}` }
     }
     // Chrome usually marks the pending navigation on the answer already —
     // seed the detector so an ultra-fast (cached) load cannot slip past the
@@ -1194,6 +1989,45 @@ function getCaptureService () {
   return captureService
 }
 
+// ---------------------------------------------------------------------------
+// Throttle-immune delay for the RUNNER's own pacing (sleeps, retry gaps,
+// timed key presses). When the panel runs as a hidden TAB, Chrome throttles
+// its timers — setTimeout(180) silently becomes ~1s, which wrecks every
+// timing-sensitive macro (measured live). The background service worker's
+// timers are not tab-throttled, so waits are delegated there; a local
+// setTimeout is the fallback when the worker is unreachable. Drift is
+// measured either way, and the first big drift logs a loud warning naming
+// the cause instead of leaving "mysteriously late" runs to archaeology.
+// ---------------------------------------------------------------------------
+let warnedTimerDrift = false
+
+async function runnerDelayMs (ms) {
+  const t0 = Date.now()
+  let mode = 'bg'
+  try {
+    // the bg handler caps at 5s; slice longer waits
+    let left = ms
+    while (left > 0) {
+      const chunk = Math.min(5000, left)
+      await csIpc.ask('PANEL_PRECISE_DELAY', { ms: chunk })
+      left -= chunk
+      if (stopRequested) return
+    }
+  } catch (e) {
+    mode = 'local'
+    await delayMs(Math.max(0, ms - (Date.now() - t0)))
+  }
+  const drift = Date.now() - t0 - ms
+  if (!warnedTimerDrift && drift > Math.max(300, ms)) {
+    warnedTimerDrift = true
+    emitLogSafe(`W371: a ${ms}ms wait took ${ms + drift}ms (${mode} timer) — the browser is throttling the panel's timers, which usually means the Ui.Vision panel is a HIDDEN tab. Keep the panel visible (side panel, or its own window) while timing-sensitive macros run.`)
+  }
+}
+
+function emitLogSafe (msg) {
+  try { store.dispatch(act.addLog('warning', msg)) } catch (e) { /* logging only */ }
+}
+
 function defaultFindTimeoutS () {
   const s = parseFloat(store.getState().config.timeoutElement)
   return Number.isFinite(s) && s > 0 ? s : 10
@@ -1204,8 +2038,63 @@ function defaultFindTimeoutS () {
 // Errors that retrying cannot fix (missing image file etc.) rethrow at once.
 // `describeEmpty` (optional) contributes extra diagnosis to the timeout
 // message — e.g. "matches exist but are hidden".
+// READING ORDER for finder results (findImages, ocr.findTexts): rows
+// top-to-bottom, then left-to-right, so "the 3rd match" is the 3rd on
+// screen. Rows are clustered by PROXIMITY — a match joins the current row
+// while its centre is within half a match height of the row's first
+// member — NOT by quantized bins: the old Math.round(y / rowH) sort put
+// two words of ONE line into neighbouring bins whenever their centres
+// straddled a bin edge (measured on macOS desktop OCR: x-order
+// 159,499,665,329,840 for five identical words on a single line, caught
+// by the OrderingCheck demo), and the Nth click landed on the wrong word.
+function readingOrder (matches) {
+  const byY = matches.slice().sort((a, b) => a.y - b.y)
+  const rowOf = new Map()
+  let row = -1
+  let rowY = -Infinity
+  for (const m of byY) {
+    const tol = Math.max(1, ((m.rect && m.rect.height) || 0) / 2)
+    if (m.y - rowY > tol) { row++; rowY = m.y }
+    rowOf.set(m, row)
+  }
+  return byY.sort((a, b) => (rowOf.get(a) - rowOf.get(b)) || (a.x - b.x))
+}
+
+// A command-table macro (the classic JSON) pasted into a JS macro's Script
+// field compiles as JavaScript and dies with "Syntax error: Missing semicolon
+// (2:8)" — 1–3% of chats in the 2026-09-06 log drop, after which the model
+// argues with the user about which format the editor "saved" (OPEN-ISSUES
+// 35.4). Recognise it BEFORE compiling and say what it is. Tolerates a
+// commented-out first line ("//{"), editor line numbers pasted along
+// ("1\n{\n2\n\"Name\"…") and a bare fragment of a Commands list.
+// Returns the error text, or null for anything that is not a table.
+export function describeCommandTableScript (script) {
+  let s = String(script || '').replace(/^\s*\/\/[ \t]*(?=\{)/, '').trim()
+  if (!s.startsWith('{') && !/^\d+\s*\n\s*\{/.test(s)) return null
+  const parse = (text) => { try { return JSON.parse(text) } catch (e) { return null } }
+  let obj = parse(s)
+  if (!obj) {
+    // editor line numbers interleaved with the JSON lines
+    const stripped = s.replace(/^\d+\s*\n/, '').replace(/\n\s*\d+\s*(?=\n)/g, '')
+    obj = parse(stripped)
+  }
+  let n = null
+  let name = ''
+  if (obj && typeof obj === 'object' && Array.isArray(obj.Commands)) {
+    n = obj.Commands.length
+    name = typeof obj.Name === 'string' ? obj.Name : ''
+  } else if (!obj && /^\{[\s\S]{0,400}"Command"\s*:/.test(s)) {
+    n = (s.match(/"Command"\s*:/g) || []).length // a fragment: {Command…},{Command…}
+  }
+  if (n === null) return null
+  return `this is a classic COMMAND-TABLE macro (JSON with ${n} command${n === 1 ? '' : 's'}${name ? `, "${name}"` : ''}) pasted into a JS script macro — it is not JavaScript, so it cannot run here. Either import it as a macro file (panel: Macros > Import), paste it into a command-table macro, or convert it to a JS script`
+}
+
 async function retryFind (findOnce, { timeoutS, required, label, retryDelayMs = 500, describeEmpty }) {
-  const timeoutMs = (timeoutS || defaultFindTimeoutS()) * 1000
+  // 0 is a real value: ONE look, no wait — the probe form {timeout: 0,
+  // required: false} (OPEN-ISSUES 23.4); only undefined/null/NaN mean default
+  const givenS = timeoutS != null && Number.isFinite(Number(timeoutS)) && Number(timeoutS) >= 0 ? Number(timeoutS) : null
+  const timeoutMs = (givenS != null ? givenS : defaultFindTimeoutS()) * 1000
   const deadline = Date.now() + timeoutMs
   let lastError = null
 
@@ -1220,7 +2109,7 @@ async function retryFind (findOnce, { timeoutS, required, label, retryDelayMs = 
       } catch (e) {
         // errors retrying cannot fix fail immediately: missing image file,
         // OCR disabled/misconfigured, no tab
-        if (/#121|No input image|E90[0-9]|enable OCR|OCR feature disabled/i.test((e && e.message) || '')) throw e
+        if (/#121|No input image|E90[0-9]|enable OCR|OCR feature disabled|\bref=\d+( is unknown| is gone|: no refs exist)/i.test((e && e.message) || '')) throw e
         lastError = e
       }
 
@@ -1241,7 +2130,7 @@ async function retryFind (findOnce, { timeoutS, required, label, retryDelayMs = 
       // countdown for the view — without it, auto-waiting looks like a hang
       emit('wait', { label, remainingS: Math.ceil((deadline - Date.now()) / 1000) })
 
-      await delayMs(Math.min(retryDelayMs, Math.max(50, deadline - Date.now())))
+      await runnerDelayMs(Math.min(retryDelayMs, Math.max(50, deadline - Date.now())))
     }
   } finally {
     emit('wait', null)
@@ -1316,6 +2205,178 @@ function pageElementSearch (locator, opts) {
     return (window.CSS && CSS.escape) ? CSS.escape(v) : v.replace(/(["\\#.;?&,\s])/g, '\\$1')
   }
 
+  // set when a ref= was re-resolved after a re-render (OPEN-ISSUES 20.4);
+  // travels back in the result so the panel can log it
+  var refNote = ''
+
+  // ---- accessible name and role, the way browser_snapshot's tree computes them ----
+  // (Playwright's getByLabel / getByRole / getByText / getByPlaceholder /
+  // getByTitle / getByAltText arrive here as by={"kind":…} — OPEN-ISSUES 30.18)
+  function norm (s) { return String(s || '').replace(/\s+/g, ' ').trim() }
+  function textMatches (have, want, exact) {
+    have = norm(have); want = norm(want)
+    if (!want) return false
+    return exact ? have === want : have.toLowerCase().indexOf(want.toLowerCase()) >= 0
+  }
+  function ownText (el) {
+    var out = ''
+    for (var n = el.firstChild; n; n = n.nextSibling) if (n.nodeType === 3) out += n.textContent
+    return norm(out)
+  }
+  // innerText, not textContent: adjacent inline elements ("<span>Rechnung
+  // </span><span>erstellen</span>", icon spans) read as one word in
+  // textContent and as the displayed words in innerText — the tree names
+  // come from the displayed text, so the finders must match them
+  function shownText (el) {
+    var t = el.innerText
+    if (t === undefined || t === null || (t === '' && el.textContent)) t = el.textContent
+    return norm(t)
+  }
+  function labelText (lab, control) {
+    return shownText(lab)
+  }
+  function labelsOf (el) {
+    var out = []
+    var root = el.getRootNode ? el.getRootNode() : document
+    if (el.id && root.querySelectorAll) {
+      var fors = root.querySelectorAll('label[for="' + cssEscape(el.id) + '"]')
+      for (var f = 0; f < fors.length; f++) out.push(labelText(fors[f], el))
+    }
+    var wrap = el.closest ? el.closest('label') : null
+    if (wrap) out.push(labelText(wrap, el))
+    var by = el.getAttribute('aria-labelledby')
+    if (by) {
+      var ids = by.split(/\s+/)
+      for (var b = 0; b < ids.length; b++) { var ref = root.getElementById ? root.getElementById(ids[b]) : document.getElementById(ids[b]); if (ref) out.push(norm(ref.textContent)) }
+    }
+    var al = el.getAttribute('aria-label')
+    if (al) out.push(norm(al))
+    return out
+  }
+  function accName (el) {
+    var labs = labelsOf(el)
+    if (labs.length && labs[0]) return labs[0]
+    var tag = el.tagName
+    if (tag === 'IMG' || tag === 'AREA') return norm(el.getAttribute('alt'))
+    if (tag === 'INPUT' && /^(button|submit|reset|image)$/i.test(el.type || '')) return norm(el.value || el.getAttribute('alt'))
+    if (/^(BUTTON|A|SUMMARY|OPTION|LEGEND|TH|TD|H1|H2|H3|H4|H5|H6|LI|LABEL)$/.test(tag) || el.getAttribute('role')) {
+      var t = shownText(el)
+      if (t) return t
+      var img = el.querySelector && el.querySelector('img[alt], svg title, [aria-label]')
+      if (img) return norm(img.getAttribute('alt') || img.getAttribute('aria-label') || img.textContent)
+    }
+    return norm(el.getAttribute('title') || el.getAttribute('placeholder'))
+  }
+  function implicitRole (el) {
+    var tag = el.tagName, type = (el.getAttribute('type') || 'text').toLowerCase()
+    switch (tag) {
+      case 'A': case 'AREA': return el.hasAttribute('href') ? 'link' : ''
+      case 'BUTTON': return 'button'
+      case 'INPUT':
+        if (/^(button|submit|reset|image)$/.test(type)) return 'button'
+        if (type === 'checkbox') return 'checkbox'
+        if (type === 'radio') return 'radio'
+        if (type === 'range') return 'slider'
+        if (type === 'number') return 'spinbutton'
+        if (type === 'search') return 'searchbox'
+        if (/^(hidden)$/.test(type)) return ''
+        return el.hasAttribute('list') ? 'combobox' : 'textbox'
+      case 'TEXTAREA': return 'textbox'
+      case 'SELECT': return el.multiple || el.size > 1 ? 'listbox' : 'combobox'
+      case 'OPTION': return 'option'
+      case 'IMG': return 'img'
+      case 'H1': case 'H2': case 'H3': case 'H4': case 'H5': case 'H6': return 'heading'
+      case 'UL': case 'OL': return 'list'
+      case 'LI': return 'listitem'
+      case 'TABLE': return 'table'
+      case 'TR': return 'row'
+      case 'TH': return /^(row|rowgroup)$/i.test(el.getAttribute('scope') || '') ? 'rowheader' : 'columnheader'
+      case 'TD': return 'cell'
+      case 'NAV': return 'navigation'
+      case 'MAIN': return 'main'
+      case 'FORM': return 'form'
+      case 'DIALOG': return 'dialog'
+      case 'SUMMARY': return 'button'
+      case 'PROGRESS': return 'progressbar'
+      case 'HR': return 'separator'
+      case 'ARTICLE': return 'article'
+      case 'ASIDE': return 'complementary'
+      case 'HEADER': return 'banner'
+      case 'FOOTER': return 'contentinfo'
+      case 'SECTION': return 'region'
+      default: return ''
+    }
+  }
+  function roleOf (el) {
+    var r = (el.getAttribute('role') || '').trim().split(/\s+/)[0]
+    return r ? r.toLowerCase() : implicitRole(el)
+  }
+  function resolveBy (spec) {
+    var out = [], all, i, el
+    var want = spec.text != null ? String(spec.text) : ''
+    var exact = !!spec.exact
+    switch (spec.kind) {
+      case 'label':
+        all = queryAll('input:not([type=hidden]), select, textarea, button, [role=textbox], [role=combobox], [role=listbox], [role=checkbox], [role=radio], [role=switch], [role=slider], [role=spinbutton], [role=searchbox], [contenteditable=true], [contenteditable=""]')
+        for (i = 0; i < all.length; i++) {
+          var labs = labelsOf(all[i].el)
+          for (var l = 0; l < labs.length; l++) if (textMatches(labs[l], want, exact)) { out.push(all[i]); break }
+        }
+        break
+      case 'role': {
+        var role = String(spec.role || '').toLowerCase()
+        all = queryAll('*')
+        for (i = 0; i < all.length; i++) {
+          el = all[i].el
+          if (/^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(el.tagName)) continue
+          if (roleOf(el) !== role) continue
+          if (spec.name != null && String(spec.name) !== '' && !textMatches(accName(el), String(spec.name), exact)) continue
+          out.push(all[i])
+        }
+        break
+      }
+      case 'text': {
+        all = queryAll('*')
+        var innermost = []
+        for (i = 0; i < all.length; i++) {
+          el = all[i].el
+          if (/^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|HTML|HEAD|BODY)$/.test(el.tagName)) continue
+          if (textMatches(ownText(el), want, exact) || (el.children.length === 0 && textMatches(shownText(el), want, exact))) out.push(all[i])
+          else if (textMatches(shownText(el), want, exact)) innermost.push(all[i])
+        }
+        if (!out.length) {
+          // no element holds the text in its own text nodes (it spans
+          // children): the innermost elements that contain it
+          for (i = 0; i < innermost.length; i++) {
+            var deeper = false
+            for (var j = 0; j < innermost.length; j++) if (j !== i && innermost[i].el !== innermost[j].el && innermost[i].el.contains(innermost[j].el)) { deeper = true; break }
+            if (!deeper) out.push(innermost[i])
+          }
+        }
+        break
+      }
+      case 'testid':
+        all = queryAll('[data-testid], [data-test-id], [data-test]')
+        for (i = 0; i < all.length; i++) { el = all[i].el; if (textMatches(el.getAttribute('data-testid') || el.getAttribute('data-test-id') || el.getAttribute('data-test'), want, exact)) out.push(all[i]) }
+        break
+      case 'placeholder':
+        all = queryAll('[placeholder]')
+        for (i = 0; i < all.length; i++) if (textMatches(all[i].el.getAttribute('placeholder'), want, exact)) out.push(all[i])
+        break
+      case 'title':
+        all = queryAll('[title]')
+        for (i = 0; i < all.length; i++) if (textMatches(all[i].el.getAttribute('title'), want, exact)) out.push(all[i])
+        break
+      case 'alt':
+        all = queryAll('img[alt], area[alt], input[type=image][alt], [role=img][aria-label]')
+        for (i = 0; i < all.length; i++) if (textMatches(all[i].el.getAttribute('alt') || all[i].el.getAttribute('aria-label'), want, exact)) out.push(all[i])
+        break
+      default:
+        throw new Error('by= locator: unknown kind "' + spec.kind + '"')
+    }
+    return out
+  }
+
   function resolveElements (loc) {
     var m = /^([A-Za-z]+)=([\s\S]*)$/.exec(loc)
     var strategy = m ? m[1].toLowerCase() : (/^\s*[(/]{1}/.test(loc) ? 'xpath' : 'css')
@@ -1323,6 +2384,12 @@ function pageElementSearch (locator, opts) {
     var entries = []
     var i
     switch (strategy) {
+      case 'by': {
+        var spec
+        try { spec = JSON.parse(value) } catch (e) { throw new Error('by= locator: not valid JSON — use uiv.getByRole / getByLabel / getByText / getByPlaceholder / getByTitle / getByAltText, which build it') }
+        entries = resolveBy(spec)
+        break
+      }
       case 'id':
         entries = queryAll('#' + cssEscape(value))
         break
@@ -1367,6 +2434,52 @@ function pageElementSearch (locator, opts) {
         }
         break
       }
+      // ref=N — an element browser_snapshot / screenshot marks numbered earlier in
+      // this page load. The number -> element table (window.__uivRefs) is
+      // per frame in the extension's isolated world; browser_snapshot walks
+      // same-origin child frames from the top frame, so their elements sit
+      // in the TOP frame's table and get their frame offset applied here.
+      // A cross-origin frame keeps its own table and answers for itself.
+      case 'ref': {
+        var refStore = window.__uivRefs
+        var refNo = parseInt(value, 10)
+        var refEl = refStore && refStore.map ? refStore.map.get(refNo) : null
+        if (!refEl) {
+          // another reporting root may own this number — always for a
+          // rebased (>= 1000) cross-origin ref (OPEN-ISSUES 24.1)
+          if (!isTopRoot || refNo >= 1000) break
+          throw new Error(refStore
+            ? 'ref=' + value + ' is unknown in this page - refs are numbered by browser_snapshot and renumbered on navigation: call browser_snapshot again'
+            : 'ref=' + value + ': no refs exist yet in this page - call browser_snapshot (or screenshot {marks: "elements"}) first; refs die on navigation')
+        }
+        if (!refEl.isConnected) {
+          // re-rendered under a new node: adopt it by stable id or unique
+          // identity (OPEN-ISSUES 20.4) — only a real disappearance fails
+          var rr = typeof refStore.resolve === 'function' ? refStore.resolve(refNo) : null
+          if (!rr || !rr.el) {
+            var why = rr && rr.how === 'ambiguous'
+              ? ' and ' + rr.count + ' live elements look alike (' + rr.label + ')'
+              : ' and no live element with the same tag, id or label exists'
+            throw new Error('ref=' + value + ' is gone - the page re-rendered that element after browser_snapshot' + why + '; call browser_snapshot again')
+          }
+          refEl = rr.el
+          refNote = 'ref=' + value + ' was re-rendered by the page — re-resolved by its ' + (rr.how === 'id' ? 'id' : 'identity') + ' (' + rr.label + ')'
+        }
+        var rox = 0
+        var roy = 0
+        var fw = refEl.ownerDocument && refEl.ownerDocument.defaultView
+        try {
+          while (fw && fw !== window && fw.frameElement) {
+            var fe = fw.frameElement
+            var frr = fe.getBoundingClientRect()
+            rox += frr.left + (fe.clientLeft || 0)
+            roy += frr.top + (fe.clientTop || 0)
+            fw = fw.parent
+          }
+        } catch (e) { /* cross-origin boundary: keep what we have */ }
+        entries.push({ el: refEl, ox: rox, oy: roy })
+        break
+      }
       case 'css':
       default:
         entries = queryAll(strategy === 'css' ? value : loc)
@@ -1393,12 +2506,29 @@ function pageElementSearch (locator, opts) {
       var el = entries[i].el
       var rc = el.getBoundingClientRect()
       var visible = isVisible(el, rc)
+      var viaLabel = false
       if (!visible && !(opts && opts.includeHidden)) {
-        hiddenCount++
-        continue
+        // a styled radio/checkbox hides its <input> behind a visible <label>
+        // (Postbank's export dialog, most design systems): the label IS the
+        // clickable thing — take it, and say so (OPEN-ISSUES 30.9)
+        var lab = null
+        if (!(opts && opts.scrollIntoViewIfNeeded) && el.tagName === 'INPUT' && /^(radio|checkbox)$/i.test(el.type || '')) {
+          if (el.id && window.CSS && CSS.escape) lab = document.querySelector('label[for="' + CSS.escape(el.id) + '"]')
+          if (!lab && el.closest) lab = el.closest('label')
+          if (lab) {
+            var lrc = lab.getBoundingClientRect()
+            if (isVisible(lab, lrc)) { el = lab; rc = lrc; visible = true; viaLabel = true }
+            else lab = null
+          }
+        }
+        if (!lab) {
+          hiddenCount++
+          continue
+        }
       }
       withRects.push({
         el: el,
+        viaLabel: viaLabel,
         visible: visible,
         rect: {
           left: rc.left + entries[i].ox,
@@ -1414,6 +2544,26 @@ function pageElementSearch (locator, opts) {
   try {
     var snap = snapshot()
     var withRects = snap.withRects
+
+    if (opts && opts.scrollIntoViewIfNeeded) {
+      var chosen = withRects[opts.index || 0];
+      if (!chosen) return { ok: true, matches: [] };
+      var elToScroll = chosen.el;
+      // IntersectionObserver includes clipping by nested scroll containers.
+      // BoundingClientRect vs window alone misses an element clipped by a panel.
+      return new Promise(function (resolve) {
+        var observer = new IntersectionObserver(function (entries) {
+          clearTimeout(timer); observer.disconnect(); resolve(entries[0].intersectionRatio);
+        });
+        var timer = setTimeout(function () { observer.disconnect(); resolve(null); }, opts.observationTimeout || 1000);
+        observer.observe(elToScroll);
+      }).then(function (ratio) {
+        if (ratio === null) return { ok: false, retryable: true, error: 'scrollIntoViewIfNeeded: the page did not provide a layout observation' };
+        if (!elToScroll.isConnected) return { ok: true, matches: [] };
+        if (ratio < 1) elToScroll.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+        return { ok: true, matches: [{}] };
+      }).catch(function (error) { return { ok: false, error: String(error) }; });
+    }
 
     // default: bring the first match into view, then re-measure everything
     // (coordinates are only click-valid for elements inside the viewport).
@@ -1443,23 +2593,151 @@ function pageElementSearch (locator, opts) {
     for (var k = 0; k < withRects.length; k++) {
       var el = withRects[k].el
       var rc = withRects[k].rect
+      // every attribute travels with the snapshot, so m.getAttribute (attached
+      // interpreter-side) can answer without a live handle — same find-time
+      // copy contract as .text/.value, 2000-char cap per attribute value
+      var attrs = {}
+      for (var an = 0; el.attributes && an < el.attributes.length; an++) {
+        attrs[el.attributes[an].name] = String(el.attributes[an].value).slice(0, 2000)
+      }
+      // .text is a find-time COPY: capped, and the cut is MARKED so a reader
+      // cannot mistake the head of a long page for the whole page (a payments
+      // list read through uiv.$('xpath=//body').text showed 5 of 20 entries
+      // and looked complete — OPEN-ISSUES 30.14). Whole-page containers get a
+      // wider cap; anything longer is read with uiv.evaluate.
+      var rawText = ((el.innerText !== undefined ? el.innerText : el.textContent) || '').trim()
+      var textCap = /^(BODY|MAIN|ARTICLE|HTML)$/.test(el.tagName || '') ? 20000 : 2000
+      // Isolated-world registry: retain identity without adding attributes to the page.
+      // Bounded and weak: removed DOM nodes are not retained by long chats.
+      var registry = window.__uivElementTargets;
+      if (!registry) registry = window.__uivElementTargets = { ids: new WeakMap(), nodes: new Map(), next: 0, epoch: Math.random().toString(36).slice(2) };
+      var elementId = registry.ids.get(el);
+      if (!elementId || !registry.nodes.has(elementId)) {
+        elementId = registry.epoch + ':' + (++registry.next);
+        registry.ids.set(el, elementId);
+        registry.nodes.set(elementId, { ref: new WeakRef(el) });
+        if (registry.nodes.size > 2048) registry.nodes.delete(registry.nodes.keys().next().value);
+      }
       var m = {
+        elementId: elementId,
+        elementSignature: JSON.stringify([el.id, el.getAttribute('name'), el.getAttribute('href'), rawText.slice(0, 2000)]),
         x: Math.round(rc.left + rc.width / 2),
         y: Math.round(rc.top + rc.height / 2),
         rect: { left: Math.round(rc.left), top: Math.round(rc.top), width: Math.round(rc.width), height: Math.round(rc.height) },
-        text: ((el.innerText !== undefined ? el.innerText : el.textContent) || '').trim().slice(0, 2000),
-        value: el.value !== undefined ? String(el.value).slice(0, 2000) : undefined,
+        text: rawText.length > textCap ? rawText.slice(0, textCap) + ' …[cut at ' + textCap + ' chars, ' + (rawText.length - textCap) + ' more — read long text with uiv.evaluate("return document.querySelector(sel).innerText")]' : rawText,
+        // .value: a form field can hold a whole document (a forum post in a
+        // composer textarea), and a script that reads it, edits it and fills
+        // it back MUST get all of it — a silent 2000-char slice here shortened
+        // a 2697-char forum post to its first 2000 chars on 2026-09-06 (found
+        // 2026-09-10, OPEN-ISSUES 50). Wide cap, and the cut is MARKED like
+        // .text so a round trip can never look complete when it is not.
+        value: el.value !== undefined ? (function (v) {
+          var valueCap = 20000
+          return v.length > valueCap ? v.slice(0, valueCap) + ' …[cut at ' + valueCap + ' chars, ' + (v.length - valueCap) + ' more — read a long value with uiv.evaluate("return document.querySelector(sel).value")]' : v
+        })(String(el.value)) : undefined,
         tag: (el.tagName || '').toLowerCase(),
+        attributes: attrs,
         visible: withRects[k].visible,
+        // the box's state — read off the box a <label> / wrapper / labelling
+        // text BELONGS to when the match itself is not one (Playwright's
+        // retargeting; 12 chats hit "this label is not a checkbox" in the
+        // 09-09 proxy drop, OPEN-ISSUES 44.5)
+        checked: (function (e) {
+          var isBox = function (x) { return !!(x && x.tagName && ((x.tagName === 'INPUT' && /^(checkbox|radio)$/i.test(x.type || '')) || /^(checkbox|radio|switch|menuitemcheckbox|menuitemradio)$/.test((x.getAttribute && x.getAttribute('role')) || ''))) }
+          var box = isBox(e) ? e : null
+          if (!box && e.closest) { var lab = e.closest('label'); if (lab && lab.control && isBox(lab.control)) box = lab.control }
+          if (!box && e.querySelectorAll) { var inner = e.querySelectorAll('input[type=checkbox],input[type=radio],[role=checkbox],[role=radio],[role=switch]'); if (inner.length === 1) box = inner[0] }
+          if (!box && e.id) { var by = document.querySelector('[aria-labelledby~="' + e.id.replace(/"/g, '\\"') + '"]'); if (isBox(by)) box = by }
+          if (!box) return undefined
+          return box.tagName === 'INPUT' && box.checked !== undefined ? !!box.checked : box.getAttribute('aria-checked') === 'true'
+        })(el),
+        disabled: !!(el.disabled || el.getAttribute('aria-disabled') === 'true'),
         // frame-local coordinates (cross-origin root): click via DOM path
         frameLocal: !isTopRoot
       }
       if (k === 0 && scrollDefeated) m.offscreen = true
+      if (withRects[k].viaLabel) m.viaLabel = true
       matches.push(m)
     }
-    return { ok: true, matches: matches, hiddenCount: snap.hiddenCount }
+    // a minimized window (or one without layout) measures every element as
+    // 0×0 — that is not "hidden behind a toggle" (OPEN-ISSUES 30.10)
+    var noLayout = (window === window.top) && (window.innerWidth === 0 || window.innerHeight === 0)
+    return { ok: true, matches: matches, hiddenCount: snap.hiddenCount, noLayout: noLayout || undefined, note: refNote || undefined }
   } catch (e) {
     return { ok: false, error: (e && e.message) || String(e) }
+  }
+}
+
+// Serialized into the page (top frame): set a checkbox / radio / ARIA switch
+// to a wanted state — uiv.page.check / uncheck / setChecked (OPEN-ISSUES 44.5).
+// The point ("point=x,y", top-viewport CSS px) is resolved like
+// pageSelectOption; whatever sits there is walked to its control: the input
+// itself, a <label>'s .control, the single box inside a wrapper, the element
+// an aria-labelledby names, or an enclosing role=checkbox/radio/switch. The
+// change is made the way a user makes it — a click on the control — and only
+// when that did not take (framework-controlled inputs), by setting .checked
+// and firing input+change. A radio cannot be unchecked (Playwright's rule).
+function pageSetChecked (locator, wanted) {
+  try {
+    if (window !== window.top) return { found: false }
+    var m = /^point=([\s\S]*)$/.exec(locator)
+    if (!m) return { found: true, ok: false, error: 'uiv.page.setChecked: internal - expected a point locator' }
+    var pt = m[1].split(',')
+    var px = parseFloat(pt[0])
+    var py = parseFloat(pt[1])
+    var at = document.elementFromPoint(px, py)
+    for (;;) {
+      while (at && at.shadowRoot) {
+        var inner = at.shadowRoot.elementFromPoint(px, py)
+        if (!inner || inner === at) break
+        at = inner
+      }
+      var ftag = at && at.tagName ? at.tagName.toLowerCase() : ''
+      if ((ftag === 'iframe' || ftag === 'frame') && at.contentDocument) {
+        var fr = at.getBoundingClientRect()
+        px = px - fr.left - (at.clientLeft || 0)
+        py = py - fr.top - (at.clientTop || 0)
+        at = at.contentDocument.elementFromPoint(px, py)
+        continue
+      }
+      break
+    }
+    if (!at) return { found: true, ok: false, error: 'no element at point ' + m[1] + ' any more - the match is STALE: the page scrolled, re-rendered or navigated between the finder and this call. Find it again right before acting' }
+    var isBox = function (x) {
+      if (!x || !x.tagName) return false
+      if (x.tagName === 'INPUT' && /^(checkbox|radio)$/i.test(x.type || '')) return true
+      var role = x.getAttribute ? (x.getAttribute('role') || '') : ''
+      return /^(checkbox|radio|switch|menuitemcheckbox|menuitemradio)$/.test(role)
+    }
+    var el = null
+    if (isBox(at)) el = at
+    if (!el && at.closest) { var lab = at.closest('label'); if (lab && lab.control && isBox(lab.control)) el = lab.control }
+    if (!el && at.querySelectorAll) { var boxes = at.querySelectorAll('input[type=checkbox],input[type=radio],[role=checkbox],[role=radio],[role=switch]'); if (boxes.length === 1) el = boxes[0] }
+    if (!el && at.id) { var by = document.querySelector('[aria-labelledby~="' + at.id.replace(/"/g, '\\"') + '"]'); if (isBox(by)) el = by }
+    if (!el && at.closest) el = at.closest('[role=checkbox],[role=radio],[role=switch]')
+    if (!el) return { found: true, ok: false, error: 'E903: the element at ' + m[1] + ' is <' + (at.tagName || '?').toLowerCase() + '> and no checkbox belongs to it (not a box, not a label of one, no single box inside it) - find the input itself, e.g. uiv.$(\'css=input[type=checkbox]\') or the role=checkbox node from browser_snapshot' }
+    var state = function () { return el.checked !== undefined && el.tagName === 'INPUT' ? !!el.checked : el.getAttribute('aria-checked') === 'true' }
+    var tag = (el.tagName || '').toLowerCase() + (el.type ? '[' + String(el.type).toLowerCase() + ']' : (el.getAttribute('role') ? '[role=' + el.getAttribute('role') + ']' : ''))
+    var before = state()
+    if (before === !!wanted) return { found: true, ok: true, tag: tag, changed: false }
+    if (!wanted && el.tagName === 'INPUT' && /^radio$/i.test(el.type || '')) {
+      return { found: true, ok: false, error: 'uiv.page.uncheck: a radio button cannot be unchecked - check another radio of the same group instead' }
+    }
+    if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
+      return { found: true, ok: false, error: 'uiv.page.setChecked: the ' + tag + ' is disabled - the page does not let it be changed right now' }
+    }
+    try { el.click() } catch (e1) { /* fall through to the property route */ }
+    if (state() !== !!wanted && el.tagName === 'INPUT') {
+      el.checked = !!wanted
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+    }
+    if (state() !== !!wanted) {
+      return { found: true, ok: false, error: 'uiv.page.setChecked: clicked the ' + tag + ' but it stayed ' + (before ? 'checked' : 'unchecked') + ' - the page reverted it (a controlled widget, or a handler that refused). Try uiv.browser.click on it, or look for the widget\'s own control' }
+    }
+    return { found: true, ok: true, tag: tag, changed: true }
+  } catch (e) {
+    return { found: true, ok: false, error: 'uiv.page.setChecked: ' + ((e && e.message) || String(e)) }
   }
 }
 
@@ -1474,7 +2752,44 @@ function pageSelectOption (locator, option) {
     var strategy = m ? m[1].toLowerCase() : 'css'
     var value = m ? m[2] : locator
     var el = null
-    if (strategy === 'id') el = document.getElementById(value)
+    if (strategy === 'point') {
+      // a finder match ("point=x,y" in top-viewport CSS px, OPEN-ISSUES
+      // 35.8): the <select> under the point, or the one a label / wrapper
+      // at the point belongs to. Only the top frame resolves a top-viewport
+      // point; same-origin frames are descended into like pageDomClickAt.
+      if (window !== window.top) return { found: false }
+      var pt = value.split(',')
+      var px = parseFloat(pt[0])
+      var py = parseFloat(pt[1])
+      var at = document.elementFromPoint(px, py)
+      for (;;) {
+        while (at && at.shadowRoot) {
+          var inner = at.shadowRoot.elementFromPoint(px, py)
+          if (!inner || inner === at) break
+          at = inner
+        }
+        var ftag = at && at.tagName ? at.tagName.toLowerCase() : ''
+        if ((ftag === 'iframe' || ftag === 'frame') && at.contentDocument) {
+          var fr = at.getBoundingClientRect()
+          px = px - fr.left - (at.clientLeft || 0)
+          py = py - fr.top - (at.clientTop || 0)
+          at = at.contentDocument.elementFromPoint(px, py)
+          continue
+        }
+        break
+      }
+      if (!at) return { found: true, ok: false, error: 'no element at point ' + value + ' any more - the match is STALE: the page scrolled, re-rendered or navigated between the finder and this call. Re-run the finder right before selecting' }
+      el = at.closest ? at.closest('select') : null
+      if (!el) {
+        var lab = at.closest ? at.closest('label') : null
+        if (lab && lab.control && (lab.control.tagName || '').toLowerCase() === 'select') el = lab.control
+      }
+      if (!el && at.querySelectorAll) {
+        var sels = at.querySelectorAll('select')
+        if (sels.length === 1) el = sels[0]
+      }
+      if (!el) return { found: true, ok: false, error: 'E903: the match at ' + value + ' is <' + (at.tagName || '?').toLowerCase() + '>, not a native <select> - it is a custom dropdown widget: uiv.page.click it open first, then click the option (as text or by locator)' }
+    } else if (strategy === 'id') el = document.getElementById(value)
     else if (strategy === 'name') el = document.getElementsByName(value)[0] || null
     else if (strategy === 'xpath') {
       var r = document.evaluate(value, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null)
@@ -1518,15 +2833,44 @@ function pageSelectOption (locator, option) {
 // NOTE: pageDomClickAt / pageTypeAt are serialized into the page one at a
 // time (chrome.scripting func injection) — they must stay fully
 // self-contained, hence the duplicated scroll block in both.
-function pageDomClickAt (x, y, expectTag, offscreen) {
+function pageDomClickAt (x, y, expectTag, offscreen, elementId, offset, elementSignature) {
   try {
+    var intended = null;
+    if (elementId) {
+      var saved = window.__uivElementTargets && window.__uivElementTargets.nodes.get(elementId);
+      intended = saved && saved.ref.deref();
+      if (!intended || !intended.isConnected) return { ok: false, error: 'The DOM target was removed, replaced or expired. Find the intended element again before acting; no action was performed.' };
+      var currentText = ((intended.innerText !== undefined ? intended.innerText : intended.textContent) || '').trim();
+      if (elementSignature && JSON.stringify([intended.id, intended.getAttribute('name'), intended.getAttribute('href'), currentText.slice(0, 2000)]) !== elementSignature)
+        return { ok: false, error: 'The DOM target identity or text changed since it was found. Find the intended element again; no action was performed.' };
+      intended.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      var box = intended.getBoundingClientRect();
+      x = box.left + box.width / 2 + (offset && Number(offset.dx) || 0);
+      y = box.top + box.height / 2 + (offset && Number(offset.dy) || 0);
+      if (!box.width || !box.height || intended.disabled || intended.getAttribute('aria-disabled') === 'true') return { ok: false, error: 'The intended DOM target is hidden or disabled; no action was performed.' };
+      // Validate covering elements in each same-origin ancestor frame as well.
+      var child = intended.ownerDocument.defaultView;
+      var parentX = x, parentY = y;
+      while (child && child !== window) {
+        var frame = child.frameElement;
+        if (!frame) break;
+        var rect = frame.getBoundingClientRect();
+        parentX += rect.left + (frame.clientLeft || 0); parentY += rect.top + (frame.clientTop || 0);
+        var cover = frame.ownerDocument.elementFromPoint(parentX, parentY);
+        while (cover && cover.shadowRoot) { var innerCover = cover.shadowRoot.elementFromPoint(parentX,parentY); if (!innerCover || innerCover === cover) break; cover = innerCover; }
+        if (cover !== frame) return { ok: false, error: 'The frame containing the intended target is covered; no action was performed.' };
+        child = child.parent;
+      }
+      offscreen = false;
+    }
+
     // A match the finder could not scroll into the viewport (position:fixed
     // container larger than the window — a broken mobile layout; a human in
     // this window cannot click it either). Window-scrolling cannot help (the
     // container is viewport-anchored) and elementFromPoint cannot see outside
     // the viewport, so say what IS possible instead of clicking blind.
     if (offscreen && (x < 0 || x > window.innerWidth || y < 0 || y > window.innerHeight)) {
-      return { ok: false, error: 'this match sits outside the viewport in a position:fixed container larger than the window, so it CANNOT be scrolled into view — a coordinate click cannot reach it (a person in this window cannot click it either). Click it by LOCATOR instead, which dispatches on the element itself without coordinates: uiv.page.click(\'css=...\') — or pin a desktop-size viewport right after uiv.open: uiv.window.resize(1280, 900)' }
+      return { ok: false, error: 'this match sits outside the viewport in a position:fixed container larger than the window, so it CANNOT be scrolled into view — a coordinate click cannot reach it (a person in this window cannot click it either). Click it by LOCATOR instead, which dispatches on the element itself without coordinates: uiv.page.click(\'css=...\') — or pin a desktop-size viewport right after uiv.goto: uiv.window.resize(1280, 900)' }
     }
     // elementFromPoint sees only the VIEWPORT: a match below the fold
     // (find-time y beyond the window height) resolves to null even though the
@@ -1543,7 +2887,7 @@ function pageDomClickAt (x, y, expectTag, offscreen) {
       x -= window.scrollX - bx
       y -= window.scrollY - by
     }
-    var win = window
+    var win = intended ? intended.ownerDocument.defaultView : window
     var el = win.document.elementFromPoint(x, y)
     for (;;) {
       // descend through open shadow roots to the innermost element
@@ -1568,6 +2912,8 @@ function pageDomClickAt (x, y, expectTag, offscreen) {
       }
       break
     }
+    if (intended && !(offset && (offset.dx || offset.dy)) && el !== intended && !intended.contains(el) && !(el && el.closest && el.closest('label') && el.closest('label').control === intended)) return { ok: false, error: 'The intended DOM target is covered by another element; no action was performed.' };
+    if (intended && !(offset && (offset.dx || offset.dy))) el = intended;
     if (!el) return { ok: false, error: 'no element at point ' + x + ',' + y + ' any more - the match is STALE: the page scrolled, re-rendered or navigated between the finder and this action. Re-run the finder immediately before acting on it, and never reuse a match across a click, navigation or scroll' }
     // The finder recorded what it matched (expectTag); if the point now
     // resolves to something that is neither that element nor inside it, the
@@ -1581,6 +2927,15 @@ function pageDomClickAt (x, y, expectTag, offscreen) {
       while (probe) {
         if ((probe.tagName || '').toLowerCase() === want) { onTarget = true; break }
         probe = probe.parentElement || (probe.getRootNode && probe.getRootNode().host) || null
+      }
+      if (!onTarget && /^(input|select|textarea)$/.test(want)) {
+        // styled checkbox / radio / switch: the <input> the finder matched
+        // sits under its <label> (or a wrapper the label owns) — the browser
+        // forwards a label click to the control, so this point IS right.
+        // label/input + legend/input were 289 rejected records in the
+        // 2026-09-06 drop (OPEN-ISSUES 35.9).
+        var lab = el.closest ? el.closest('label') : null
+        if (lab && lab.control && (lab.control.tagName || '').toLowerCase() === want) onTarget = true
       }
       if (!onTarget) {
         return { ok: false, error: 'the point ' + x + ',' + y + ' now resolves to <' + (el.tagName || '?').toLowerCase() + '>, not the <' + want + '> the finder matched - the page moved or re-rendered between the find and this click (sticky/collapsing bars do this when the page scrolls). Re-run the finder IMMEDIATELY before acting, or click by locator instead - uiv.page.click(\'css=...\') dispatches on the element itself, coordinates not involved' }
@@ -1598,18 +2953,47 @@ function pageDomClickAt (x, y, expectTag, offscreen) {
 }
 
 // Serialized into the page (a specific frame): fill the field at a point.
-// This is the match-object form of uiv.page.type — the finder already located
+// This is the match-object form of uiv.page.fill — the finder already located
 // the element, so re-resolving a locator string would be both slower and, for
 // a match inside a cross-origin frame, impossible.
 //
 // Value setting goes through the prototype's native setter before the events
 // are fired: React (and anything else tracking its own value) ignores a plain
 // `el.value = x` assignment and would re-render the field back to empty.
-function pageTypeAt (x, y, text, offscreen) {
+function pageTypeAt (x, y, text, offscreen, elementId, offset, elementSignature) {
   try {
+    var intended = null;
+    if (elementId) {
+      var saved = window.__uivElementTargets && window.__uivElementTargets.nodes.get(elementId);
+      intended = saved && saved.ref.deref();
+      if (!intended || !intended.isConnected) return { ok: false, error: 'The DOM target was removed, replaced or expired. Find the intended element again before acting; no action was performed.' };
+      var currentText = ((intended.innerText !== undefined ? intended.innerText : intended.textContent) || '').trim();
+      if (elementSignature && JSON.stringify([intended.id, intended.getAttribute('name'), intended.getAttribute('href'), currentText.slice(0, 2000)]) !== elementSignature)
+        return { ok: false, error: 'The DOM target identity or text changed since it was found. Find the intended element again; no action was performed.' };
+      intended.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      var box = intended.getBoundingClientRect();
+      x = box.left + box.width / 2 + (offset && Number(offset.dx) || 0);
+      y = box.top + box.height / 2 + (offset && Number(offset.dy) || 0);
+      if (!box.width || !box.height || intended.disabled || intended.getAttribute('aria-disabled') === 'true') return { ok: false, error: 'The intended DOM target is hidden or disabled; no action was performed.' };
+      // Validate covering elements in each same-origin ancestor frame as well.
+      var child = intended.ownerDocument.defaultView;
+      var parentX = x, parentY = y;
+      while (child && child !== window) {
+        var frame = child.frameElement;
+        if (!frame) break;
+        var rect = frame.getBoundingClientRect();
+        parentX += rect.left + (frame.clientLeft || 0); parentY += rect.top + (frame.clientTop || 0);
+        var cover = frame.ownerDocument.elementFromPoint(parentX, parentY);
+        while (cover && cover.shadowRoot) { var innerCover = cover.shadowRoot.elementFromPoint(parentX,parentY); if (!innerCover || innerCover === cover) break; cover = innerCover; }
+        if (cover !== frame) return { ok: false, error: 'The frame containing the intended target is covered; no action was performed.' };
+        child = child.parent;
+      }
+      offscreen = false;
+    }
+
     // unreachable-match refusal — see pageDomClickAt (self-contained copy)
     if (offscreen && (x < 0 || x > window.innerWidth || y < 0 || y > window.innerHeight)) {
-      return { ok: false, error: 'this match sits outside the viewport in a position:fixed container larger than the window, so it CANNOT be scrolled into view - a coordinate action cannot reach it. Type by LOCATOR instead: uiv.page.type(\'css=...\', text) - or pin a desktop-size viewport right after uiv.open: uiv.window.resize(1280, 900)' }
+      return { ok: false, error: 'this match sits outside the viewport in a position:fixed container larger than the window, so it CANNOT be scrolled into view - a coordinate action cannot reach it. Type by LOCATOR instead: uiv.page.fill(\'css=...\', text) - or pin a desktop-size viewport right after uiv.goto: uiv.window.resize(1280, 900)' }
     }
     // same viewport-scroll correction as pageDomClickAt (self-contained on
     // purpose — these functions are injected into the page one at a time)
@@ -1624,7 +3008,7 @@ function pageTypeAt (x, y, text, offscreen) {
       x -= window.scrollX - bx
       y -= window.scrollY - by
     }
-    var win = window
+    var win = intended ? intended.ownerDocument.defaultView : window
     var el = win.document.elementFromPoint(x, y)
     for (;;) {
       while (el && el.shadowRoot) {
@@ -1644,13 +3028,34 @@ function pageTypeAt (x, y, text, offscreen) {
       }
       break
     }
+    if (intended && !(offset && (offset.dx || offset.dy)) && el !== intended && !intended.contains(el) && !(el && el.closest && el.closest('label') && el.closest('label').control === intended)) return { ok: false, error: 'The intended DOM target is covered by another element; no action was performed.' };
+    if (intended && !(offset && (offset.dx || offset.dy))) el = intended;
     if (!el) return { ok: false, error: 'no element at point ' + x + ',' + y + ' any more - the match is STALE: the page scrolled, re-rendered or navigated between the finder and this action. Re-run the finder immediately before acting on it, and never reuse a match across a click, navigation or scroll' }
 
     var tag = (el.tagName || '').toLowerCase()
     var editable = tag === 'input' || tag === 'textarea'
 
     if (!editable && !el.isContentEditable) {
-      return { ok: false, error: 'the match at ' + x + ',' + y + ' is <' + tag + '>, not a text field - uiv.page.type needs an input, textarea or contenteditable element' }
+      // A visual/OCR match lands on the field's LABEL or a wrapper <div>,
+      // not the field itself — 2.5% of chats in the 2026-09-06 drop ended
+      // on "the match at x,y is <div>, not a text field" (OPEN-ISSUES 35.8).
+      // Resolve the way a click on the label would: the label's control,
+      // else the ONE text field inside the element.
+      var ctl = null
+      var lab = el.closest ? el.closest('label') : null
+      if (lab && lab.control) ctl = lab.control
+      if (!ctl && el.querySelectorAll) {
+        var inner = el.querySelectorAll('input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=file]),textarea,[contenteditable=""],[contenteditable="true"]')
+        if (inner.length === 1) ctl = inner[0]
+      }
+      if (ctl) {
+        el = ctl
+        tag = (el.tagName || '').toLowerCase()
+        editable = tag === 'input' || tag === 'textarea'
+      }
+    }
+    if (!editable && !el.isContentEditable) {
+      return { ok: false, error: 'the match at ' + x + ',' + y + ' is <' + tag + '>, not a text field - uiv.page.fill needs an input, textarea or contenteditable element' }
     }
     if (el.type && String(el.type).toLowerCase() === 'file') {
       return { ok: false, error: 'file inputs cannot be filled by typing - use uiv.run(\'type\', locator, path) which routes file paths through the debugger API' }
@@ -1739,7 +3144,333 @@ function scriptLocatorError (locator) {
   return `'${m[1]}=' is not a JS-script locator — use link=${text} for the exact anchor text, or xpath=//a[contains(normalize-space(.), '${text}')] for a partial match`
 }
 
+// Why a TEXT locator misses text that IS on the page: an invisible character
+// inside it — a non-breaking space (U+00A0) between "Jun" and "26", a soft
+// hyphen, a zero-width space. The match object's .text normalizes them away,
+// so the author cannot see the difference and keeps retrying the same
+// locator (OPEN-ISSUES 17.8, platform.claude.com billing table). Runs on the
+// failure path only, once: takes the longest quoted literal out of the
+// locator and looks for it in the page with those characters normalized.
+async function invisibleCharDiagnosis (tab, locator) {
+  const lits = []
+  const re = /(["'])((?:(?!\1).){3,}?)\1/g
+  let m
+  while ((m = re.exec(String(locator || '')))) lits.push(m[2])
+  if (!lits.length) return ''
+  const literal = lits.sort((a, b) => b.length - a.length)[0]
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: pageInvisibleCharProbe,
+      args: [literal]
+    })
+    const r = results && results[0] && results[0].result
+    if (!r || !r.found) return ''
+    return `the text ${JSON.stringify(literal)} IS on the page, but with invisible characters inside — the page has ${JSON.stringify(r.shown)} (${r.chars}). A text match compares raw characters, so it never matches. Match a piece without the gap, e.g. contains(., ${JSON.stringify(r.piece)}), or normalize it: contains(translate(., '\u00a0', ' '), ${JSON.stringify(literal)})`
+  } catch (e) {
+    return ''
+  }
+}
+
+// Runs inside the page via chrome.scripting — must be self-contained.
+function pageInvisibleCharProbe (literal) {
+  var INV = /[\u00a0\u00ad\u200b\u200c\u200d\u2060\ufeff]/g
+  var NAMES = { '\u00a0': 'U+00A0 no-break space', '\u00ad': 'U+00AD soft hyphen', '\u200b': 'U+200B zero-width space', '\u200c': 'U+200C', '\u200d': 'U+200D', '\u2060': 'U+2060 word joiner', '\ufeff': 'U+FEFF' }
+  var MARK = { '\u00a0': '⍽', '\u00ad': '[SHY]', '\u200b': '[ZWSP]', '\u200c': '[ZWNJ]', '\u200d': '[ZWJ]', '\u2060': '[WJ]', '\ufeff': '[BOM]' }
+  var norm = function (s) { return s.replace(INV, function (c) { return c === '\u00a0' ? ' ' : '' }).replace(/\s+/g, ' ') }
+  var want = norm(literal)
+  if (!want) return { found: false }
+  var walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT)
+  var node
+  while ((node = walker.nextNode())) {
+    var raw = node.nodeValue || ''
+    if (!INV.test(raw)) { INV.lastIndex = 0; continue }
+    INV.lastIndex = 0
+    if (raw.indexOf(literal) >= 0) continue          // matches raw too — not the problem
+    if (norm(raw).indexOf(want) < 0) continue
+    var chars = {}
+    raw.replace(INV, function (c) { chars[NAMES[c] || c] = true; return c })
+    // the longest run of the literal's words that sits inside ONE fragment
+    // between invisible characters — that piece matches with plain contains()
+    var words = want.split(' ')
+    var best = ''
+    raw.split(INV).forEach(function (frag) {
+      var f = norm(frag)
+      for (var i = 0; i < words.length; i++) {
+        for (var j = words.length; j > i; j--) {
+          var w = words.slice(i, j).join(' ')
+          if (w.length > best.length && f.indexOf(w) >= 0) best = w
+        }
+      }
+    })
+    return {
+      found: true,
+      shown: raw.replace(INV, function (c) { return MARK[c] || '[U+' + c.charCodeAt(0).toString(16) + ']' }).trim().slice(0, 100),
+      chars: Object.keys(chars).join(', '),
+      piece: best || words.sort(function (a, b) { return b.length - a.length })[0]
+    }
+  }
+  // the literal may span elements — a body-level check still tells the story
+  var body = document.body ? (document.body.innerText || '') : ''
+  if (body.indexOf(literal) < 0 && norm(body).indexOf(want) >= 0) {
+    return { found: true, shown: '(spread over several elements)', chars: 'a no-break space or zero-width character between the parts', piece: want.split(' ').sort(function (a, b) { return b.length - a.length })[0] }
+  }
+  return { found: false }
+}
+
+// A browser-tier click at a DOM match: re-run the finder right before the
+// CDP dispatch and wait for the element to stop moving. The match was
+// measured when the finder ran; a smooth scroll or a collapsing header still
+// in motion puts the element elsewhere by the time CDP clicks (o2 billing
+// page: rect top 559 at find time, click fired at 548 — 11px above the
+// button, OPEN-ISSUES 17.5). page.click guards this with elementFromPoint;
+// the CDP tier re-reads the position instead of clicking the stale one.
+// Only for plain finds (locator + visibility options): a find with text
+// filters could re-index onto a different element, so it is left alone.
+// Runs inside the page via chrome.scripting — must be self-contained.
+// Scrolls the window so a viewport point lands mid-screen when it is outside
+// the viewport; returns true when it scrolled (the caller re-measures).
+function pageScrollPointIntoView (x, y) {
+  var w = window.innerWidth
+  var h = window.innerHeight
+  if (x >= 0 && x <= w && y >= 0 && y <= h) return false
+  var bx = window.scrollX
+  var by = window.scrollY
+  window.scrollBy({
+    left: x < 0 || x > w ? x - w / 2 : 0,
+    top: y < 0 || y > h ? y - h / 2 : 0,
+    behavior: 'instant'
+  })
+  return window.scrollX !== bx || window.scrollY !== by
+}
+
+// A visual match (image / OCR / color, browser scope) was measured on a
+// screenshot taken BEFORE the debugger was attached. The FIRST trusted CDP
+// event on a tab attaches it, and Chrome's "is debugging" infobar then
+// shrinks the viewport by its height — bottom-anchored page furniture moves
+// up under the click. Measured live 2026-09-05 (Linux): DemoBrowserClick's
+// sketch.io + button, found at viewport y=620, got the folder icon one slot
+// below on every run; the XClick twin had the same miss on macOS before its
+// calibration move (run_command). DOM matches are re-read by settleDomPoint;
+// visual matches re-run their finder here — only when the attach was FRESH
+// and the viewport height actually changed, so an already attached session
+// (idle detach 3s) costs one CDP round trip and nothing else. A coordinate
+// correction would be wrong: top-anchored targets do not move at all,
+// centered ones move half a bar — only a re-find knows.
+async function settleVisualPointForCdp (args, fn) {
+  if (!args || !args.find || !args.find.__visual || args.frameLocal || (args.scope && args.scope !== 'browser')) return args
+  if (!isCdpInputAvailable()) return args
+  const tab = await getTargetTab()
+  if (!tab) return args
+  let before = null
+  try {
+    const r = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => window.innerHeight })
+    before = r && r[0] ? r[0].result : null
+  } catch (e) { return args }
+  let primed = null
+  try { primed = await primeCdpAttach(tab.id) } catch (e) { return args }   // the click itself reports an attach failure
+  if (!primed || !primed.fresh || typeof primed.innerHeight !== 'number' || typeof before !== 'number' || primed.innerHeight === before) return args
+  const delta = before - primed.innerHeight
+  const idx = args.findIndex || 0
+  try {
+    const r = await dispatchBridgeInner(args.find.__visual, { ...args.find.spec, timeout: 3 })
+    if (!r || !r.ok) throw new Error((r && r.error) || 'the finder failed')
+    const list = JSON.parse(r.value || '[]')
+    const m0 = Array.isArray(list) ? list[idx] : null
+    if (!m0) throw new Error(`the finder now returns ${Array.isArray(list) ? list.length : 0} match(es), the click was aimed at #${idx + 1}`)
+    // a uiv.offset() point: the re-find gives the anchor, put the offset back
+    const off = args.findOffset || { dx: 0, dy: 0 }
+    const m = { x: m0.x + (off.dx || 0), y: m0.y + (off.dy || 0) }
+    store.dispatch(act.addLog('info', `${fn}: attaching the debugger for the first trusted click raised Chrome's "is debugging" bar, which shrank the viewport by ${delta}px after the target was found — re-found it at ${Math.round(m.x)},${Math.round(m.y)} (was ${Math.round(args.x)},${Math.round(args.y)})`))
+    return { ...args, x: m.x, y: m.y }
+  } catch (e) {
+    store.dispatch(act.addLog('warning', `${fn}: the viewport shrank by ${delta}px after the target was found (Chrome's "is debugging" bar) and the target could not be re-found (${(e && e.message) || e}) — clicking where the finder measured it`))
+    return args
+  }
+}
+
+// A RAW point — uiv.browser.click({x, y}), which is also what the MCP and
+// chat click_at emit — has no finder to re-run (settleVisualPointForCdp) and
+// no element to re-read (settleDomPoint), so the first trusted click on an
+// idle tab shifted the layout under it and hit whatever moved into its place:
+// three misses in a row on Google Flights' centred calendar dialog, ~27 CSS px
+// each (OPEN-ISSUES 69). The bar cannot be avoided (Chrome raises it on every
+// attach) and a coordinate correction would be wrong (top-anchored targets do
+// not move, centred ones move half a bar), so the point is turned into an
+// ELEMENT while the geometry it was measured in still holds: before the
+// attach, elementFromPoint plus the point's offset inside that element, held
+// in the content script's isolated world; after the attach has settled, the
+// element is measured again and the click goes where it is now. Costs one
+// executeScript before the first trusted click of an idle tab and nothing
+// otherwise: an attached session cannot move anything, and an unchanged
+// height means nothing moved. Every way this can fail — a page that takes
+// no content script, no element under the point, the element re-rendered
+// away by the resize — falls back to the raw point WITH a warning naming the
+// height change, never silently.
+function pageHoldPointElement (x, y) {
+  var el = document.elementFromPoint(x, y)
+  window.__uivHeldPoint = null
+  if (!el) return { innerHeight: window.innerHeight, held: false }
+  var r = el.getBoundingClientRect()
+  window.__uivHeldPoint = { el: el, dx: x - r.left, dy: y - r.top, w: r.width, h: r.height }
+  return { innerHeight: window.innerHeight, held: true, tag: el.tagName.toLowerCase() }
+}
+
+function pageReadHeldPointElement () {
+  var held = window.__uivHeldPoint
+  window.__uivHeldPoint = null
+  if (!held || !held.el) return { error: 'no element was held' }
+  if (!held.el.isConnected) return { error: 'the element under the point was removed from the page (re-rendered on the resize)' }
+  var r = held.el.getBoundingClientRect()
+  if (!r.width && !r.height) return { error: 'the element under the point has no layout any more' }
+  return { x: r.left + held.dx, y: r.top + held.dy, resized: r.width !== held.w || r.height !== held.h, tag: held.el.tagName.toLowerCase() }
+}
+
+async function settleRawPointForCdp (args, fn) {
+  if (!args || args.find || args.frameLocal || (args.scope && args.scope !== 'browser')) return args
+  if (typeof args.x !== 'number' || typeof args.y !== 'number') return args
+  if (!isCdpInputAvailable()) return args
+  const tab = await getTargetTab()
+  if (!tab || isCdpAttached(tab.id)) return args   // an attached session cannot move anything
+  const px = Math.round(args.x)
+  const py = Math.round(args.y)
+  let held = null
+  let holdError = null
+  try {
+    const r = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: pageHoldPointElement, args: [px, py] })
+    held = r && r[0] ? r[0].result : null
+    if (!held) holdError = 'the page did not answer'
+    else if (!held.held) holdError = 'no element under the point'
+  } catch (e) { holdError = (e && e.message) || String(e) }
+  let primed = null
+  try { primed = await primeCdpAttach(tab.id) } catch (e) { return args }   // the click itself reports an attach failure
+  if (!primed || !primed.fresh || typeof primed.innerHeight !== 'number') return args
+  const bar = `${fn}: attaching the debugger for the first trusted click raised Chrome's "is debugging" bar`
+  if (holdError) {
+    store.dispatch(act.addLog('warning', `${bar}, and the point ${px},${py} could not be tied to an element beforehand (${holdError}) — clicking the raw point, which may hit whatever the bar moved there`))
+    return args
+  }
+  if (typeof held.innerHeight !== 'number' || held.innerHeight === primed.innerHeight) return args
+  const delta = held.innerHeight - primed.innerHeight
+  const changed = `${bar}, which changed the viewport height by ${delta}px after the point was measured`
+  try {
+    const r = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: pageReadHeldPointElement })
+    const m = r && r[0] ? r[0].result : null
+    if (!m || m.error) throw new Error((m && m.error) || 'the element could not be read back')
+    const moved = Math.abs(m.x - px) >= 1 || Math.abs(m.y - py) >= 1
+    const size = m.resized ? ' (the element also changed size, the offset inside it is approximate)' : ''
+    store.dispatch(act.addLog('info', `${changed} — the <${m.tag}> under ${px},${py} ${moved ? `moved, clicking it at ${Math.round(m.x)},${Math.round(m.y)}` : 'did not move'}${size}`))
+    return moved ? { ...args, x: m.x, y: m.y } : args
+  } catch (e) {
+    store.dispatch(act.addLog('warning', `${changed}, and the element under ${px},${py} could not be re-read (${(e && e.message) || e}) — clicking the raw point, which may hit whatever moved there`))
+    return args
+  }
+}
+
+// Read the same node after debugger attachment/layout changes. Never select the
+// old ordinal from a newly ordered result list or fall back to saved coordinates.
+function pageReadDomTarget (elementId, signature, offset) {
+  var saved = window.__uivElementTargets && window.__uivElementTargets.nodes.get(elementId)
+  var el = saved && saved.ref.deref()
+  if (!el || !el.isConnected) return { error: 'DOM target was removed, replaced or expired. Find the intended element again.' }
+  var text = ((el.innerText !== undefined ? el.innerText : el.textContent) || '').trim()
+  if (signature && signature !== JSON.stringify([el.id, el.getAttribute('name'), el.getAttribute('href'), text.slice(0, 2000)])) {
+    return { error: 'DOM target identity or text changed. Find the intended element again.' }
+  }
+  el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' })
+  var r = el.getBoundingClientRect()
+  if (!r.width || !r.height || el.disabled || el.getAttribute('aria-disabled') === 'true') return { error: 'The DOM target is hidden or disabled.' }
+  var x = r.left + r.width / 2 + (offset && Number(offset.dx) || 0)
+  var y = r.top + r.height / 2 + (offset && Number(offset.dy) || 0)
+  var win = el.ownerDocument.defaultView
+  var target = el
+  while (win) {
+    var hit = win.document.elementFromPoint(x, y)
+    while (hit && hit.shadowRoot) {
+      var inner = hit.shadowRoot.elementFromPoint(x, y)
+      if (!inner || inner === hit) break
+      hit = inner
+    }
+    var label = hit && hit.closest && hit.closest('label')
+    if (!(offset && (offset.dx || offset.dy)) && hit !== target && !target.contains(hit) && !(label && label.control === target)) return { error: 'The intended DOM target is covered. No click was performed.' }
+    if (win === window) break
+    var frame = win.frameElement
+    if (!frame) return { error: 'The target frame is no longer available.' }
+    var fr = frame.getBoundingClientRect()
+    x += fr.left + (frame.clientLeft || 0)
+    y += fr.top + (frame.clientTop || 0)
+    target = frame
+    win = win.parent
+  }
+  return { x: x, y: y }
+}
+
+async function settleDomPoint (args, fn) {
+  if (args && args.elementId && !args.frameLocal) {
+    const tab = await getTargetTab()
+    if (!tab) throw new Error(E901_NO_TAB)
+    if (isCdpInputAvailable()) await primeCdpAttach(tab.id)
+    const result = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, frameIds: [args.frameId || 0] },
+      func: pageReadDomTarget,
+      args: [args.elementId, args.elementSignature || null, args.findOffset || null]
+    })
+    const point = result && result[0] && result[0].result
+    if (!point || point.error) throw new Error(fn + ': ' + ((point && point.error) || 'The DOM target frame did not answer.'))
+    return { ...args, x: point.x, y: point.y, offscreen: false }
+  }
+  if (!args || !args.find || args.frameLocal || (args.scope && args.scope !== 'browser')) return args
+  const allowed = ['locator', 'scroll', 'includeHidden', 'timeout', 'required']
+  if (Object.keys(args.find).some(k => !allowed.includes(k))) return args
+  const tab = await getTargetTab()
+  if (!tab) return args
+  // a re-read that cannot be done is said so, once, in the log — otherwise a
+  // stale click is indistinguishable from a re-read that found no movement
+  const giveUp = (why) => {
+    store.dispatch(act.addLog('info', `${fn}: could not re-read the element's position before the click (${why}) — clicking where the finder measured it`))
+    return args
+  }
+  // the finder scrolls only its FIRST match into view; a match further down
+  // the list can sit outside the viewport, and CDP coordinates outside the
+  // viewport hit nothing — silently. Scroll such a point into view first
+  // (window scroll, like pageDomClickAt does) and measure again.
+  const spec = { ...args.find, required: false, timeout: 1, scroll: false }
+  let prev = null
+  let fresh = null
+  let scrolled = 0
+  const deadline = Date.now() + 1500
+  while (Date.now() < deadline) {
+    let m = null
+    try {
+      const r = await elementSearchOnce(tab, spec)
+      const list = r.matches || []
+      m = list[args.findIndex || 0] || null
+      if (!m) return giveUp(`the finder now returns ${list.length} match(es), the click was aimed at #${(args.findIndex || 0) + 1}`)
+      if (!m.offscreen && scrolled < 3) {
+        const vp = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: pageScrollPointIntoView, args: [Math.round(m.x), Math.round(m.y)] })
+        const moved = vp && vp[0] && vp[0].result
+        if (moved) { scrolled++; prev = null; await delayMs(80); continue }   // measure again after the scroll
+      }
+    } catch (e) { return giveUp((e && e.message) || String(e)) }
+    if (prev && Math.abs(m.x - prev.x) < 1 && Math.abs(m.y - prev.y) < 1) { fresh = m; break }
+    prev = m
+    await delayMs(120)
+  }
+  if (!fresh) fresh = prev
+  if (!fresh) return args
+  // a uiv.offset() point is the element's position PLUS the offset — the
+  // re-read gives the element, so put the offset back (without this the
+  // click landed ON the anchor element instead of beside it)
+  const off = args.findOffset || { dx: 0, dy: 0 }
+  fresh = { ...fresh, x: fresh.x + (off.dx || 0), y: fresh.y + (off.dy || 0) }
+  if (Math.abs(fresh.x - args.x) >= 2 || Math.abs(fresh.y - args.y) >= 2) {
+    store.dispatch(act.addLog('info', `${fn}: the ${off.dx || off.dy ? 'anchor element' : 'element'} moved from ${Math.round(args.x)},${Math.round(args.y)} to ${Math.round(fresh.x)},${Math.round(fresh.y)} since the finder ran (scroll or relayout still in motion) — clicking its current position`))
+  }
+  return { ...args, x: fresh.x, y: fresh.y, offscreen: !!fresh.offscreen }
+}
+
 async function elementSearchOnce (tab, args) {
+  let noLayout = false
   const results = await chrome.scripting.executeScript({
     target: { tabId: tab.id, allFrames: true },
     func: pageElementSearch,
@@ -1747,7 +3478,7 @@ async function elementSearchOnce (tab, args) {
   })
 
   const frames = (results || []).filter(r => r && r.result)
-  if (!frames.length) throw new Error('elementSearch: the page did not answer the search — it is still loading, or it is a page extensions cannot read (chrome://, the Chrome Web Store, a PDF in the viewer, an error page). Wait for the load with uiv.open(url), and on an unreadable page use the visual finders (uiv.findImage / uiv.ocr.findText), which work on pixels instead of the DOM')
+  if (!frames.length) throw new Error('elementSearch: the page did not answer the search — it is still loading, or it is a page extensions cannot read (chrome://, the Chrome Web Store, a PDF in the viewer, an error page). Wait for the load with uiv.goto(url), and on an unreadable page use the visual finders (uiv.findImage / uiv.ocr.findText), which work on pixels instead of the DOM')
 
   // top frame first (absolute viewport coords), then cross-origin roots
   frames.sort((a, b) => (a.frameId === 0 ? 0 : 1) - (b.frameId === 0 ? 0 : 1))
@@ -1762,10 +3493,47 @@ async function elementSearchOnce (tab, args) {
       continue
     }
     hiddenCount += r.hiddenCount || 0
-    matches = matches.concat((r.matches || []).map(m => ({ ...m, frameId: fr.frameId })))
+    if (r.noLayout) noLayout = true
+    // a ref= that survived a re-render by re-resolution (OPEN-ISSUES 20.4):
+    // say so once, so a later mis-click has its explanation in the log
+    if (r.note) { try { store.dispatch(act.addLog('info', r.note)) } catch (e) { /* logging only */ } }
+    matches = matches.concat((r.matches || []).map((m, frameIndex) => ({ ...m, frameId: fr.frameId, frameIndex })))
   }
   if (!matches.length && firstError) throw new Error(`elementSearch: ${firstError}`)
-  return { matches, hiddenCount }
+  if (matches.length && matches[0].viaLabel && !viaLabelNoted.has(String(args.locator))) {
+    // once per locator per run — a click resolves the locator several times
+    viaLabelNoted.add(String(args.locator))
+    store.dispatch(act.addLog('info', `${String(args.locator).slice(0, 60)} is a hidden radio/checkbox input — its visible <label> is the match, so a click lands on the label (which toggles the input)`))
+  }
+  if (!matches.length && !hiddenCount && /^ref=\d{4,}$/.test(String(args.locator).trim())) {
+    throw new Error(`elementSearch: ${String(args.locator).trim()} is unknown in every frame — a ref above 1000 belongs to a cross-origin frame; refs are renumbered on navigation and the frame may have reloaded: call browser_snapshot again`)
+  }
+  return { matches, hiddenCount, noLayout }
+}
+
+// uiv.page.click/type with a cross-origin frame's ref: the classic locator
+// path resolves in the top frame only, so route through the finder and the
+// frame-local click/type (OPEN-ISSUES 24.1)
+async function crossFrameRefMatch (locator) {
+  const m = /^ref=(\d+)$/.exec(String(locator || '').trim())
+  // by= (getByRole/getByLabel/…) has no classic resolver: resolve it with the
+  // finder and hand the DOM tier the point, same as a cross-frame ref
+  const byLoc = /^by=/.test(String(locator || '').trim())
+  if (!byLoc && (!m || Number(m[1]) < 1000)) return null
+  const tab = await getTargetTab()
+  if (!tab) return null
+  const r = await elementSearchOnce(tab, { locator: String(locator).trim() })
+  if (r.matches && r.matches[0]) return r.matches[0]
+  // the frame answered but the element is not clickable — say that, instead
+  // of falling through to the top-frame path and its "unknown" verdict
+  if (byLoc) {
+    return { error: r.hiddenCount
+      ? `${String(locator).trim().slice(0, 80)} matches ${r.hiddenCount} element(s) but they are HIDDEN — reveal them first, or pass {includeHidden: true} to read`
+      : `nothing on the page has that accessible name/role — ${String(locator).trim().slice(0, 80)}. browser_snapshot shows the names the tree computes; the default match is a case-insensitive substring, {exact: true} the whole string` }
+  }
+  return { error: r.hiddenCount
+    ? `${String(locator).trim()} exists in its frame but is HIDDEN (collapsed/invisible) — reveal it first, or read it with uiv.$(ref, {includeHidden: true})`
+    : `${String(locator).trim()} is unknown in every frame — refs are renumbered on navigation and the frame may have reloaded: call browser_snapshot again` }
 }
 
 // ---------------------------------------------------------------------------
@@ -1821,7 +3589,7 @@ async function describeImageMiss (args) {
     if (args.scope !== 'desktop' || !probeMatches || !probeMatches.length) return ''
     const r = probeMatches[0].rect
     if (!r || !r.width) return ''
-    return ` It searched for a ${Math.round(r.width)}x${Math.round(r.height)} pattern: desktop scope rescales the image from the dpi in its FILE NAME to the screen dpi the XModule reports. If that is not the size '${args.image}' actually is, the XModule's dpi is stale — it reads the display DPI once when it starts, so changing Windows display scaling WITHOUT restarting the browser leaves every '_dpi_' image matched at the wrong size, and nothing can hit. Restart the browser (which restarts the XModule) BEFORE re-capturing any image.`
+    return ` It searched for a ${Math.round(r.width)}x${Math.round(r.height)} pattern: desktop scope rescales the image from the dpi in its FILE NAME to the screen dpi the XModule reports. If that is not the size '${args.image}' actually is, the dpi is off — with the new Desktop Automation module (XModules 2) the dpi is read per call from the display the BROWSER WINDOW is on (mixed-DPI setups get each display's own value; make sure the window sits mostly on the intended display), while the classic XModule reads ONE global dpi at startup, so changing display scaling without restarting the browser leaves every '_dpi_' image matched at the wrong size. On the classic module, restart the browser BEFORE re-capturing any image.`
   }
 
   if (best === null) {
@@ -1890,7 +3658,10 @@ async function imageSearchOnce (args) {
     devicePixelRatio: window.devicePixelRatio,
     searchArea: area ? 'rect' : 'viewport',
     storedImageRect: area || undefined,
-    captureScreenshotService: getCaptureService()
+    captureScreenshotService: getCaptureService(),
+    // desktop overlay: emphasize the BEST-score match — the one uiv.findImage
+    // returns and the plural list flags `best`
+    markSelection: { index: 0, explicit: false }
   })
 
   const toRect = (f) => ({
@@ -1931,7 +3702,10 @@ async function imageSearchOnce (args) {
 // showing the code after the forced editTestCase switch.
 const SCRATCH_MACRO = '#jsscript'
 
-async function prepareRunMacro (code) {
+async function prepareRunMacro (code, storedMacroId) {
+  // A submacro was read explicitly from storage. Its execution must not save
+  // or replace unrelated edits in the browser's currently selected macro.
+  if (storedMacroId) return true
   const state = store.getState()
   const editing = state.editor.editing
   const src = editing.meta && editing.meta.src
@@ -1966,7 +3740,7 @@ async function prepareRunMacro (code) {
 // Commands that move the play tab or drive macro control flow are NOT on this
 // path: they rely on the player's prepare/stop lifecycle. They keep using the
 // player and cost what they always did — a script runs them once, not once
-// per loop iteration. (`uiv.open` used to be the prime example; it is native
+// per loop iteration. (`uiv.goto` used to be the prime example; it is native
 // now — see nativeOpen — and only uiv.run('open', …) still takes the player.)
 //
 // TWO gates, deliberately. A caller must ASK for the fast path ({fast: true}),
@@ -2003,7 +3777,7 @@ const E900_PLAYER_BUSY = 'E900: another macro is already running, so this comman
 // tab available" in nine places and the explaining version in exactly one —
 // the same failure told the reader what to do or nothing at all depending on
 // which op hit it.
-const E901_NO_TAB = 'E901: no browser tab available to run this in — only browser-internal pages (chrome://, the new-tab page, extension pages) are open, and commands cannot run there. Start the script with uiv.open(url), which creates a normal tab by itself, or switch to a web page first'
+const E901_NO_TAB = 'E901: no browser tab available to run this in — only browser-internal pages (chrome://, the new-tab page, extension pages) are open, and commands cannot run there. Start the script with uiv.goto(url), which creates a normal tab by itself, or switch to a web page first'
 
 // Was two different sentences for one condition ("a script is running" from
 // the finder probe, "A script is already running" from the runner).
@@ -2028,7 +3802,7 @@ let scriptSessionStale = false
 // fast command dies with "empty stack" (and, with a frame but no monitor
 // target, with "Can't find monitor target").
 //
-// playerPlay CLEARS the call stack, so every player-path command (uiv.open,
+// playerPlay CLEARS the call stack, so every player-path command (uiv.goto,
 // uiv.run) wipes this frame — which is exactly what scriptSessionStale marks,
 // and why this is re-established rather than pushed once per run.
 const SCRIPT_FRAME_NAME = 'JS Script'
@@ -2043,7 +3817,7 @@ function pushScriptFrame () {
     // The previous frame's MONITOR target survives a player-path command:
     // playerPlay clears the call stack, not the monitor, and popScriptFrame
     // only runs at end of script. Without this, an hours-long run that mixes
-    // player commands (uiv.open / uiv.run / ai / shot) with fast commands
+    // player commands (uiv.goto / uiv.run / ai / shot) with fast commands
     // leaks one target — inspectors with running timers included — per
     // session re-establish.
     if (scriptFrameId) {
@@ -2168,8 +3942,8 @@ async function runOneCommandFast (cmd, target, value, cmdFields, tab, timing) {
     cmd,
     target,
     value,
-    extra: { playHighlightElements, playScrollElementsIntoView },
-    ...(cmdFields || {})
+    ...(cmdFields || {}),
+    extra: { playHighlightElements, playScrollElementsIntoView, ...(cmdFields && cmdFields.extra) }
   }
   timing.dispatched = Date.now()
   timing.startedAt = timing.dispatched
@@ -2204,7 +3978,7 @@ async function runOneCommandFast (cmd, target, value, cmdFields, tab, timing) {
     })
     // A command's OUTPUT comes back in its result, and the player's
     // handleResult is what writes it into the variable pool. Dropping it meant
-    // uiv.eval (executeScript storing into __uiv_ret) always read back
+    // uiv.evaluate (executeScript storing into __uiv_ret) always read back
     // undefined — the command ran, the value went nowhere.
     applyCommandResultVars(result)
 
@@ -2214,7 +3988,14 @@ async function runOneCommandFast (cmd, target, value, cmdFields, tab, timing) {
     getVarsInstance().set({ '!RUNTIME': milliSecondsToStringInSecond(scriptRuntimeMs()) }, true)
     return { ok: true }
   } catch (e) {
-    const msg = (e && e.message) ? e.message : String(e)
+    let msg = (e && e.message) ? e.message : String(e)
+    // a CSP refusal quotes the page's WHOLE policy (nonces, dozens of
+    // domains — 16k chars on pinterest); the 'eval' bridge case retries
+    // through CDP and rewrites the verdict, but this log line reached the
+    // model unchanged in every run log (OPEN-ISSUES 44.4)
+    if (/Content Security Policy directive/.test(msg)) {
+      msg = msg.replace(/(Content Security Policy directive)[\s\S]*$/, '$1 (the page forbids string eval; policy text omitted)').slice(0, 300)
+    }
     // the player used to write this line; the log is where users look
     store.dispatch(act.addLog('error', msg))
     return { ok: false, error: msg }
@@ -2238,8 +4019,9 @@ async function runOneCommand (cmd, target, value, cmdFields, opts) {
   // same way getVar('!URL') would — to the PREVIOUS page — and ${!COL1} to a
   // row nothing in a script can have read. getVar already refuses these
   // (DEPRECATED_VARIABLES); this closes the render-time door, which is not
-  // just uiv.run: uiv.page.type(locator, '${!URL}') renders too.
-  const blockedVar = findBlockedVarInText(`${target || ''}\n${value || ''}`)
+  // just uiv.run: uiv.page.fill(locator, '${!URL}') renders too.
+  const literalTarget = !!(cmdFields && cmdFields.extra && cmdFields.extra.literalTarget)
+  const blockedVar = findBlockedVarInText(`${literalTarget ? '' : target || ''}\n${value || ''}`)
   if (blockedVar) {
     return {
       ok: false,
@@ -2248,7 +4030,7 @@ async function runOneCommand (cmd, target, value, cmdFields, opts) {
   }
 
   const src = state.editor.editing.meta.src
-  const macroId = src && src.id
+  const macroId = executionMacroId || (src && src.id)
 
   // commands the player runs entirely in the panel (byPass, no content
   // script, no tab — see the store/echo/... cases in run_command.ts): they
@@ -2280,7 +4062,7 @@ async function runOneCommand (cmd, target, value, cmdFields, opts) {
   // shape as XDesktopAutomation: one IPC ask to the panel, byPass: true, no
   // content script and no tab. They are also the FIRST line of every desktop
   // demo, so demanding a tab made a freshly started browser fail before it
-  // could reach the uiv.open that would have created one — E901 on line 30 of
+  // could reach the uiv.goto that would have created one — E901 on line 30 of
   // DesktopClickAccuracyRange, which is precisely the failure the desktop
   // exemption below was added to stop.
   const isTabFreeCmd = /^(store|echo|comment|pause|throwError|XDesktopAutomation|bringBrowserToForeground|bringIDEandBrowserToBackground)$/i.test(cmd) ||
@@ -2288,7 +4070,7 @@ async function runOneCommand (cmd, target, value, cmdFields, opts) {
 
   const isOpenCmd = /^(open|openBrowser)$/i.test(cmd)
 
-  let tab = await getTargetTab()
+  let tab = await getTargetTab({ tabFree: isTabFreeCmd })
 
   // No usable WEB tab — the browser is showing only extension pages,
   // chrome://settings, a new-tab page and the like.
@@ -2335,7 +4117,10 @@ async function runOneCommand (cmd, target, value, cmdFields, opts) {
   if (isOpenCmd && tab && tab.id != null) {
     try {
       const t = await Ext.tabs.get(tab.id)
-      if (!t.active) {
+      // window check: a tab active in an UNFOCUSED window still loads
+      // throttled and invisibly — see the twin comment in nativeOpen
+      const win = await Ext.windows.get(t.windowId).catch(() => null)
+      if (!t.active || (win && !win.focused)) {
         await activateTab(t.id, true)
         store.dispatch(act.addLog('info', `script tab → #${(t.index || 0) + 1} brought to front for open`))
       }
@@ -2408,8 +4193,9 @@ async function runOneCommand (cmd, target, value, cmdFields, opts) {
   let playerPlayFailure = null
   Promise.resolve(store.dispatch(act.playerPlay({
     macroId,
+    skipSave: !!executionMacroId,
     title: 'JS Script',
-    extra: { scriptSilent: true },
+    extra: { scriptSilent: true, loggedAs: bridgeOpLogged },
     mode: Player.C.MODE.STRAIGHT,
     playUrl: tab ? tab.url : '',
     playtabIndex: tab ? tab.index : 0,
@@ -2471,7 +4257,23 @@ async function runOneCommand (cmd, target, value, cmdFields, opts) {
       const g = await getGlobalState()
       const bgToPlay = g && g.tabIds && g.tabIds.toPlay
       if (bgToPlay && bgToPlay !== scriptTabId) {
-        const t = await Ext.tabs.get(bgToPlay).catch(() => null)
+        let t = await Ext.tabs.get(bgToPlay).catch(() => null)
+        // A popup the site opened with window.open('about:blank') gets its
+        // real location a beat later. Adopting only web tabs is right, but
+        // deciding while the popup still reads about:blank left the script
+        // pinned to the OLD tab — its finders ran there while the error
+        // report (taken from bg's toPlay) showed the popup's page
+        // (OPEN-ISSUES 17.9, Stripe invoice popups). Wait for the popup to
+        // leave about:blank and finish loading, bounded, then decide.
+        const deadline = Date.now() + 10000
+        while (t && !stopRequested && Date.now() < deadline &&
+               (/^about:blank$/i.test(t.url || '') || t.status !== 'complete') &&
+               !/^(chrome|moz|edge)-extension:|^(chrome|edge):/.test(t.url || '')) {
+          emit('wait', { label: 'selectWindow — page loading', remainingS: Math.ceil((deadline - Date.now()) / 1000) })
+          await delayMs(150)
+          t = await Ext.tabs.get(bgToPlay).catch(() => null)
+        }
+        emit('wait', null)
         if (isWebTab(t)) {
           scriptTabId = bgToPlay
           store.dispatch(act.addLog('info', `script tab → #${t.index + 1} "${(t.title || t.url || '').slice(0, 50)}"`))
@@ -2578,8 +4380,7 @@ async function waitForPlayerToStop (prevPlayUID, timing) {
 // Instead the run arms one chrome.tabs.onUpdated listener (already covered by
 // the "tabs" permission — webNavigation would add a scary new one) and pays
 // only when something really navigates:
-//   - clicks on elements that cannot navigate (text fields) skip the watch
-//   - other clicks watch briefly for a navigation to START, since the click
+//   - clicks watch briefly for a navigation to START, since the click
 //     itself returns before the event fires, then wait for it to COMPLETE
 //   - every page-touching op awaits quiescence first, so a navigation that
 //     begins late is still caught before the next command reads the DOM
@@ -2653,7 +4454,7 @@ const injectedShowBanner = (id, html, position, showBrand, tone) => {
   const msg = document.createElement('div')
   msg.style.cssText = 'min-width: 0'
   // innerHTML is fine trust-wise: the script author already has full page
-  // access via uiv.eval, and innerHTML never executes <script> anyway
+  // access via uiv.evaluate, and innerHTML never executes <script> anyway
   msg.innerHTML = html
   el.appendChild(msg)
 }
@@ -2802,7 +4603,7 @@ async function awaitPageQuiet () {
   // status read rather than trusting a flag nothing maintains
   if (!navListener) {
     const t = await Ext.tabs.get(scriptTabId).catch(() => null)
-    navPending = !!(t && t.status === 'loading')
+    navPending = !!(t && (t.status === 'loading' || t.pendingUrl))
   }
   if (!navPending) return
 
@@ -2813,7 +4614,7 @@ async function awaitPageQuiet () {
       if (stopRequested) return
       const t = await Ext.tabs.get(scriptTabId).catch(() => null)
       if (!t) return // tab closed — let the next command report it
-      if (t.status === 'complete') {
+      if (t.status === 'complete' && !t.pendingUrl) {
         navPending = false
         return
       }
@@ -2830,17 +4631,20 @@ async function awaitPageQuiet () {
 // a ceiling, not a delay: the loop exits the moment the event arrives.
 const NAV_START_WATCH_MS = 150
 
-// Elements whose click cannot navigate. Focusing a text field is the single
-// most common click in a macro and the one the old flat wait punished worst.
-const NON_NAVIGATING_TAGS = /^(input|textarea)$/i
-
-async function settleAfterClick (tag) {
-  if (tag && NON_NAVIGATING_TAGS.test(String(tag))) return
-
+async function settleAfterClick () {
+  // Tag alone cannot rule out navigation: INPUT includes submit/image buttons,
+  // and even a text field can navigate from its click handler.
   const until = Date.now() + NAV_START_WATCH_MS
   while (!navPending && Date.now() < until) {
     if (stopRequested) return
     await delayMs(25)
+  }
+  // onUpdated can arrive after this window even though the browser is already
+  // loading. Confirm once directly before trusting the event flag; pendingUrl
+  // also catches a provisional navigation while status still says complete.
+  if (scriptTabId !== null) {
+    const tab = await Ext.tabs.get(scriptTabId).catch(() => null)
+    if (tab && (tab.status === 'loading' || tab.pendingUrl)) navPending = true
   }
   await awaitPageQuiet()
 }
@@ -2852,7 +4656,7 @@ async function scriptPause (input) {
     ms = input
   } else {
     const m = /^\s*(\d+(?:\.\d+)?)\s*(ms|s|m)?\s*$/i.exec(String(input))
-    if (!m) return { ok: false, error: `uiv.sleep: cannot parse duration '${input}' — pass milliseconds as a number (uiv.sleep(1500)) or a string with a unit: '500ms', '5s', '2m'. (Before adding a sleep at all: finders auto-wait, uiv.open waits for the load, and a click that navigates is waited for — wait for the THING with uiv.$ instead of for a time.)` }
+    if (!m) return { ok: false, error: `uiv.sleep: cannot parse duration '${input}' — pass milliseconds as a number (uiv.sleep(1500)) or a string with a unit: '500ms', '5s', '2m'. (Before adding a sleep at all: finders auto-wait, uiv.goto waits for the load, and a click that navigates is waited for — wait for the THING with uiv.$ instead of for a time.)` }
     ms = parseFloat(m[1]) * ({ ms: 1, s: 1000, m: 60000 }[(m[2] || 'ms').toLowerCase()])
   }
 
@@ -2864,7 +4668,7 @@ async function scriptPause (input) {
     while (Date.now() < until) {
       if (stopRequested) return { ok: false, error: 'Script stopped' }
       if (showCountdown) emit('wait', { label: 'sleep', remainingS: Math.ceil((until - Date.now()) / 1000), countdownOnly: true })
-      await delayMs(Math.min(200, until - Date.now()))
+      await runnerDelayMs(Math.min(1000, until - Date.now()))
     }
   } finally {
     if (showCountdown) emit('wait', null)
@@ -2905,14 +4709,20 @@ async function runAiCommand (cmd, promptText) {
 // would run with a reader nobody chose. The error names the replacement, so
 // the fix is the next thing you read.
 const OCR_ENGINE_NAMES = {
-  javascript:       98, // built in, no install
-  xmodule:          99, // XModule Local OCR — Windows/macOS only
+  builtin:          98, // cross-platform ocrs in the XModule host — the SAME recognition on every OS
+  javascript:       98, // deprecated alias (the removed Tesseract engine's name)
+  builtin_win:      99, // OS reader: Windows.Media.Ocr
+  builtin_mac:      99, // OS reader: Apple Vision
+  xmodule:          99, // deprecated alias of builtin_win/builtin_mac
+  aiprovider:       90, // the configured AI provider as OCR engine (task 'aiocr')
   ocrspace_engine1:  1,
   ocrspace_engine2:  2,
   ocrspace_engine3:  3
 }
-const OCR_ENGINE_BY_NUMBER = { 98: 'javascript', 99: 'xmodule', 1: 'ocrspace_engine1', 2: 'ocrspace_engine2', 3: 'ocrspace_engine3' }
-const OCR_ENGINE_LIST = Object.keys(OCR_ENGINE_NAMES).map(n => `'${n}'`).join(', ')
+// the name shown when a caller sends a bare number: the OS-appropriate one
+const OS_LOCAL_OCR_NAME = /mac/i.test((typeof navigator !== 'undefined' && navigator.userAgent) || '') ? 'builtin_mac' : 'builtin_win'
+const OCR_ENGINE_BY_NUMBER = { 98: 'builtin', 99: OS_LOCAL_OCR_NAME, 90: 'aiprovider', 1: 'ocrspace_engine1', 2: 'ocrspace_engine2', 3: 'ocrspace_engine3' }
+const OCR_ENGINE_LIST = Object.keys(OCR_ENGINE_NAMES).filter(n => n !== 'javascript' && n !== 'xmodule').map(n => `'${n}'`).join(', ')
 
 // undefined when the caller passed nothing — the difference between "no engine
 // asked for" and "this engine asked for" decides the desktop-scope default
@@ -2944,8 +4754,13 @@ const resolveOcrEngine = (value, where) => {
 //                                        OCRExtract*Relative flows, composed
 //                                        from a finder + plain JS instead
 //   uiv.ocr.read({ scope: 'desktop' })   the screen (area then in screen px)
-//   uiv.ocr.read({ image: 'x.png' })     a stored screenshot (classic
-//                                        OCRExtractScreenshot)
+//   uiv.ocr.read({ image: 'x.png' })     a stored image (classic
+//                                        OCRExtractScreenshot) — {area} then
+//                                        crops in IMAGE pixels, and {engine}
+//                                        picks the reader per call, so a
+//                                        capture loop can shoot first and read
+//                                        each part with the XModule Local OCR
+//                                        afterwards
 // Returns the text as a string. Options {engine, language} match the finders.
 async function ocrReadText (args) {
   const state = store.getState()
@@ -2957,17 +4772,40 @@ async function ocrReadText (args) {
   guardOcrSettings({ store, engine })
 
   const lang = String(args.language || state.config.ocrLanguage || 'eng').toLowerCase()
+  const rect = normalizeRectArg(args.area, 'uiv.ocr.read')
 
   if (args.image) {
-    // a stored screenshot goes through the classic command, which knows how to
-    // load the file out of vision storage
-    const r = await runOneCommand('OCRExtractScreenshot', String(args.image), '__uiv_ocr_text')
-    if (!r.ok) return Promise.reject(new Error(r.error))
-    return getVarsInstance().get('__uiv_ocr_text')
+    // A stored image is read directly: load it out of storage, crop to {area}
+    // if one was given, and hand the pixels to the engine THIS call asked for.
+    // (This used to route through the classic OCRExtractScreenshot command,
+    // which reads the whole file with the Settings > OCR engine — {engine} and
+    // {area} were silently ignored.) {area} is in IMAGE pixels — the stored
+    // capture's own coordinate space, not the viewport's: a shot taken at
+    // devicePixelRatio 2 is twice the CSS size, and a finder match's rect
+    // would land on the wrong half of it.
+    const name = String(args.image)
+    const resolved = await resolveStoredFile(/\.png$/i.test(name) ? name : `${name}.png`, 'uiv.ocr.read', false, args.store)
+    if (resolved.missingFrom) {
+      throw new Error(`uiv.ocr.read: image '${resolved.fileName}' is not stored — looked in ${resolved.missingFrom.map(s => s.label).join(' and ')}. uiv.shot.viewport/page/element/desktop capture one; uiv.files.list() shows what exists`)
+    }
+    const stored = await resolved.fileStore.get().read(resolved.fileName, 'DataURL')
+    const imageDataUrl = rect ? await subImage(stored, rect) : stored
+    const { response } = await getOcrResponse({
+      ocrApiTimeout: config.ocr.apiTimeout,
+      store,
+      lang,
+      engine,
+      engineExplicit: engineAsked !== undefined,
+      scale: 'true',
+      isTable: false,
+      isDesktop: false,
+      isLog: false,
+      imageDataUrl
+    })
+    return parsedResultsToText(response)
   }
 
   const isDesktop = args.scope === 'desktop'
-  const rect = normalizeRectArg(args.area, 'uiv.ocr.read')
 
   if (!isDesktop) {
     const tab = await getTargetTab()
@@ -3051,22 +4889,25 @@ function parsedResultsToText (response) {
 
 // OCR reader escalation, environment-aware — the note names the next step(s)
 // for the AUTHOR to write into the macro; the engine is never switched at
-// runtime. Options by what this install has: the XModule Local OCR ({engine:
-// 99}) reads native UI and screenshots far better than the Javascript OCR;
-// uiv.ai.ask with a screenshot is a first-class reader too (free with a LOCAL
-// model); the OCR.Space cloud OCR (engines 2/3, both auto-detect the text
-// language — never 1) needs an API key; with none of those, ASK the user
-// about the free ocr.space key rather than settling for the bad read.
+// runtime. Options by what this install has: the OS reader ({engine:
+// 'builtin_win'/'builtin_mac'}) reads native UI and screenshots far better
+// than the cross-platform 'builtin' engine; uiv.ai.ask with a screenshot is
+// a first-class reader too (free with a LOCAL model); the OCR.Space cloud
+// OCR (engines 2/3, both auto-detect the text language — never 1) needs an
+// API key; without one, {engine: 'aiprovider'} runs the configured AI
+// provider as the OCR engine — and still mention the free ocr.space key
+// rather than settling for the bad read.
 function ocrSpaceUpgradeNote () {
   const cfg = store.getState().config || {}
   if ([1, 2, 3].includes(cfg.ocrEngine)) return '' // already reading with OCR.Space
+  const osLocalOcr = `{engine: '${OS_LOCAL_OCR_NAME}'}`
   const xmoduleHint = cfg.ocrEngine == 99
     ? ''
-    : " If the RealUser XModule is installed, retry with {engine: 'xmodule'} (XModule Local OCR) — it reads native UI and screenshots far better than the Javascript OCR."
+    : ` If the Desktop Automation XModule is installed, retry with ${osLocalOcr} (the OS reader) — it reads native UI and screenshots far better than the cross-platform 'builtin' engine.`
   const aiHint = " uiv.ai.ask('what does ... say?', {images: [uiv.shot.viewport()]}) (uiv.shot.desktop() for screen reads) or uiv.ai.find('the <target>') read what OCR cannot" + (cfg.aiProvider === 'local' ? ' — and with the LOCAL model configured here, at no per-call cost.' : ' (one billable model call each).')
   return cfg.ocrSpaceApiKey
     ? ' BETTER READER AVAILABLE:' + xmoduleHint + " An OCR.Space API key is configured in this install — the cloud OCR (run by the Ui.Vision team) reads far more than the local engines, especially light-on-dark text: {engine: 'ocrspace_engine2'} for finders/anything that clicks (accurate coordinates); {engine: 'ocrspace_engine3'} for pure uiv.ocr.read (best text; coordinates less accurate). Both auto-detect the text language." + aiHint
-    : ' BETTER READER AVAILABLE:' + xmoduleHint + aiHint + " Alternatively the OCR.Space cloud OCR reads far more than the local engines — it needs a FREE API key from https://ocr.space/ocrapi, entered under Settings > OCR ({engine: 'ocrspace_engine2'} for finders/clicking, {engine: 'ocrspace_engine3'} for pure reads; both auto-detect the language): ASK the user whether they want the free account — do not silently settle for the bad read."
+    : ' BETTER READER AVAILABLE:' + xmoduleHint + aiHint + " When the local readers are not good enough (not even via an anchor word + uiv.offset) and no OCR.Space account is configured, {engine: 'aiprovider'} runs the configured AI provider as the OCR engine — integrated with findText/read like a cloud engine (billable; word coordinates approximate). The OCR.Space cloud OCR remains the stronger dedicated OCR — it needs a FREE API key from https://ocr.space/ocrapi, entered under Settings > OCR ({engine: 'ocrspace_engine2'} for finders/clicking, {engine: 'ocrspace_engine3'} for pure reads; both auto-detect the language): mention the free account to the user — do not silently settle for the bad read."
 }
 
 // Why an OCR search matched nothing, in one line for the Find probe's log.
@@ -3178,22 +5019,52 @@ async function textWriteRaw (name, text) {
   return fileName
 }
 
-// uiv.files.* — the store verbs. They route by EXTENSION, not by namespace,
-// on the same split localStorageExport has always used, so exporting and
-// removing the same name can never mean two different files.
+// uiv.files.* — the store verbs. Extension alone cannot route them, because
+// .png lives in TWO tabs: Screenshots (captures — uiv.shot.viewport/page/
+// element) and Vision (match templates — uiv.shot.area, and the AI chat's
+// save_element_image). So a .png name is resolved by LOOKING: whichever tab
+// actually holds it wins, and only a name present in both needs the caller to
+// say which, via {store: 'vision'} / {store: 'screenshots'}.
+//
+// Resolving by lookup rather than by an explicit argument is what keeps the
+// property this namespace exists for — a name FLOWS. uiv.shot.area() hands
+// back a name and uiv.files.remove(name) takes it, with the caller never
+// working out which kind of file it was; making vision images the one case
+// that needs a flag would have broken exactly the verb that motivated this.
+// Screenshots is probed first, so a collision keeps resolving the way it
+// always did for callers that never knew Vision existed.
 const FILE_STORES = [
-  { ext: /\.(csv|txt)$/i, get: () => getStorageManager().getCSVStorage(), refresh: () => act.listCSV() },
-  { ext: /\.png$/i, get: () => getStorageManager().getScreenshotStorage(), refresh: () => act.listScreenshots() }
+  { id: 'csv', ext: /\.(csv|txt)$/i, defaultExt: '.txt', label: 'the CSV/TXT tab', get: () => getStorageManager().getCSVStorage(), refresh: () => act.listCSV() },
+  { id: 'screenshots', ext: /\.png$/i, defaultExt: '.png', label: 'the Screenshots tab', get: () => getStorageManager().getScreenshotStorage(), refresh: () => act.listScreenshots() },
+  { id: 'vision', ext: /\.png$/i, defaultExt: '.png', label: 'the Vision tab', get: () => getStorageManager().getVisionStorage(), refresh: () => act.listVisions() }
 ]
 
-const fileStoreFor = (fileName) => FILE_STORES.find(s => s.ext.test(fileName)) || null
+const STORE_IDS = FILE_STORES.map(s => s.id)
+
+// every store whose extension matches — one for .csv/.txt, two for .png
+const fileStoresFor = (fileName) => FILE_STORES.filter(s => s.ext.test(fileName))
+
+const storeById = (id, fn) => {
+  const hit = FILE_STORES.find(s => s.id === id)
+  if (!hit) {
+    throw new Error(`${fn}: unknown {store: '${id}'} — the stores are ${STORE_IDS.map(s => `'${s}'`).join(', ')} ('vision' holds the images uiv.findImage matches, 'screenshots' the captures)`)
+  }
+  return hit
+}
 
 // Resolve a name to {fileName, fileStore}. `soft` is for the predicate:
 // uiv.files.exists must answer false rather than throw, or it cannot be used
-// to guard the calls that do throw.
-async function resolveStoredFile (name, fn, soft) {
+// to guard the calls that do throw. `storeId` skips the lookup when the caller
+// already knows which tab it means — the way out of an ambiguous name, and the
+// way to name a file that does not exist yet.
+async function resolveStoredFile (name, fn, soft, storeId) {
   const n = String(name || '').trim()
   if (!n) throw new Error(`${fn}: a file name is required`)
+
+  if (storeId) {
+    const forced = storeById(storeId, fn)
+    return { fileName: forced.ext.test(n) ? n : `${n}${forced.defaultExt}`, fileStore: forced }
+  }
 
   // Bare 'log' is the one target exportToDownloads accepts that is not a
   // file: it is rendered from the log state on the spot, so there is nothing
@@ -3202,25 +5073,44 @@ async function resolveStoredFile (name, fn, soft) {
   // user can see in the tab impossible to delete.
   if (/^log$/i.test(n)) {
     if (soft) return null
-    throw new Error(`${fn}: 'log' is the run log, not a stored file — uiv.exportToDownloads('log') saves it to the Downloads folder, and that is the only verb it has. A stored file named log needs its extension: ${fn}('log.txt')`)
+    throw new Error(`${fn}: 'log' is the run log, not a stored file — uiv.files.exportToDownloads('log') saves it to the Downloads folder, and that is the only verb it has. A stored file named log needs its extension: ${fn}('log.txt')`)
   }
 
-  const direct = fileStoreFor(n)
-  if (direct) return { fileName: n, fileStore: direct }
+  const candidates = fileStoresFor(n)
+
+  if (candidates.length === 1) return { fileName: n, fileStore: candidates[0] }
+
+  if (candidates.length > 1) {
+    const hits = []
+    for (const s of candidates) {
+      if (await s.get().exists(n)) hits.push(s)
+    }
+    if (hits.length === 1) return { fileName: n, fileStore: hits[0] }
+    if (hits.length > 1) {
+      // exists() only has to answer "yes", and both answers are yes
+      if (soft) return { fileName: n, fileStore: hits[0] }
+      throw new Error(`${fn}: '${n}' is in BOTH ${hits.map(s => s.label).join(' and ')} — say which one you mean with ${hits.map(s => `{store: '${s.id}'}`).join(' or ')}, e.g. ${fn}('${n}', {store: 'vision'})`)
+    }
+    // in neither: hand back the first candidate so the caller reports one
+    // concrete name, and the stores it looked in
+    return soft ? null : { fileName: n, fileStore: candidates[0], missingFrom: candidates }
+  }
 
   if (/\.[a-z0-9]+$/i.test(n)) {
     if (soft) return null
-    throw new Error(`${fn}: Ui.Vision does not store '${n}' — .csv and .txt live in the CSV/TXT tab, .png in the Screenshots tab`)
+    throw new Error(`${fn}: Ui.Vision does not store '${n}' — .csv and .txt live in the CSV/TXT tab, .png in the Screenshots tab (captures) or the Vision tab (match images)`)
   }
 
-  // no extension: probe in the order text.read resolves, widened to shots
+  // no extension: probe in the order text.read resolves, widened to shots and
+  // vision images (a .png candidate yields two probes, screenshots first)
   for (const ext of ['.txt', '.csv', '.png']) {
     const candidate = n + ext
-    const fileStore = fileStoreFor(candidate)
-    if (await fileStore.get().exists(candidate)) return { fileName: candidate, fileStore }
+    for (const fileStore of fileStoresFor(candidate)) {
+      if (await fileStore.get().exists(candidate)) return { fileName: candidate, fileStore }
+    }
   }
   // nothing matched — fall back to the .txt default so the caller reports one
-  // concrete missing name instead of three maybes
+  // concrete missing name instead of four maybes
   return soft ? null : { fileName: `${n}.txt`, fileStore: FILE_STORES[0] }
 }
 
@@ -3230,9 +5120,27 @@ async function resolveStoredFile (name, fn, soft) {
 
 const asValue = (v) => ({ ok: true, value: v === undefined ? undefined : JSON.stringify(v) })
 
-// parseTarget's coordinate regex rejects negatives — clamp (an off-viewport
-// match center can round below 0) and round to integers
-const coordTarget = ({ x, y }) => `${Math.max(0, Math.round(x))},${Math.max(0, Math.round(y))}`
+// Round to integers. NO clamping: on a multi-monitor mac a display arranged
+// left of the primary has legitimately NEGATIVE global coordinates, and the
+// clamp sent every click there to x=0 (parseTarget accepts negatives now).
+// uiv.download's trigger form: remember which input op ran between the arm
+// and the wait, so a start timeout can name the likely cause for THAT tier
+// (a trusted click that started nothing = a slow server; a synthetic click
+// = Chrome's multiple-downloads prompt) — OPEN-ISSUES 19.2
+let downloadArmed = false
+let downloadTrigger = ''
+// files uiv.download captured in this run: from the 2nd one on, a trusted
+// click that starts nothing points at Chrome's "download multiple files"
+// prompt first (OPEN-ISSUES 30.8)
+let downloadsCapturedThisRun = 0
+// locators already reported as "hidden input → label" in this run (30.9)
+let viaLabelNoted = new Set()
+// URL-form downloads per URL in this run (30.12) and the last opened page's
+// signature (title + text length + node count) for "the page did not change"
+let urlDownloadsThisRun = new Map()
+let lastOpenSig = null
+
+const coordTarget = ({ x, y }) => `${Math.round(x)},${Math.round(y)}`
 
 // {button: 'right' | 'middle'} from the polyfill becomes the classic click
 // Value ('#right' / '#middle'); absent or 'left' is the empty default. The
@@ -3242,7 +5150,7 @@ const buttonValue = ({ button }) => (button ? `#${button}` : '')
 // Ops that read or act on page content. Each waits for a navigation already in
 // flight to finish first — that, not a fixed post-click sleep, is what keeps a
 // command from reading the page the previous click just navigated away from.
-const PAGE_OPS = /^(eval|elementSearch|imageSearch|textSearch|domClickLocator|domClickAt|domType|domTypeAt|domSelect|bClick|bMove|bDown|bUp|bType|banner)$/
+const PAGE_OPS = /^(domScrollIntoView|bWheel|bKey|eval|elementSearch|imageSearch|textSearch|domClickLocator|domClickAt|domType|domTypeAt|domSelect|bClick|bMove|bDown|bUp|bType|banner)$/
 
 // One "Executing:" line per uiv call, like the classic player writes per
 // command. Ops routed through the player (run, ai.*, ocr, shot.*,
@@ -3251,30 +5159,35 @@ const PAGE_OPS = /^(eval|elementSearch|imageSearch|textSearch|domClickLocator|do
 // Long runs: the log reducer keeps only the last 500 lines, so an hours-long
 // loop rotates the log instead of growing it.
 const BRIDGE_OP_LOG_NAMES = {
-  open: 'uiv.open',
-  eval: 'uiv.eval',
+  domScrollIntoView: 'scrollIntoViewIfNeeded',
+  bWheel: 'uiv.browser.mouse.wheel',
+  bKey: 'uiv.browser.keyboard.down/up',
+  xWheel: 'uiv.desktop.mouse.wheel',
+  open: 'uiv.goto',
+  eval: 'uiv.evaluate',
   elementSearch: 'uiv.$',
   imageSearch: 'uiv.findImage',
   textSearch: 'uiv.ocr.findText',
   domClickLocator: 'uiv.page.click',
   domClickAt: 'uiv.page.click',
-  domType: 'uiv.page.type',
-  domTypeAt: 'uiv.page.type',
-  domSelect: 'uiv.page.select',
+  domType: 'uiv.page.fill',
+  domTypeAt: 'uiv.page.fill',
+  domSelect: 'uiv.page.selectOption',
   bClick: 'uiv.browser.click',
-  bMove: 'uiv.browser.move',
+  bMove: 'uiv.browser.hover',
   bDown: 'uiv.browser.down',
   bUp: 'uiv.browser.up',
   bType: 'uiv.browser.type',
-  xClick: 'uiv.desktop.click',
-  xMove: 'uiv.desktop.move',
+  xClick: 'uiv.desktop.mouse.click',
+  xMove: 'uiv.desktop.mouse.move',
   xDown: 'uiv.desktop.down',
   xUp: 'uiv.desktop.up',
-  xType: 'uiv.desktop.type',
+  xType: 'uiv.desktop.keyboard.type',
   tabsSelect: 'uiv.tabs.select',
   tabsOpen: 'uiv.tabs.open',
   tabsClose: 'uiv.tabs.close',
   windowResize: 'uiv.window.resize',
+  windowRect: 'uiv.window.rect',
   csvWrite: 'uiv.csv.write',
   csvAppend: 'uiv.csv.append',
   textWrite: 'uiv.text.write',
@@ -3283,17 +5196,23 @@ const BRIDGE_OP_LOG_NAMES = {
   banner: 'uiv.banner',
   download: 'uiv.download',
   downloadArm: 'uiv.download (arm)',
-  downloadWait: 'uiv.download (wait)'
+  downloadWait: 'uiv.download (wait)',
+  downloadDisarm: 'uiv.download (disarm)'
 }
+
+let bridgeOpSeq = 0
 
 function logBridgeCall (op, args) {
   const name = BRIDGE_OP_LOG_NAMES[op]
   if (!name) return
+  bridgeOpLogged = name
   let detail = ''
   try {
     detail = JSON.stringify(args)
     if (detail === '{}') detail = ''
     else if (detail.length > 150) detail = detail.slice(0, 150) + '…'
+    // the run-picture ring files a finder's capture under the call that made it
+    setRunFrameStep(`op#${++bridgeOpSeq}`, `${name} ${detail}`.trim(), 'script')
   } catch (e) { /* unserializable args stay blank */ }
   store.dispatch(act.addLog('info', `Executing: ${name} ${detail}`.trim()))
 }
@@ -3302,7 +5221,78 @@ function logBridgeCall (op, args) {
 // download manager rejects on its own timeout), then return the name the file
 // actually got on disk. DOWNLOAD_COMPLETE writes !LAST_DOWNLOADED_FILE_NAME
 // panel-side a beat after the wait unblocks — hence the short poll.
-async function waitForArmedDownload (wait, timeoutS) {
+// After uiv.goto: when the new URL differs from the previous open only in
+// its query/hash and the document looks identical (same title, same text
+// length, same node count), the site ignored the parameter — say so, or a
+// loop over "pages" scrapes the same page over and over (OPEN-ISSUES 30.12)
+// Internal page probes (page signature, dialog shape, focus, window
+// dimensions, measuring beacons) run in the extension's ISOLATED world via
+// chrome.scripting — the page's Content Security Policy does not apply
+// there. They used to go through the classic executeScript command, which
+// evaluates its string in the PAGE world (inject.js → eval), and a strict
+// CSP (script-src without 'unsafe-eval' — banking sites) refuses that: on
+// banking.postbank.de every uiv.download logged "Error in executeScript
+// code: Evaluating a string as JavaScript violates the following Content
+// Security Policy directive" at (arm) and (wait), the shape probe returned
+// nothing, and the run's verdict blamed Chrome's download prompt while the
+// PDF was landing on disk a second later (OPEN-ISSUES 42.1). `func` must be
+// self-contained (serialized into the page); `args` JSON. Returns
+// { ok, value }; the page-world command is the fallback only where
+// chrome.scripting cannot reach the tab (no scripting API, browser-internal
+// page) so the older path keeps working where it did before.
+async function probePage (func, args, fallbackCode, varName) {
+  try {
+    const tab = await getTargetTab()
+    if (tab && tab.id && typeof chrome !== 'undefined' && chrome.scripting && chrome.scripting.executeScript) {
+      const rs = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func, args: args || [] })
+      if (rs && rs.length) return { ok: true, value: rs[0].result }
+    }
+  } catch (e) { /* fall through to the page-world command */ }
+  if (!fallbackCode) return { ok: false, value: undefined }
+  const r = await runOneCommand('executeScript', fallbackCode, varName, null, { fast: true })
+  return { ok: !!r.ok, value: r.ok ? getVarsInstance().get(varName) : undefined }
+}
+
+async function notePageUnchanged (url) {
+  try {
+    const r = await probePage(
+      function () { return document.title + '|' + (document.body ? document.body.innerText.length : 0) + '|' + document.querySelectorAll('*').length },
+      [],
+      "return document.title + '|' + (document.body ? document.body.innerText.length : 0) + '|' + document.querySelectorAll('*').length", '__uiv_pagesig')
+    if (!r.ok) return
+    const sig = String(r.value || '')
+    const base = url.replace(/[?#].*$/, '')
+    if (lastOpenSig && lastOpenSig.base === base && lastOpenSig.url !== url && lastOpenSig.sig === sig && sig) {
+      store.dispatch(act.addLog('warning', `uiv.goto: the page did NOT change — same title, text length and node count as the previous open of ${base} although the URL differs only in its query/hash (${url.slice(base.length, base.length + 60)}). The site ignores that parameter; page through its own controls (a "next" link/button, a selector) and check that the first row differs.`))
+    }
+    lastOpenSig = { base, url, sig }
+  } catch (e) { /* diagnosis only */ }
+}
+
+// The page's dialogs/forms and node count — captured when uiv.download arms,
+// compared when no download came: a trigger that OPENED A FORM ("Angabe
+// Rechnungsadresse" with the real download button inside) used to be
+// reported as a slow server (OPEN-ISSUES 30.17)
+async function pageShape () {
+  try {
+    const r = await probePage(
+      function () {
+        return {
+          n: document.querySelectorAll('*').length,
+          d: Array.prototype.slice.call(document.querySelectorAll('[role=dialog],[aria-modal=true],dialog[open],form,[role=alertdialog]'))
+            .filter(function (e) { var r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 })
+            .map(function (e) { var h = e.querySelector('h1,h2,h3,h4,legend,[role=heading]'); return (e.getAttribute('aria-label') || (h && h.textContent) || e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) })
+        }
+      },
+      [],
+      "return JSON.stringify({n: document.querySelectorAll('*').length, d: Array.prototype.slice.call(document.querySelectorAll('[role=dialog],[aria-modal=true],dialog[open],form,[role=alertdialog]')).filter(function (e) { var r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 }).map(function (e) { var h = e.querySelector('h1,h2,h3,h4,legend,[role=heading]'); return (e.getAttribute('aria-label') || (h && h.textContent) || e.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 60) })})", '__uiv_shape')
+    if (!r.ok || r.value == null) return null
+    return typeof r.value === 'string' ? JSON.parse(r.value) : r.value
+  } catch (e) { return null }
+}
+let armShape = null
+
+async function waitForArmedDownload (wait, timeoutS, wantedAs) {
   if (!wait) return asValue(undefined)
   // countdown against the download's own timeout — the wait blocks in one
   // IPC call, so without the tick a slow download reads as a hang
@@ -3313,7 +5303,48 @@ async function waitForArmedDownload (wait, timeoutS) {
   }, 500)
   try {
     await csIpc.ask('PANEL_WAIT_FOR_ANY_DOWNLOAD', {})
+  } catch (e) {
+    if (!/download start expired/.test(String(e && e.message || e))) throw e
+    // The trigger ran but Chrome created no download inside the start
+    // window. The download manager releases the arm on this timeout, so the
+    // script's next uiv.download works. The usual cause on a site whose
+    // button fetches the file and saves a blob: a SYNTHETIC click
+    // (uiv.page.click) carries no user activation, so Chrome files the
+    // download as "automatic" and holds the second one from that site
+    // behind its "download multiple files" permission prompt until a human
+    // clicks Allow — seen on o2online.de (OPEN-ISSUES 16): the files landed
+    // minutes later, under the site's own names, the second Allow was clicked.
+    const startS = parseFloat(getVarsInstance().get('!TIMEOUT_WAIT')) || 10
+    // suggest a window that is actually larger than the one that just expired
+    const suggestS = Math.max(30, Math.ceil(startS * 2))
+    // did the trigger open a form/dialog instead? (30.17)
+    let opened = ''
+    try {
+      const now = await pageShape()
+      if (now && armShape) {
+        const before = new Set(armShape.d || [])
+        const fresh = (now.d || []).filter(d => d && !before.has(d))
+        if (fresh.length || (now.n - armShape.n) > 40) {
+          opened = `The click OPENED ${fresh.length ? 'a form/dialog ("' + fresh[0] + '")' : 'new content (' + (now.n - armShape.n) + ' new nodes)'} instead of starting a download — the real download button is probably in it: call browser_snapshot, then arm uiv.download on THAT button (a "Generate"/"Create"/"Rechnung erstellen" step comes first on many sites). `
+        }
+      }
+    } catch (e) { /* diagnosis only */ }
+    const trusted = /^(bClick|xClick|bType|xType)$/.test(downloadTrigger)
+    const demoted = /fell back to DOM/.test(downloadTrigger)
+    const synthetic = /^dom/.test(downloadTrigger)
+    const cause = demoted
+      ? `The trigger was uiv.browser.click, but Chrome's debugger input is vetoed on this page (W371) and it FELL BACK to a DOM click — a synthetic click with no user activation, so Chrome's "download multiple files automatically" prompt applies after all. Allow it once on the page, or use real OS input as the trigger: uiv.download(() => uiv.desktop.mouse.click(...), ...). A slow server is the other cause: raise the start window with uiv.setVar('!TIMEOUT_WAIT', ${suggestS}).`
+      : trusted
+        ? (downloadsCapturedThisRun > 0
+          ? `The trigger was a TRUSTED click (${downloadTrigger}) and this run has already captured ${downloadsCapturedThisRun} file(s) — the FIRST suspect is Chrome's "download multiple files" prompt: on a site that fetches the file and saves it afterwards, the click's user activation is spent by the time the page saves, so from the second file on Chrome holds the download until a human clicks Allow (the held file then arrives late, under the site's own name, and lands in whatever uiv.download is armed THEN). Allow automatic downloads for the site once (chrome://settings/content/automaticDownloads) or use {blob: true} on the trigger form — its save happens inside the click's activation, no prompt. A slow server is the other cause: raise the start window with uiv.setVar('!TIMEOUT_WAIT', ${suggestS}).`
+          : `The trigger was a TRUSTED click (${downloadTrigger}), so the usual cause is the server still generating the file — raise the start window before the call: uiv.setVar('!TIMEOUT_WAIT', ${suggestS}). If the site fetches the file and saves it afterwards, Chrome's "download multiple files" prompt applies from the SECOND file on despite the trusted click (the activation is spent by then) — {blob: true} on the trigger form avoids it.`)
+        // the slow-server hint used to be dropped for a synthetic trigger — but a
+        // bank's "PDF wird vorbereitet" export took 11 s after a uiv.page.click
+        // and arrived fine, one second after this verdict blamed the prompt (42.1)
+        : `If the trigger was a synthetic click (uiv.page.click), Chrome may be holding the file behind its "download multiple files automatically" prompt — such clicks carry no user activation. Use a trusted click as the trigger: uiv.download(() => uiv.browser.click(locator), ...). A server still generating the file ("your PDF is being prepared") is the other cause, as likely: raise the start window before the call with uiv.setVar('!TIMEOUT_WAIT', ${suggestS})${synthetic ? ' — a file that then lands late, under the site\'s own name, in the download folder says it was this one' : ''}.`
+    throw new Error(`uiv.download: no download started within ${startS}s of the trigger (the start window is !TIMEOUT_WAIT; {timeout} covers the transfer once it has started). ${opened}${cause} The arm has been released; the next uiv.download can proceed.`)
   } finally {
+    downloadArmed = false
     clearInterval(tick)
     emit('wait', null)
   }
@@ -3322,7 +5353,43 @@ async function waitForArmedDownload (wait, timeoutS) {
   while (!vars.get('!LAST_DOWNLOADED_FILE_NAME') && Date.now() < deadline) {
     await delayMs(100)
   }
-  return asValue(vars.get('!LAST_DOWNLOADED_FILE_NAME') || '')
+  const name = vars.get('!LAST_DOWNLOADED_FILE_NAME') || ''
+  // with several browsers connected the name alone does not say WHERE the
+  // file is — log the path the browser reported (OPEN-ISSUES 23.5)
+  if (name) {
+    // two DOWNLOAD_COMPLETE copies race for the same file (bg's old bare
+    // listener and DownloadMan's); give the one with the site name a beat
+    await delayMs(200)
+    const info = getLastDownloadInfo()
+    const p = info.path || getLastDownloadPath()
+    downloadsCapturedThisRun++
+    // the site's own name for the file is the evidence that a late file
+    // from an earlier trigger was captured under this arm's name (30.8)
+    const site = info.siteName && info.siteName !== name ? ` (the site named it "${info.siteName}")` : ''
+    store.dispatch(act.addLog('info', (p ? `downloaded: ${p}` : `downloaded: ${name} (into the browser's download folder)`) + site))
+    // the caller asked for x.pdf and got x.htm: the server's type wins, but a
+    // script that only checks the return value carries on with an HTML page
+    // named like an invoice (OPEN-ISSUES 30.15)
+    const wantExt = wantedAs && /\.[A-Za-z0-9]{1,5}$/.test(String(wantedAs)) ? String(wantedAs).split('.').pop().toLowerCase() : ''
+    const gotExt = /\.[A-Za-z0-9]{1,5}$/.test(name) ? name.split('.').pop().toLowerCase() : ''
+    if (wantExt && gotExt && wantExt !== gotExt) {
+      store.dispatch(act.addLog('warning', `uiv.download asked for a .${wantExt} file and the server sent .${gotExt} ("${name}") — that URL is a page or a different kind of file, not the .${wantExt} you wanted; check the link (a "print" or "view" URL instead of the document URL is the usual cause).`))
+    }
+    // the same file again: a loop re-fetching one link, or a page that did
+    // not change between "pages" (OPEN-ISSUES 30.12)
+    if (info.duplicateOf) {
+      store.dispatch(act.addLog('warning', `this file is IDENTICAL to "${info.duplicateOf.name}" saved ${info.duplicateOf.secondsAgo} s ago in this run (same URL, or same site name and size) — is the loop re-fetching the same link? If a page navigation preceded it, the page probably did not change.`))
+    }
+    if (info.orphanWarning > 0) {
+      store.dispatch(act.addLog('warning', `this run has ${info.orphanWarning} earlier uiv.download trigger(s) whose start window expired — the file just saved as "${name}" may be one of THOSE arriving late (Chrome's "download multiple files" prompt holds files until Allow is clicked; a slow server does the same).${info.siteName ? ` The site named it "${info.siteName}" — ` : ' '}check that it is the file this call asked for before trusting the name.`))
+    }
+  }
+  // '' used to be returned as a clean result (OPEN-ISSUES 19.1): a download
+  // that ended without a file is a failure, and the caller must hear so
+  if (!name) {
+    throw new Error("uiv.download: the download ended without a file — it was interrupted or refused before any bytes arrived (a server that rejects requests the page itself did not make, a blocked file type, or a download the page never started). For a link behind a login use the page's own click: uiv.download(() => uiv.browser.click(locator), {as: 'name.pdf'}). If the file DID land in the download folder, its name event was late — check there.")
+  }
+  return asValue(name)
 }
 
 // The classic click/type auto-wait for their element INSIDE the player
@@ -3349,16 +5416,232 @@ async function withElementWaitCountdown (label, fn) {
   }
 }
 
+// Every input the run aimed at a POINT, in the order it happened.
+//
+// A macro that clicks the wrong thing looks identical in the log to one that
+// clicks the right thing — both say "Executing: uiv.desktop.mouse.click 1712,108".
+// Neither the user nor the agent can tell which happened without seeing WHERE
+// that was on screen, so the coordinates are kept and drawn onto a screenshot
+// after the run (see runScriptMacro in macro_agent/tools.ts).
+//
+// Only point-aimed input is recorded: uiv.page.click resolves a DOM element
+// itself and cannot be off by a neighbour, which is the failure this exists to
+// make visible.
+const CLICK_TRAIL_OPS = {
+  xClick: 'desktop.click',
+  xMove: 'desktop.move',
+  xDown: 'desktop.down',
+  xUp: 'desktop.up',
+  bClick: 'browser.click',
+  bMove: 'browser.move',
+  bDown: 'browser.down',
+  bUp: 'browser.up'
+}
+const CLICK_TRAIL_MAX = 40
+let clickTrail = []
+
+export function getClickTrail () {
+  return clickTrail.slice()
+}
+
+// The run's OCR text searches, one entry per SETTLED uiv.ocr.findText(s) call
+// (recorded after the auto-wait retry loop resolves, not per attempt — a
+// 30-second wait polls the same search fifteen times and is still ONE search).
+// Feeds the same post-run picture as the click trail: matches as numbered
+// boxes, plus a light outline for every word the engine recognised, so "found
+// the wrong occurrence" and "OCR never saw the word" are both visible at a
+// glance instead of being inferred from a text dump.
+const OCR_TRAIL_MAX = 6
+let ocrTrail = []
+
+export function getOcrTrail () {
+  return ocrTrail.slice()
+}
+
+function recordOcrTrail (entry) {
+  if (ocrTrail.length >= OCR_TRAIL_MAX) return
+  ocrTrail.push(entry)
+}
+
+// The run's IMAGE searches, one settled entry per uiv.findImage(s) call.
+// Same job as the OCR trail: the runtime acts on the highest-scoring match
+// invisibly, so "matched the wrong lookalike" and "nothing scored above the
+// threshold" both need the picture. On a MISS a single low-bar rescue pass
+// records the best below-threshold candidates — the difference between "best
+// candidate 0.62 against your 0.8, right spot, lower minScore" and "nothing
+// anywhere, recapture the image" is two OPPOSITE fixes that a bare not-found
+// cannot distinguish.
+const IMAGE_TRAIL_MAX = 6
+let imageTrail = []
+
+export function getImageTrail () {
+  return imageTrail.slice()
+}
+
+function recordImageTrail (entry) {
+  if (imageTrail.length >= IMAGE_TRAIL_MAX) return
+  imageTrail.push(entry)
+}
+
+// Points the run derived rather than clicked: uiv.ai.find answers and
+// uiv.offset compositions (anchor -> landing). A wrong ai.find point or a
+// wrong dx/dy is invisible until the click that uses it acts on the wrong
+// thing — marking the derivation separates "the model pointed wrong" from
+// "the click executed wrong".
+const POINT_TRAIL_MAX = 20
+let pointTrail = []
+
+export function getPointTrail () {
+  return pointTrail.slice()
+}
+
+function recordPointTrail (entry) {
+  if (pointTrail.length >= POINT_TRAIL_MAX) return
+  pointTrail.push(entry)
+}
+
+// a recordable {left,top,width,height} out of a finder's {area} option — a
+// finder match (carries .rect) or a bare rect; anything else records nothing
+function areaRectOf (area) {
+  if (!area || typeof area !== 'object') return null
+  const r = area.rect && typeof area.rect === 'object' ? area.rect : area
+  const left = Number(r.left !== undefined ? r.left : r.x)
+  const top = Number(r.top !== undefined ? r.top : r.y)
+  const width = Number(r.width)
+  const height = Number(r.height)
+  if (![left, top, width, height].every(isFinite) || width <= 0 || height <= 0) return null
+  return { left: Math.round(left), top: Math.round(top), width: Math.round(width), height: Math.round(height) }
+}
+
+function recordClickTrail (op, args) {
+  const label = CLICK_TRAIL_OPS[op]
+  if (!label || !args) return
+  const x = Number(args.x)
+  const y = Number(args.y)
+  if (!isFinite(x) || !isFinite(y)) return
+  if (clickTrail.length >= CLICK_TRAIL_MAX) return
+  clickTrail.push({
+    x: Math.round(x),
+    y: Math.round(y),
+    // desktop = screen pixels; browser = viewport CSS pixels. The two cannot be
+    // drawn on the same picture, so the consumer picks by scope.
+    scope: args.scope === 'browser' || op[0] === 'b' ? 'browser' : 'desktop',
+    label
+  })
+}
+
+// per-op wall-time profile, split into prelude (logging/trail/vars) and the
+// op body — read+reset via the 'profDump' op. Cheap enough to always run.
+const __uivProf = { ops: {} }
+function __profAdd (op, preludeMs, bodyMs) {
+  const p = __uivProf.ops[op] = __uivProf.ops[op] || { n: 0, preludeMs: 0, bodyMs: 0 }
+  p.n++; p.preludeMs += preludeMs; p.bodyMs += bodyMs
+}
+
 async function dispatchBridge (op, args) {
+  if (op === 'profDump') {
+    const out = { ops: __uivProf.ops }
+    __uivProf.ops = {}
+    return { ok: true, value: JSON.stringify(out) }
+  }
+  const __t0 = performance.now()
+  const __fb0 = getCdpInputFallbackCount()
+  bridgeOpLabel = uivNameForOp(op)
+  const __r = await dispatchBridgeInner(op, args)
+  const usageName = uivNameForOp(op)
+  const family = /^uiv\.(page|browser|desktop|ocr|ai|csv)\./.exec(usageName)
+  reportUsage('api', family ? family[1] : op === 'eval' ? 'evaluate' : 'other')
+  if (family && family[1] === 'desktop') reportUsage('xmodule', 'used')
+  bridgeOpLabel = ''
+  bridgeOpLogged = ''
+  if (downloadArmed && /^(bClick|bType)$/.test(op) && getCdpInputFallbackCount() !== __fb0) downloadTrigger = op + ' fell back to DOM'
+  __profAdd(op, __uivProf.lastPrelude || 0, performance.now() - __t0 - (__uivProf.lastPrelude || 0))
+  return __r
+}
+
+async function dispatchBridgeInner (op, args) {
+  if (downloadArmed && /^(bClick|xClick|domClickLocator|domClickAt|domType|domTypeAt|bType|xType)$/.test(op)) downloadTrigger = op
+  const __p0 = performance.now()
   logBridgeCall(op, args)
+  recordClickTrail(op, args)
   // keep the script's clock honest on EVERY uiv call — the guide-recommended
   // poll-loop guard parseFloat(uiv.getVar('!RUNTIME')) hung forever when the
   // loop body only contained ops that skipped the classic-path update at
   // handleRunResult (e.g. ocr.read({scope: 'desktop'}) + sleep)
   try { getVarsInstance().set({ '!RUNTIME': milliSecondsToStringInSecond(scriptRuntimeMs()) }, true) } catch (e) { /* best-effort */ }
+  if (/^(domClickLocator|domType|domSelect)$/.test(op)) args = { ...args, locator: scriptLocator(args.locator) }
   if (PAGE_OPS.test(op)) await awaitPageQuiet()
+  __uivProf.lastPrelude = performance.now() - __p0
 
   switch (op) {
+    case 'macroResult': scriptReturnValue = args.value; return asValue(undefined)
+    case 'browserRun': throw new Error(
+      'uiv.browser.run(...) is a desktop-to-browser call, but the current macro already runs in the browser. ' +
+      'To reuse another browser JavaScript macro, move its reusable logic into a function, include its file, and call that function.\n\n' +
+      'Example library (Lib/Shared.js):\n' +
+      'function runShared(input) { return { total: input.left + input.right }; }\n\n' +
+      'Example caller:\n' +
+      '// @include Lib/Shared.js\n' +
+      'var result = runShared({left: 2, right: 3});\n\n' +
+      'Use the actual macro-tree path and put the // @include directive on its own line. Includes are resolved before compilation and share the caller\'s runtime and variables. ' +
+      'Pass values with function arguments and return; uiv.args and uiv.result do not create a separate call for an include. ' +
+      'Guard any standalone entrypoint in the included file with if (uiv.main) { ... } so it does not run automatically when included. ' +
+      'Do not substitute uiv.run("run", ...) or uiv.runMacro(...): neither is supported in browser JavaScript macros. ' +
+      'Do not route through the desktop app to call back into this waiting browser; it will be busy.'
+    )
+    case 'appRun': {
+      const name = macroCallName(args.name)
+      const standalone = standaloneDesktopCall(args.options)
+      // background: an app started for a macro opens minimized (host >= 2.1.32)
+      const connected = await ensureDesktopApp(store.getState().config, text => store.dispatch(act.addLog('status', text)), { background: true })
+      if (!connected.ok) throw new Error(connected.text)
+      const client = getDesktopAppClient()
+      const status = await client.getStatus()
+      // Busy means the app's own JS engine is running. status.running also
+      // counts a BROWSER run the app dispatched to us (its status pill shows
+      // it), and that run is very possibly this very script: a browser
+      // launcher played through the app's MCP (Play Flappy Bird from Browser)
+      // calls uiv.app.run while the app still books the browser run as
+      // running - refusing that stalled every launcher demo routed through
+      // the app (dev1 2026-09-16). App 2.1.35+ reports the engine separately;
+      // older apps only have the combined flag.
+      const engineBusy = typeof status.engineRunning === 'boolean' ? status.engineRunning : status.running
+      if (engineBusy) throw new Error('The desktop app is busy running another macro; wait for it to finish before calling uiv.app.run')
+      const version = String(status.appVersion || '').split('.').map(Number)
+      if (version[0] < 2 || (version[0] === 2 && (version[1] < 1 || (version[1] === 1 && version[2] < 18)))) throw new Error('uiv.app.run requires Ui.Vision for Desktop 2.1.18 or newer')
+      if (standalone && !semver.gte(String(status.appVersion || '0.0.0'), '2.1.40')) throw new Error("uiv.app.run with scope 'desktop' requires Ui.Vision Desktop 2.1.40 or newer. Update the app and restart it.")
+      let context = { scope: 'desktop' }
+      if (!standalone) {
+        const tab = await getTargetTab()
+        if (!tab) throw new Error("uiv.app.run cannot measure a viewport on a browser-internal page. For an independent desktop macro use uiv.app.run('Folder/Macro.d.js', {}, {scope:'desktop'}); it receives no browser area and owns its window setup.")
+        const focused = await dispatchBridgeInner('windowFocus', {})
+        if (!focused.ok) return focused
+        context = await measureCallViewport(tab, args.options.area)
+      }
+      if (stopRequested) throw new Error('Script stopped')
+      store.dispatch(act.addLog('status', '[desktop: ' + name + '] called' + (standalone ? ' (standalone desktop)' : '; measured browser area')))
+      let geometryError = null, checking = false
+      const call = client.callMacro({ name, args: args.args, context }, l => {
+        store.dispatch(act.addLog(l.kind === 'mcp' ? 'info' : l.kind, `[desktop: ${name}] ${l.time} ${l.text}`, { color: l.color || undefined, macroCallId: l.callId, remoteSeq: l.seq }))
+      }, args.options.timeoutMs || 900000)
+      activeAppCall = call
+      const watch = setInterval(async () => {
+        if (standalone || checking || geometryError) return
+        checking = true
+        try {
+          if (!(await callViewportUnchanged(context))) { geometryError = 'Browser viewport changed during the desktop call. The call was stopped; measure the area again before retrying.'; call.cancel() }
+        } catch (e) { geometryError = 'Browser tab became unavailable during the desktop call'; call.cancel() }
+        finally { checking = false }
+      }, 1000)
+      try {
+        const value = await call.promise
+        if (geometryError) throw new Error(geometryError)
+        if (stopRequested) throw new Error('Script stopped')
+        store.dispatch(act.addLog('status', `[desktop: ${name}] returned`))
+        return asValue(value)
+      } catch (e) { throw new Error(geometryError || e.message || String(e)) }
+      finally { clearInterval(watch); if (activeAppCall === call) activeAppCall = null }
+    }
     case 'open': {
       // page-load countdown on the same 'wait' channel the finders use — a
       // silent stall here looked like a freeze for up to timeoutPageLoad (60s)
@@ -3371,6 +5654,7 @@ async function dispatchBridge (op, args) {
       const timing = { begin: openStart }
       try {
         const r = await nativeOpen(String(args.url), timing)
+        if (r.ok) await notePageUnchanged(String(args.url))
         return r.ok ? asValue(undefined) : r
       } finally {
         clearInterval(tick)
@@ -3447,8 +5731,35 @@ async function dispatchBridge (op, args) {
       // page-world execution via the classic executeScript command; the
       // result comes back through its Value-variable convention
       const vars = getVarsInstance()
-      const r = await runOneCommand('executeScript', args.code, '__uiv_ret', null, { fast: true })
-      if (!r.ok) return r
+      const r = await runOneCommand('executeScript', args.code, '__uiv_ret', args.pageFunction ? { extra: { literalTarget: true } } : null, { fast: true })
+      if (!r.ok) {
+        // a CSP that bans unsafe-eval (chatgpt.com, Stripe pages, most banks)
+        // is a property of the site — say what DOES work there instead of
+        // handing back Chrome's raw policy text (OPEN-ISSUES 17.2)
+        if (/unsafe-eval|Content Security Policy|Trusted Type/i.test(String(r.error || ''))) {
+          // Chrome's message carries the page's WHOLE policy — nonces and
+          // dozens of domains, 16k chars on pinterest — which then rides in
+          // the chat history forever (OPEN-ISSUES 44.4); one line says it all
+          const cspError = String(r.error).replace(/(Content Security Policy directive)[\s\S]*$/, '$1 (the page forbids string eval; policy text omitted)').slice(0, 300)
+          // Chromium: the debugger session is not bound by the page's CSP —
+          // Runtime.evaluate runs the same code where the content script's
+          // eval was refused (the uiv.browser.* tier holds that session anyway)
+          if (isCdpInputAvailable()) {
+            const tab = await getTargetTab()
+            if (tab) {
+              try {
+                const v = await cdpEvaluate(tab.id, String(args.code))
+                store.dispatch(act.addLog('echo', "evaluate: this page's CSP refused the content-script eval — the code ran through the browser debugger session (CDP Runtime.evaluate) instead"))
+                return asValue(v)
+              } catch (e) {
+                return { ok: false, error: `${cspError}; the debugger-session fallback (CDP Runtime.evaluate) failed too: ${(e && e.message) || e}\n→ Read the DOM through the content script instead, which no page CSP can block: uiv.$('css=…').text / .value / .getAttribute('href'), uiv.$$('css=a').map(m => m.attributes), and act with uiv.page.click / uiv.browser.click.` }
+              }
+            }
+          }
+          return { ok: false, error: `${cspError}\n→ This site's CSP blocks page-world eval (uiv.evaluate / executeScript) — not a macro bug, do not retry. Read the DOM through the content script instead, which no page CSP can block: uiv.$('css=…').text / .value / .getAttribute('href'), uiv.$$('css=a').map(m => m.attributes), and act with uiv.page.click / uiv.browser.click. Only calling the site's own JS functions has no CSP-proof route.` }
+        }
+        return r
+      }
       return asValue(vars.get('__uiv_ret'))
     }
 
@@ -3459,12 +5770,14 @@ async function dispatchBridge (op, args) {
       if (locErr) return { ok: false, error: `findElements: ${locErr}` }
       const content = elementContentCheck(args)
       let hiddenCount = 0
+      let noLayout = false
       let contentMissCount = 0
       let contentMissSeen = ''
       const matches = await retryFind(
         async () => {
           const r = await elementSearchOnce(tab, args)
           hiddenCount = r.hiddenCount
+          noLayout = !!r.noLayout
           if (!content) return r.matches
           const passing = r.matches.filter(content.test)
           contentMissCount = r.matches.length - passing.length
@@ -3479,13 +5792,20 @@ async function dispatchBridge (op, args) {
           timeoutS: args.timeout,
           required: args.required,
           label: `findElements('${args.locator}')`,
-          describeEmpty: () => {
+          describeEmpty: async () => {
             if (content && contentMissCount > 0) {
               return `${contentMissCount} element(s) DO match the locator but their text/value never satisfied {${content.label}} — last seen: ${JSON.stringify(contentMissSeen)}`
             }
+            if (/^by=/.test(String(args.locator))) {
+              // a getByRole/getByLabel/… miss: say how names match (30.18)
+              const spec = (() => { try { return JSON.parse(String(args.locator).slice(3)) } catch (e) { return {} } })()
+              const what = spec.kind === 'role' ? `no ${spec.role}${spec.name ? ' named "' + spec.name + '"' : ''}` : `nothing with ${spec.kind} "${spec.text}"`
+              return `${what} on the page${hiddenCount ? ` (${hiddenCount} hidden match(es) exist — reveal them, or {includeHidden: true} to read)` : ''}. Names are the tree's accessible names (browser_snapshot shows them); the default match is a case-insensitive SUBSTRING, {exact: true} the whole string — check the spelling against browser_snapshot, and the role (a link styled as a button is role "link")`
+            }
+            if (noLayout) return `the tab's window is MINIMIZED or has no layout (window.innerWidth is 0) — nothing in it can be visible or clickable, whatever the locator. Restore the window (uiv.window.focus()) or use a tab in a visible window${hiddenCount > 0 ? ` (${hiddenCount} element(s) match the locator)` : ''}`
             return hiddenCount > 0
               ? `${hiddenCount} matching element(s) DO exist but are HIDDEN (collapsed/invisible, e.g. a responsive search box or menu behind a toggle — the side panel narrows the page). Reveal it first (click the toggle/icon that opens it), or pass {includeHidden: true} if you only need to READ it`
-              : ''
+              : await invisibleCharDiagnosis(tab, args.locator)
           }
         }
       )
@@ -3500,18 +5820,293 @@ async function dispatchBridge (op, args) {
     }
 
     case 'imageSearch': {
+      let lastImageMatches = []
+      // one settled trail entry per CALL (finally: a required miss throws).
+      // On a miss, ONE extra low-bar pass collects the best below-threshold
+      // candidates — local WASM matching, a single pass, only on failure.
+      const recordSettled = async () => {
+        let candidates = []
+        if (!lastImageMatches.length) {
+          try {
+            const rescue = await imageSearchOnce({ ...args, minScore: 0.25 })
+            candidates = (rescue || [])
+              .sort((a, b) => (b.score || 0) - (a.score || 0))
+              .slice(0, 3)
+              .map(m => ({ x: m.x, y: m.y, rect: m.rect, score: m.score }))
+          } catch (e) { /* diagnostics only — the original miss stands */ }
+        }
+        recordImageTrail({
+          image: String(args.image),
+          minScore: effectiveMinScore(args),
+          scope: args.scope === 'desktop' ? 'desktop' : 'browser',
+          area: areaRectOf(args.area),
+          matches: (lastImageMatches || []).slice(0, 10).map(m => ({ x: m.x, y: m.y, rect: m.rect, score: m.score })),
+          candidates
+        })
+      }
       // a banner in the capture can occlude the match — see withBannerHidden
       const matches = await withBannerHidden(() => retryFind(
-        () => imageSearchOnce(args),
+        async () => {
+          const r = await imageSearchOnce(args)
+          lastImageMatches = r
+          return r
+        },
         {
           timeoutS: args.timeout,
           required: args.required,
           label: `findImages('${args.image}')`,
           describeEmpty: () => describeImageMiss(args)
         }
-      ))
+      )).finally(recordSettled)
       const scope = args.scope === 'desktop' ? 'desktop' : 'browser'
-      return asValue(matches.map(m => ({ ...m, scope })))
+      // READING ORDER, not score order: with several look-alike matches,
+      // "click the 3rd one" (matches[2]) must mean the 3rd on screen —
+      // engines return best-score-first, which shuffles equally-good
+      // matches nondeterministically (measured x-order 860,520,180,691,351
+      // by the OrderingCheck demo). Rows are clustered by PROXIMITY (see
+      // readingOrder) so near-equal baselines count as one row. uiv.findImage
+      // (singular) keeps returning the BEST match: it picks the entry
+      // flagged best below, not blindly index 0.
+      const best = matches.reduce((p, m) => (m.score || 0) > ((p && p.score) || 0) ? m : p, null)
+      const ordered = readingOrder(matches)
+      return asValue(ordered.map(m => ({ ...m, scope, best: m === best })))
+    }
+
+    case 'pixels': {
+      // uiv.pixels(area, {scope, capture}): the captured colours of a patch,
+      // row-major '#rrggbb'. Desktop scope reads the screen through the host
+      // (the finder capture path, so capture:'same' serves the retained
+      // picture); browser scope reads the play tab's viewport capture.
+      const scope = args.scope === 'desktop' ? 'desktop' : 'browser'
+      const area = normalizeFinderArea(args.area, 'uiv.pixels', args.scope)
+      if (!area) throw new Error(`uiv.pixels: pass an area {x, y, width, height} in ${scope === 'desktop' ? 'screen' : 'viewport CSS'} coordinates (at most 16384 captured pixels)`)
+      const dpr = window.devicePixelRatio || 1
+      if (scope === 'desktop') {
+        showDesktopBorder()
+        const params = {
+          area: { x: area.x * dpr, y: area.y * dpr, width: area.width * dpr, height: area.height * dpr },
+          displayHint: await getDesktopCaptureHint()
+        }
+        if (args.capture) params.capture = String(args.capture)
+        const res = await withDesktopCaptureCover(() => getXModule2API().invoke('read_pixels', params))
+        return asValue({
+          x: Math.round(res.x / dpr), y: Math.round(res.y / dpr), width: res.width, height: res.height, scale: dpr,
+          colors: res.colors, captureId: res.captureId, captureTimeMs: res.captureTimeMs, captureAgeMs: res.captureAgeMs
+        })
+      }
+      const w = Math.max(1, Math.round(area.width * dpr)), h = Math.max(1, Math.round(area.height * dpr))
+      if (w * h > 16384) throw new Error(`uiv.pixels: area ${w}x${h} exceeds 16384 captured pixels — sample a smaller patch`)
+      const tab = await getTargetTab()
+      if (!tab) throw new Error(E901_NO_TAB)
+      await updateState(setIn(['tabIds', 'toPlay'], tab.id))
+      const shot = await captureImage({ isDesktop: false, searchArea: 'viewport', storedImageRect: undefined, scaleDpi: false, devicePixelRatio: dpr })
+      const img = await new Promise((resolve, reject) => {
+        const i = new Image()
+        i.onload = () => resolve(i)
+        i.onerror = () => reject(new Error('uiv.pixels: could not decode the viewport capture'))
+        i.src = shot.dataUrl
+      })
+      const cv = document.createElement('canvas')
+      cv.width = img.width
+      cv.height = img.height
+      const ctx = cv.getContext('2d', { willReadFrequently: true })
+      ctx.drawImage(img, 0, 0)
+      const x0 = Math.round(area.x * dpr), y0 = Math.round(area.y * dpr)
+      if (x0 < 0 || y0 < 0 || x0 + w > cv.width || y0 + h > cv.height) throw new Error('uiv.pixels: the area lies outside the visible viewport')
+      const data = ctx.getImageData(x0, y0, w, h).data
+      const colors = []
+      for (let i = 0; i < w * h; i++) colors.push('#' + ((1 << 24) | (data[i * 4] << 16) | (data[i * 4 + 1] << 8) | data[i * 4 + 2]).toString(16).slice(1))
+      return asValue({ x: area.x, y: area.y, width: w, height: h, scale: dpr, colors, captureId: null, captureTimeMs: null, captureAgeMs: null })
+    }
+    case 'colorSearch': {
+      const scope = args.scope === 'desktop' ? 'desktop' : 'browser'
+      const colorStr = String(args.color || '')
+      const hexMatch = /^#?([0-9a-fA-F]{6})$/.exec(colorStr)
+      if (!hexMatch) {
+        throw new Error(`uiv.findColor: '${colorStr}' is not a '#rrggbb' color`)
+      }
+      const hex = hexMatch[1]
+      const target = [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)]
+      const tolerance = Math.max(0, Math.min(255, Math.round(Number(args.tolerance) || 0)))
+      const area = normalizeFinderArea(args.area, 'uiv.findColor', args.scope)
+      // min region size in CSS px — single anti-aliased pixels are noise
+      const minW = Math.max(1, Math.round(Number(args.minWidth) || 3))
+      const minH = Math.max(1, Math.round(Number(args.minHeight) || 3))
+      const dpr = window.devicePixelRatio || 1
+
+      // JS port of the host's connected-components scan, for viewport
+      // captures: RGBA pixels -> tolerance mask -> 4-neighborhood BFS ->
+      // bounding boxes (raster order comes from the caller's sort)
+      const scanRegions = (data, w, h, minWpx, minHpx) => {
+        const bin = new Uint8Array(w * h)
+        for (let i = 0; i < w * h; i++) {
+          const o = i * 4
+          if (Math.abs(data[o] - target[0]) <= tolerance &&
+              Math.abs(data[o + 1] - target[1]) <= tolerance &&
+              Math.abs(data[o + 2] - target[2]) <= tolerance) bin[i] = 1
+        }
+        const seen = new Uint8Array(w * h)
+        const queue = new Int32Array(w * h)
+        const out = []
+        for (let start = 0; start < w * h; start++) {
+          if (!bin[start] || seen[start]) continue
+          seen[start] = 1
+          let qh = 0, qt = 0
+          queue[qt++] = start
+          let minX = start % w, maxX = minX, minY = (start / w) | 0, maxY = minY
+          while (qh < qt) {
+            const i = queue[qh++]
+            const x = i % w, y = (i / w) | 0
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+            if (x > 0 && bin[i - 1] && !seen[i - 1]) { seen[i - 1] = 1; queue[qt++] = i - 1 }
+            if (x + 1 < w && bin[i + 1] && !seen[i + 1]) { seen[i + 1] = 1; queue[qt++] = i + 1 }
+            if (y > 0 && bin[i - w] && !seen[i - w]) { seen[i - w] = 1; queue[qt++] = i - w }
+            if (y + 1 < h && bin[i + w] && !seen[i + w]) { seen[i + w] = 1; queue[qt++] = i + w }
+          }
+          const bw = maxX - minX + 1
+          const bh = maxY - minY + 1
+          if (bw >= minWpx && bh >= minHpx) out.push({ x: minX, y: minY, width: bw, height: bh })
+        }
+        return out
+      }
+
+      // shared desktop plumbing: build the host params (physical px) once.
+      // css/points -> physical is the display's PIXEL RATIO on every OS —
+      // the input scalingFactor is 1 on mac (CGEvent takes points), and
+      // using it here left findColor results in physical px, double the
+      // click coordinates on a Retina display (found live: the dino demo's
+      // zone math searched 130px above a line that was 260 physical px
+      // below the dino). The searchArea below always used dpr; now the
+      // min sizes and the result mapping agree with it.
+      const desktopColorParams = async (api) => {
+        const params = {
+          color: '#' + hex,
+          tolerance,
+          minWidth: Math.max(1, Math.round(minW * dpr)),
+          minHeight: Math.max(1, Math.round(minH * dpr))
+        }
+        if (area) {
+          // css-screen -> physical global, the host's result space
+          params.searchArea = {
+            x: area.x * dpr,
+            y: area.y * dpr,
+            width: area.width * dpr,
+            height: area.height * dpr
+          }
+        }
+        // same panel cover as every other desktop capture (and the same
+        // !CAPTURE_HIDE_GUI demo switch): the panel may show the color
+        showDesktopBorder() // desktop automation is visibly running here
+        params.displayHint = await getDesktopCaptureHint()
+        if (params.searchArea) showDesktopSearchArea(params.searchArea, params.displayHint)
+        return { params }
+      }
+      const mapDesktopRegions = (regions) => (regions || []).map(r => ({
+        rect: {
+          left: Math.round(r.x / dpr),
+          top: Math.round(r.y / dpr),
+          width: Math.round(r.width / dpr),
+          height: Math.round(r.height / dpr)
+        },
+        x: Math.round((r.x + r.width / 2) / dpr),
+        y: Math.round((r.y + r.height / 2) / dpr)
+      }))
+
+      const searchOnce = async () => {
+        if (scope === 'desktop') {
+          const api = getNativeXYAPI()
+          const { params } = await desktopColorParams(api)
+          const res = await withDesktopCaptureCover(() => api.findColorRegions(params))
+          return mapDesktopRegions(res && res.regions)
+        }
+
+        // browser scope: capture the play tab's viewport, scan in-process
+        const tab = await getTargetTab()
+        if (!tab) throw new Error(E901_NO_TAB)
+        await updateState(setIn(['tabIds', 'toPlay'], tab.id))
+        const shot = await captureImage({
+          isDesktop: false,
+          searchArea: 'viewport',
+          storedImageRect: undefined,
+          scaleDpi: false,
+          devicePixelRatio: dpr
+        })
+        const img = await new Promise((resolve, reject) => {
+          const i = new Image()
+          i.onload = () => resolve(i)
+          i.onerror = () => reject(new Error('uiv.findColor: could not decode the viewport capture'))
+          i.src = shot.dataUrl
+        })
+        const cv = document.createElement('canvas')
+        cv.width = img.width
+        cv.height = img.height
+        const ctx = cv.getContext('2d')
+        ctx.drawImage(img, 0, 0)
+        const data = ctx.getImageData(0, 0, cv.width, cv.height).data
+        // capture pixels are dpr-scaled viewport CSS
+        const found = scanRegions(data, cv.width, cv.height, Math.max(1, Math.round(minW * dpr)), Math.max(1, Math.round(minH * dpr)))
+        let list = found.map(r => ({
+          rect: {
+            left: Math.round(r.x / dpr),
+            top: Math.round(r.y / dpr),
+            width: Math.round(r.width / dpr),
+            height: Math.round(r.height / dpr)
+          },
+          x: Math.round((r.x + r.width / 2) / dpr),
+          y: Math.round((r.y + r.height / 2) / dpr)
+        }))
+        if (area) {
+          list = list.filter(m => m.x >= area.x && m.x <= area.x + area.width && m.y >= area.y && m.y <= area.y + area.height)
+        }
+        return list
+      }
+
+      const colorDescribeEmpty = () => `no region of color #${hex}${tolerance ? ` (tolerance ${tolerance})` : ''} of at least ${minW}x${minH}px is on the ${scope === 'desktop' ? 'screen' : 'page'}${area ? ' inside the given area' : ''}. findColor matches SOLID areas by pixel color — for anything with texture or text use uiv.findImage / uiv.ocr.findText instead. Anti-aliased or theme-shifted colors need {tolerance: 10..60}.`
+
+      // Desktop scope waits IN-HOST (wait_for_color_regions polls capture +
+      // scan at native rate, like wait_for_image): one RPC instead of an
+      // extension-side retry loop whose per-attempt round-trip (~300-500ms
+      // measured) is far too slow for anything reactive. Old hosts without
+      // the method fall back to the classic loop below.
+      let matches
+      if (scope === 'desktop') {
+        const api = getNativeXYAPI()
+        const timeoutS = args.timeout != null && Number(args.timeout) >= 0 ? Number(args.timeout) : defaultFindTimeoutS()
+        const label = `findColors('#${hex}')`
+        try {
+          const { params } = await desktopColorParams(api)
+          params.timeoutMs = Math.round(timeoutS * 1000)
+          emit('wait', { label, remainingS: Math.ceil(timeoutS) })
+          const res = await withDesktopCaptureCover(() => api.waitForColorRegions(params))
+            .finally(() => emit('wait', null))
+          matches = mapDesktopRegions(res && res.regions)
+          if (!matches.length && args.required !== false) {
+            throw new Error(`${label}: nothing found within ${Math.round(timeoutS)}s — ${colorDescribeEmpty()}`)
+          }
+        } catch (e) {
+          if (!/Unknown method/i.test((e && e.message) || '')) throw e
+          matches = undefined // pre-2.0.10 host: classic extension-side loop
+        }
+      }
+
+      if (matches === undefined) {
+        matches = await retryFind(searchOnce, {
+          timeoutS: args.timeout,
+          required: args.required,
+          label: `findColors('#${hex}')`,
+          describeEmpty: colorDescribeEmpty
+        })
+      }
+      // reading order + 'best' = the LARGEST region (color has no match
+      // score; the biggest patch is the intended swatch in practice)
+      const rowH = Math.max(1, (matches[0] && matches[0].rect && matches[0].rect.height / 2) || 1)
+      const best = matches.reduce((p, m) => (m.rect.width * m.rect.height) > ((p && p.rect.width * p.rect.height) || 0) ? m : p, null)
+      const ordered = matches.slice().sort((a, b) =>
+        (Math.round(a.y / rowH) - Math.round(b.y / rowH)) || (a.x - b.x))
+      return asValue(ordered.map(m => ({ ...m, scope, best: m === best })))
     }
 
     case 'textSearch': {
@@ -3522,17 +6117,50 @@ async function dispatchBridge (op, args) {
       // and neither can a longer timeout — only the recognised text can. The
       // pass already produced it, so the miss reports it instead of leaving the
       // caller to guess and fail slower.
+      // {image}: a stored image cannot change, so there is nothing to
+      // auto-wait for — one OCR pass, no retries (each could bill the cloud
+      // OCR again), and no trail entry (the post-run picture shows the live
+      // viewport/screen; image-pixel boxes belong to neither).
+      if (args.image) {
+        const r = await textSearchOnce(args)
+        if (!r.matches.length && args.required !== false) {
+          const seen = summariseOcrText(r.text)
+          throw new Error(
+            `uiv.ocr.findTexts('${args.text}'): nothing found in image '${args.image}'` +
+            (seen
+              ? ` — OCR recognised: "${seen}". Is your word in there? Wildcards match per word: uiv.ocr.findText('Acc*pt')`
+              : ' — OCR recognised no text at all in it (check the engine and language under Settings > OCR, or pass {engine, language})') +
+            ocrSpaceUpgradeNote()
+          )
+        }
+        return asValue(readingOrder(r.matches).map(m => ({ ...m, scope: 'image' })))
+      }
       let lastOcrText = ''
-      // withBannerHidden: banner text in the capture would come back as
-      // phantom OCR words
-      const matches = await withBannerHidden(() => retryFind(
-        async () => {
-          const r = await textSearchOnce(args)
-          lastOcrText = r.text
-          return r.matches
-        },
-        {
-          timeoutS: args.timeout,
+      let lastWords = []
+      let lastMatches = []
+      // one settled trail entry per CALL, hit or miss — recorded in finally
+      // because a required miss THROWS out of retryFind, and the miss is
+      // exactly the case the post-run picture is for
+      const recordSettled = () => recordOcrTrail({
+        query: String(args.text),
+        scope: args.scope === 'desktop' ? 'desktop' : 'browser',
+        area: areaRectOf(args.area),
+        // which reader the CALL asked for (null = the configured default) —
+        // the run-result legend uses it to flag searches that ran on the weak
+        // Javascript OCR while the XModule reader sat installed
+        engine: args.engine !== undefined && args.engine !== null ? String(args.engine) : null,
+        matches: (lastMatches || []).slice(0, 20).map(m => ({ x: m.x, y: m.y, rect: m.rect, text: m.text })),
+        words: lastWords
+      })
+      const attemptOnce = async () => {
+        const r = await textSearchOnce(args)
+        lastOcrText = r.text
+        lastWords = r.words || []
+        lastMatches = r.matches
+        return r.matches
+      }
+      const retryOpts = (timeoutS) => ({
+          timeoutS,
           required: args.required,
           label: `ocr.findTexts('${args.text}')`,
           retryDelayMs: 2000,
@@ -3541,37 +6169,176 @@ async function dispatchBridge (op, args) {
             if (!seen) {
               return `OCR recognised NO text at all here, so this is an OCR problem rather than a search problem: check the engine and language under Settings > OCR (or pass {engine, language}), and make sure the page is actually visible.${ocrSpaceUpgradeNote()}`
             }
-            return `a search can only match what OCR RECOGNISED, which on this page was: "${seen}" — and no longer timeout changes that text. Is your word in there? If NOT, this engine cannot read it here — which is not a reason to stop targeting by text, only to change the READER. Two ways: (1) uiv.ai.find('the blue "Accept all" button') hands back a match like any finder, and the model reads what the local engine cannot, so no image file is needed (it does not auto-wait and each call is billable — wait for the page yourself first); (2) save a picture of the target (the Image button in Script tools, or uiv.shot.area from a script) and use uiv.findImage('file.png'), which compares pixels and ignores the font. Either fixes it; a longer timeout and different wording do not. The built-in Javascript OCR loses light-on-dark button labels ("Accept all" white on blue) and small glyphs most often, and those are exactly the things a picture matches perfectly. Second best, when a picture is awkward: ANCHOR ON A WORD OCR DID READ and step to the target from there — every word listed above is a candidate, and the recognised text is exactly the menu to pick from. uiv.browser.click(uiv.offset(uiv.ocr.findText('Privacy Policy'), 420, -30)) — the JS answer to the classic word#R420,-30 relative target, composed from a finder plus uiv.offset rather than a relative command: unreadable buttons usually sit a fixed distance from perfectly readable body text. (If the element is in the DOM, a locator beats both.)${ocrSpaceUpgradeNote()} Only if you CAN see the word in the recognised text but spelled differently is ocr.findText still the right tool — then match the misreading with wildcards, which work per word: uiv.ocr.findText('Acc*pt all')`
+            return `a search can only match what OCR RECOGNISED, which on this page was: "${seen}" — and no longer timeout changes that text. Is your word in there? If NOT, this engine cannot read it here — which is not a reason to stop targeting by text, only to change the READER. Two ways: (1) uiv.ai.find('the blue "Accept all" button') hands back a match like any finder, and the model reads what the local engine cannot, so no image file is needed (it does not auto-wait and each call is billable — wait for the page yourself first); (2) save a picture of the target (the Image button in Script tools, or uiv.shot.area from a script) and use uiv.findImage('file.png'), which compares pixels and ignores the font. Either fixes it; a longer timeout and different wording do not. The local OCR engines lose light-on-dark button labels ("Accept all" white on blue) and small glyphs most often, and those are exactly the things a picture matches perfectly. Second best, when a picture is awkward: ANCHOR ON A WORD OCR DID READ and step to the target from there — every word listed above is a candidate, and the recognised text is exactly the menu to pick from. uiv.browser.click(uiv.offset(uiv.ocr.findText('Privacy Policy'), 420, -30)) — the JS answer to the classic word#R420,-30 relative target, composed from a finder plus uiv.offset rather than a relative command: unreadable buttons usually sit a fixed distance from perfectly readable body text. (If the element is in the DOM, a locator beats both.)${ocrSpaceUpgradeNote()} Only if you CAN see the word in the recognised text but spelled differently is ocr.findText still the right tool — then match the misreading with wildcards, which work per word: uiv.ocr.findText('Acc*pt all')`
           }
+      })
+
+      // which reader would run: an explicit {engine} else the configured one
+      const engineAskedForWait = resolveOcrEngine(args.engine, 'uiv.ocr.findText')
+      const localHostEngine = engineAskedForWait !== undefined ? engineAskedForWait : store.getState().config.ocrEngine
+
+      // Desktop scope with a LOCAL reader (ocrs or the OS engine) waits
+      // IN-HOST between extension passes: wait_for_text captures + OCRs +
+      // matches at native rate in ONE RPC, where the classic loop pays the
+      // full per-command dispatch on every 2s attempt. The extension pass
+      // stays AUTHORITATIVE for the result — coordinates, the trail picture
+      // and the recognised-text diagnostics all come from textSearchOnce;
+      // the host hit is only the tripwire that ends the wait. Sliced to 5s
+      // so a pattern the host's simpler matcher reads differently still gets
+      // an extension pass at a bounded cadence (worst case this degrades to
+      // a 5s retry loop, never to a miss). Hosts without the method fall
+      // back to the classic loop for the remaining time.
+      const hostAssistedTextWait = async () => {
+        const label = `ocr.findTexts('${args.text}')`
+        const timeoutS = args.timeout != null && Number(args.timeout) >= 0 ? Number(args.timeout) : defaultFindTimeoutS()
+        const t0 = Date.now()
+        const first = await attemptOnce()
+        if (first.length) return first
+        const api = getNativeXYAPI()
+        const dpr = window.devicePixelRatio
+        const params = { text: String(args.text), intervalMs: 300 }
+        if (localHostEngine === 98) params.engine = 'ocrs'
+        const langTag = ocrLanguageTag(args.language || store.getState().config.ocrLanguage)
+        if (langTag) params.language = langTag
+        const area = normalizeFinderArea(args.area, 'uiv.ocr.findText', args.scope)
+        if (area) {
+          // css-screen -> physical global, the host's search space (same
+          // conversion as the desktop color path)
+          params.searchArea = { x: area.x * dpr, y: area.y * dpr, width: area.width * dpr, height: area.height * dpr }
         }
-      ))
+        showDesktopBorder() // desktop automation is visibly running here
+        params.displayHint = await getDesktopCaptureHint()
+        if (params.searchArea) showDesktopSearchArea(params.searchArea, params.displayHint)
+        try {
+          while (true) {
+            const remainingMs = Math.round(timeoutS * 1000) - (Date.now() - t0)
+            // a sub-second tail slice cannot beat the confirm pass it would
+            // trigger — the timeout is better spent reporting the miss
+            if (remainingMs <= 500) break
+            emit('wait', { label, remainingS: Math.ceil(remainingMs / 1000) })
+            let hostRes
+            try {
+              // the confirming extension pass (~2.5s) runs AFTER the slice —
+              // budget it inside the remaining time, or the last slice plus
+              // its confirm overshoot the caller's timeout by a full pass
+              hostRes = await withDesktopCaptureCover(() => api.waitForText({ ...params, timeoutMs: Math.max(500, Math.min(remainingMs - 2500, 5000)) }))
+            } catch (e) {
+              if (!/Unknown method/i.test((e && e.message) || '')) throw e
+              // pre-2.0.12 host: classic extension-side loop for the rest
+              return retryFind(attemptOnce, retryOpts(Math.max(1, Math.round(remainingMs / 1000))))
+            }
+            // host hit OR slice elapsed — the extension pass decides either way
+            const m = await attemptOnce()
+            if (m.length) return m
+            // the host matched what the extension's matcher does not (engine
+            // settings differ, exotic pattern): do not hot-loop on that
+            // disagreement — the text is not going anywhere
+            if (hostRes && hostRes.found) await new Promise(r => setTimeout(r, 1000))
+          }
+        } finally {
+          emit('wait', null)
+        }
+        if (args.required === false) return []
+        throw new Error(`${label}: nothing found within ${Math.round(timeoutS)}s — ${retryOpts(timeoutS).describeEmpty()}`)
+      }
+
+      // withBannerHidden: banner text in the capture would come back as
+      // phantom OCR words
+      const matches = await withBannerHidden(() =>
+        args.scope === 'desktop' && (localHostEngine === 98 || localHostEngine === 99)
+          ? hostAssistedTextWait()
+          : retryFind(attemptOnce, retryOpts(args.timeout))
+      ).finally(recordSettled)
       const scope = args.scope === 'desktop' ? 'desktop' : 'browser'
-      return asValue(matches.map(m => ({ ...m, scope })))
+      // READING ORDER, same contract as findImages: with several identical
+      // words on screen, "the 3rd match" must be the 3rd on the page, not
+      // whatever the engine ranked 3rd (measured x-order 351,521,181,690,861
+      // for five identical words by the OrderingCheck demo).
+      const ordered = readingOrder(matches)
+      return asValue(ordered.map(m => ({ ...m, scope })))
     }
 
     // --- dom tier: content script, synthetic events -------------------------
     // The classic click/type commands. No CDP attach, no XModule, and `type`
     // sets the value in ONE command — no separate click to focus the field
     // first, which is what makes it the fast path for form filling.
+    case 'domScrollIntoView': {
+      const tab = await getTargetTab()
+      if (!tab) return { ok: false, error: E901_NO_TAB }
+      const locErr = scriptLocatorError(args.locator)
+      if (locErr) throw new Error('scrollIntoViewIfNeeded: ' + locErr)
+      const timeout = args.timeout === undefined ? Number(getVarsInstance().get('!TIMEOUT_WAIT') || 10) * 1000 : args.timeout
+      const deadline = timeout === 0 ? Infinity : Date.now() + timeout
+      let previous = null
+      const content = elementContentCheck(args.find || {})
+      while (Date.now() <= deadline) {
+        if (stopRequested) throw new Error('scrollIntoViewIfNeeded: stopped')
+        const result = await elementSearchOnce(tab, { locator: args.locator, scroll: false })
+        const matches = content ? result.matches.filter(content.test) : result.matches
+        const match = matches[args.index || 0]
+        if (match && previous && match.frameId === previous.frameId && JSON.stringify(match.rect) === JSON.stringify(previous.rect)) {
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: tab.id, frameIds: [match.frameId] },
+            func: pageElementSearch,
+            args: [args.locator, { scrollIntoViewIfNeeded: true, index: match.frameIndex, observationTimeout: Math.max(1, Math.min(1000, deadline - Date.now())) }]
+          })
+          const r = results && results[0] && results[0].result
+          if (r && !r.ok && !r.retryable) throw new Error(r.error)
+          if (r && r.ok && r.matches.length) return asValue(undefined)
+        }
+        previous = match
+        await delayMs(50)
+      }
+      throw new Error('scrollIntoViewIfNeeded: element was not attached, visible and stable within ' + timeout + ' ms: ' + args.locator)
+    }
+
+    case 'bWheel': {
+      const tab = await getTargetTab()
+      if (!tab) return { ok: false, error: E901_NO_TAB }
+      await sendCdpWheelEvent(tab.id, args.deltaX, args.deltaY)
+      return asValue(undefined)
+    }
+
+    case 'bKey': {
+      const tab = await getTargetTab()
+      if (!tab) return { ok: false, error: E901_NO_TAB }
+      await sendCdpKeyEvent(tab.id, args.key, args.down)
+      return asValue(undefined)
+    }
+
+    case 'xWheel': {
+      const api = getXModule2API()
+      const version = await api.getVersion()
+      if (!semver.valid(version) || semver.lt(version, '2.1.38')) throw new Error('uiv.desktop.mouse.wheel requires Ui.Vision for Desktop 2.1.38 or newer; update the app and restart the browser')
+      await api.invoke('send_mouse_wheel_event', { deltaX: args.deltaX, deltaY: args.deltaY, unit: 'pixel' })
+      return asValue(undefined)
+    }
+
     case 'domClickLocator': {
+      const cm = await crossFrameRefMatch(args.locator)
+      if (cm && cm.error) return { ok: false, error: 'uiv.page.click: ' + cm.error }
+      if (cm) return dispatchBridgeInner('domClickAt', { x: cm.x, y: cm.y, frameId: cm.frameId, tag: cm.tag, offscreen: !!cm.offscreen })
       const r = await withElementWaitCountdown(
         `uiv.page.click('${String(args.locator).slice(0, 80)}')`,
-        () => runOneCommand('click', args.locator, '', null, { fast: true })
+        () => runOneCommand('click', args.locator, '', { spExtra: { requireVisibleClick: true } }, { fast: true })
       )
       if (!r.ok) return r
-      await settleAfterClick(null)
+      await settleAfterClick()
       return asValue(undefined)
     }
 
     case 'domType': {
+      const tm = await crossFrameRefMatch(args.locator)
+      if (tm && tm.error) return { ok: false, error: 'uiv.page.fill: ' + tm.error }
+      if (tm) return dispatchBridgeInner('domTypeAt', { ...tm, text: args.text, offscreen: !!tm.offscreen })
       const r = await withElementWaitCountdown(
-        `uiv.page.type('${String(args.locator).slice(0, 80)}')`,
+        `uiv.page.fill('${String(args.locator).slice(0, 80)}')`,
         () => runOneCommand('type', args.locator, args.text, null, { fast: true })
       )
       return r.ok ? asValue(undefined) : r
     }
 
-    // uiv.page.type(match, text) — fill the field the finder already located,
+    // uiv.page.fill(match, text) — fill the field the finder already located,
     // in its own frame (works for cross-origin frames, where a locator cannot
     // reach). Same tier as domType: DOM value + input/change events, no CDP.
     case 'domTypeAt': {
@@ -3580,11 +6347,11 @@ async function dispatchBridge (op, args) {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id, frameIds: [args.frameId || 0] },
         func: pageTypeAt,
-        args: [Math.round(args.x), Math.round(args.y), String(args.text), !!args.offscreen]
+        args: [Math.round(args.x), Math.round(args.y), String(args.text), !!args.offscreen, args.elementId || null, args.findOffset || null, args.elementSignature || null]
       })
       const r = results && results[0] && results[0].result
-      if (!r) return { ok: false, error: `uiv.page.type: frame ${args.frameId} did not answer — it was removed or navigated between the finder and this call, so the match is stale. Re-run the finder right before typing (a match from before a click or navigation cannot be used afterwards)` }
-      if (!r.ok) return { ok: false, error: `uiv.page.type: ${r.error}` }
+      if (!r) return { ok: false, error: `uiv.page.fill: frame ${args.frameId} did not answer — it was removed or navigated between the finder and this call, so the match is stale. Re-run the finder right before typing (a match from before a click or navigation cannot be used afterwards)` }
+      if (!r.ok) return { ok: false, error: `uiv.page.fill: ${r.error}` }
       return asValue(undefined)
     }
 
@@ -3598,13 +6365,13 @@ async function dispatchBridge (op, args) {
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id, frameIds: [args.frameId || 0] },
         func: pageDomClickAt,
-        args: [Math.round(args.x), Math.round(args.y), args.tag || '', !!args.offscreen]
+        args: [Math.round(args.x), Math.round(args.y), args.tag || '', !!args.offscreen, args.elementId || null, args.findOffset || null, args.elementSignature || null]
       })
       const r = results && results[0] && results[0].result
       if (!r) return { ok: false, error: `uiv.page.click: frame ${args.frameId} did not answer — it was removed or navigated between the finder and this call, so the match is stale. Re-run the finder right before clicking (a match from before a click or navigation cannot be used afterwards)` }
       if (!r.ok) return { ok: false, error: `uiv.page.click (frame ${args.frameId}): ${r.error}` }
       if (args.frameId) store.dispatch(act.addLog('echo', `DOM click in frame ${args.frameId} (<${r.tag}>)`))
-      await settleAfterClick(r.tag || args.tag)
+      await settleAfterClick()
       return asValue(undefined)
     }
 
@@ -3614,13 +6381,18 @@ async function dispatchBridge (op, args) {
     // straight to Input.dispatchMouseEvent). spExtra pins browser
     // interpretation so a desktop !CVSCOPE cannot re-read "x,y" as screen px.
     case 'bClick': {
+      args = await settleDomPoint(args, 'uiv.browser.click')
+      args = await settleVisualPointForCdp(args, 'uiv.browser.click')
+      args = await settleRawPointForCdp(args, 'uiv.browser.click')
       const r = await runOneCommand('BClick', coordTarget(args), buttonValue(args), { spExtra: { isDesktop: false } }, { fast: true })
       if (!r.ok) return r
-      await settleAfterClick(args.tag)
+      await settleAfterClick()
       return asValue(undefined)
     }
 
     case 'bMove': {
+      args = await settleVisualPointForCdp(args, 'uiv.browser.hover')
+      args = await settleRawPointForCdp(args, 'uiv.browser.hover')
       const r = await runOneCommand('BMove', coordTarget(args), '', { spExtra: { isDesktop: false } }, { fast: true })
       return r.ok ? asValue(undefined) : r
     }
@@ -3630,6 +6402,8 @@ async function dispatchBridge (op, args) {
     // uiv.browser.down)
     case 'bDown':
     case 'bUp': {
+      args = await settleVisualPointForCdp(args, op === 'bDown' ? 'uiv.browser.down' : 'uiv.browser.up')
+      args = await settleRawPointForCdp(args, op === 'bDown' ? 'uiv.browser.down' : 'uiv.browser.up')
       const r = await runOneCommand('BMove', coordTarget(args), op === 'bDown' ? '#down' : '#up',
         { spExtra: { isDesktop: false } }, { fast: true })
       return r.ok ? asValue(undefined) : r
@@ -3642,29 +6416,191 @@ async function dispatchBridge (op, args) {
     // browser to the foreground first). spExtra pins that choice so a stray
     // !CVSCOPE cannot re-read the coordinates in the other space.
     case 'xClick': {
-      const r = await runOneCommand('XClick', coordTarget(args), buttonValue(args), { spExtra: { isDesktop: args.scope !== 'browser' } }, { fast: true })
+      const r = await runOneCommand('XClick', coordTarget(args), buttonValue(args), { spExtra: { isDesktop: args.scope !== 'browser', viaJsMacro: true } }, { fast: true })
       if (!r.ok) return r
       // an OS-level click can land anywhere, including outside the browser —
       // only watch the tab when it plausibly hit the page
-      await settleAfterClick(args.tag)
+      await settleAfterClick()
       return asValue(undefined)
     }
 
     case 'xMove': {
-      const r = await runOneCommand('XMove', coordTarget(args), '', { spExtra: { isDesktop: args.scope !== 'browser' } }, { fast: true })
+      const r = await runOneCommand('XMove', coordTarget(args), '', { spExtra: { isDesktop: args.scope !== 'browser', viaJsMacro: true } }, { fast: true })
       return r.ok ? asValue(undefined) : r
     }
 
     case 'xDown':
     case 'xUp': {
       const r = await runOneCommand('XMove', coordTarget(args), op === 'xDown' ? '#down' : '#up',
-        { spExtra: { isDesktop: args.scope !== 'browser' } }, { fast: true })
+        { spExtra: { isDesktop: args.scope !== 'browser', viaJsMacro: true } }, { fast: true })
       return r.ok ? asValue(undefined) : r
     }
 
+    case 'waitStill': {
+      // uiv.desktop.waitStill / waitChange — the host samples the area at
+      // native rate (region capture) and returns when it settles / changes.
+      const api = getNativeXYAPI()
+      const dpr = window.devicePixelRatio || 1
+      const rect = normalizeRectArg(args.area, 'uiv.desktop.waitStill')
+      if (!rect) throw new Error('uiv.desktop.waitStill: pass the area to watch — {x, y, width, height} in screen px, or a match from a desktop finder')
+      const wantChange = args.until === 'change'
+      const fnName = wantChange ? 'uiv.desktop.waitChange' : 'uiv.desktop.waitStill'
+      const timeoutS = Number(args.timeout) > 0 ? Number(args.timeout) : 15
+      showDesktopBorder()
+      const displayHint = await getDesktopCaptureHint()
+      emit('wait', { label: fnName, remainingS: Math.ceil(timeoutS) })
+      try {
+        const res = await withDesktopCaptureCover(() => api.waitForStill({
+          area: { x: rect.x * dpr, y: rect.y * dpr, width: rect.width * dpr, height: rect.height * dpr },
+          until: wantChange ? 'change' : 'still',
+          ...(args.stillMs ? { stillMs: Number(args.stillMs) } : {}),
+          timeoutMs: Math.round(timeoutS * 1000),
+          displayHint
+        }))
+        const done = wantChange ? (res && res.changed) : (res && res.stilled)
+        if (!done) {
+          if (args.required === false) return asValue({ waitedMs: res && res.elapsedMs, timedOut: true })
+          throw new Error(fnName + ': the area ' + (wantChange ? 'did not change' : 'kept changing') + ' within ' + timeoutS + 's' + (wantChange ? '' : ' — is something animating inside it (a cursor, a video, a spinner that never ends)?'))
+        }
+        return asValue({ waitedMs: res.elapsedMs })
+      } finally {
+        emit('wait', null)
+      }
+    }
+
+    case 'reflex': {
+      // uiv.desktop.reflex — hand the rule set to the host's reflex engine
+      // (xmodule2 reflex_run) and block until it returns the firing journal.
+      // The host works in PHYSICAL px; the script speaks the desktop
+      // finders' screen px — convert areas/thresholds/click points in, and
+      // the journal's rects back out.
+      const api = getNativeXYAPI()
+      const scaling = await api.getScalingFactor()
+      const dpr = window.devicePixelRatio || 1
+      const rulesIn = Array.isArray(args.rules) ? args.rules : []
+      if (!rulesIn.length) throw new Error('uiv.desktop.reflex: pass {rules: [...]} — see the API comment for the shape')
+      const toPhysArea = (a) => a && ({ x: a.x * dpr, y: a.y * dpr, width: a.width * dpr, height: a.height * dpr })
+      const rules = rulesIn.map((r, i) => {
+        if (!r || !r.watch || !r.action) throw new Error(`uiv.desktop.reflex: rule ${i} needs {watch, action}`)
+        const watch = { ...r.watch }
+        if (watch.area) watch.area = toPhysArea(watch.area)
+        if (watch.minWidth) watch.minWidth = Math.max(1, Math.round(watch.minWidth * scaling))
+        if (watch.minHeight) watch.minHeight = Math.max(1, Math.round(watch.minHeight * scaling))
+        const out = { ...r, watch }
+        if (r.when && (typeof r.when.leftBelow === 'number' || typeof r.when.reachesBelow === 'number')) {
+          out.when = {}
+          if (typeof r.when.leftBelow === 'number') out.when.leftBelow = r.when.leftBelow * dpr
+          if (typeof r.when.reachesBelow === 'number') out.when.reachesBelow = r.when.reachesBelow * dpr
+        }
+        if (r.action && r.action.click) {
+          out.action = { ...r.action, click: { ...r.action.click, x: r.action.click.x * dpr, y: r.action.click.y * dpr } }
+        }
+        return out
+      })
+      showDesktopBorder() // desktop automation is visibly running here
+      const displayHint = await getDesktopCaptureHint()
+      const timeoutMs = Math.min(600000, Math.max(200, Number(args.timeoutMs) || 30000))
+      emit('wait', { label: 'desktop.reflex', remainingS: Math.ceil(timeoutMs / 1000) })
+      try {
+        // the search-area shade over the UNION of the watched areas, so the
+        // whole reflex phase stays visibly marked (the shade caps at 10s per
+        // show; slice-driven callers re-enter here and refresh it)
+        const cueCaptureVisible = await desktopOverlayCaptureVisible()
+        const withArea = rules.filter(r => r.watch && r.watch.area)
+        if (withArea.length === rules.length && rules.length) {
+          const u = withArea.reduce((acc, r) => {
+            const a = r.watch.area
+            const x0 = Math.min(acc.x0, a.x)
+            const y0 = Math.min(acc.y0, a.y)
+            return {
+              x0,
+              y0,
+              x1: Math.max(acc.x1, a.x + a.width),
+              y1: Math.max(acc.y1, a.y + a.height)
+            }
+          }, { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity })
+          showDesktopSearchArea(
+            { x: u.x0, y: u.y0, width: u.x1 - u.x0, height: u.y1 - u.y0 },
+            displayHint,
+            Math.min(timeoutMs + 1000, 10000)
+          )
+        }
+        const res = await withDesktopCaptureCover(() => api.reflexRun({
+          rules,
+          displayHint,
+          timeoutMs,
+          // rides to the host's cue drawing: with the remote-session
+          // visibility setting ON, the reflex squares show in RDP/AnyDesk
+          // streams like every other overlay
+          captureVisible: cueCaptureVisible,
+          ...(args.quietMs ? { quietMs: Number(args.quietMs) } : {})
+        }))
+        const firings = ((res && res.firings) || []).map(f => ({
+          ...f,
+          x: Math.round(f.x / scaling),
+          y: Math.round(f.y / scaling),
+          width: Math.round(f.width / scaling),
+          height: Math.round(f.height / scaling)
+        }))
+        return asValue({ firings, elapsedMs: res && res.elapsedMs, ended: res && res.ended })
+      } finally {
+        emit('wait', null)
+      }
+    }
+
+    case 'appVersion':
+      return asValue(await getXModule2API().getVersion())
+    case 'lastCapture': {
+      try { return asValue(await getXModule2API().invoke('get_last_capture')) }
+      catch (e) {
+        if (/unknown|not.supported|not.implemented/i.test(String(e))) throw new Error('uiv.lastCapture() in browser macros requires Ui.Vision Desktop 2.1.40 or newer. Update the app and restart it. Native response: ' + String(e))
+        throw e
+      }
+    }
+    case 'keyDown':
+    case 'keyUp': {
+      // Track before sending: a lost response can still have injected a down.
+      if (op === 'keyDown') heldDesktopKeys.add(args.text)
+      await getXModule2API().invoke('send_text', { text: args.text, hold: op === 'keyDown' })
+      if (op === 'keyUp') heldDesktopKeys.delete(args.text)
+      return asValue(undefined)
+    }
+    case 'windowMove': {
+      if (!Number.isFinite(args.x) || !Number.isFinite(args.y)) throw new Error('uiv.window.move(x, y): use finite screen coordinates')
+      const tab = await getWindowTargetTab()
+      if (!tab) return { ok: false, error: E901_NO_TAB }
+      await Ext.windows.update(tab.windowId, { state: 'normal' })
+      const moved = await Ext.windows.update(tab.windowId, { left: Math.round(args.x), top: Math.round(args.y) })
+      return asValue({ x: moved.left, y: moved.top, width: moved.width, height: moved.height })
+    }
     case 'xType': {
-      const r = await runOneCommand('XType', args.text, '', null, { fast: true })
+      // Typing has no coordinates, so the browser/desktop split does not apply
+      // to it — the keystrokes go to whatever the OS has focused, which is the
+      // whole point of the desktop tier. Passing no spExtra made it fall back
+      // to !CVSCOPE, and under the default browser scope the runner then
+      // demanded a web tab: uiv.desktop.mouse.click opened an extension popup
+      // (tab-free, correctly), and the uiv.desktop.keyboard.type on the next line died
+      // with E901 because only browser-internal pages were open. XType itself
+      // ignores the flag (see runXMouseKeyboardCommand), so pinning it desktop
+      // changes nothing but the tab requirement it should never have had.
+      const r = await runOneCommand('XType', args.text, '', { spExtra: { isDesktop: true, viaJsMacro: true } }, { fast: true })
       return r.ok ? asValue(undefined) : r
+    }
+
+    case 'domCheck': {
+      const tab = await getTargetTab()
+      if (!tab) return { ok: false, error: E901_NO_TAB }
+      const verb = args.checked ? 'check' : 'uncheck'
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true },
+        func: pageSetChecked,
+        args: [args.locator, !!args.checked]
+      })
+      const hit = (results || []).map(r => r && r.result).filter(r => r && r.found)[0]
+      if (!hit) return { ok: false, error: `uiv.page.${verb}: ${args.what || args.locator} did not resolve to anything on the page` }
+      if (!hit.ok) return { ok: false, error: hit.error }
+      store.dispatch(act.addLog('echo', `${verb}: ${hit.tag} ${hit.changed ? (args.checked ? 'checked' : 'unchecked') : 'was already ' + (args.checked ? 'checked' : 'unchecked')}`))
+      return asValue(undefined)
     }
 
     case 'domSelect': {
@@ -3688,16 +6624,15 @@ async function dispatchBridge (op, args) {
           }
           // found but failed: E903 (custom widget) fails fast via retryFind's
           // fatal-error list; a wrong option label retries (async option lists)
-          throw new Error(foundFrames[0].error || `uiv.page.select: found the dropdown but could not pick '${args.option}' — no reason reported. Check the option exists (the error normally lists the available labels), or select it by 'value=…' / 'index=N' instead`)
+          throw new Error(foundFrames[0].error || `uiv.page.selectOption: found the dropdown but could not pick '${args.option}' — no reason reported. Check the option exists (the error normally lists the available labels), or select it by 'value=…' / 'index=N' instead`)
         },
-        { timeoutS: args.timeout, required: args.required, label: `uiv.page.select('${args.locator}', '${args.option}')` }
+        { timeoutS: args.timeout, required: args.required, label: `uiv.page.selectOption('${args.locator}', '${args.option}')` }
       )
       if (hit) {
         store.dispatch(act.addLog('echo', `select: '${hit.label}' chosen (value=${hit.value})`))
-        // changing a select often reloads/navigates (sort orders, filters);
-        // <select> itself never navigates on click, so ask for the watch
-        // explicitly rather than through the tag shortcut
-        await settleAfterClick(null)
+        // Changing a select can reload/navigate (sort orders, filters), so
+        // watch for navigation after the selection as well as after clicks.
+        await settleAfterClick()
       }
       return asValue(undefined)
     }
@@ -3713,7 +6648,7 @@ async function dispatchBridge (op, args) {
       // {nav: true}: a keyboard submit (ENTER) navigates but, unlike a click,
       // carries no automatic wait — opt in to the same settle watch here, so
       // the next call sees the page the keystroke navigated to
-      if (args.nav) await settleAfterClick(null)
+      if (args.nav) await settleAfterClick()
       return asValue(undefined)
     }
 
@@ -3766,6 +6701,15 @@ async function dispatchBridge (op, args) {
       })
 
       const fileName = /\.png$/i.test(args.name) ? args.name : `${args.name}.png`
+      if (args.store === 'screenshots') {
+        // {store: 'screenshots'}: an AREA capture as a plain screenshot — for
+        // evidence shots (a game's end state, a dialog) that belong in the
+        // Screenshots tab, not as a findImage template
+        await getStorageManager().getScreenshotStorage().write(fileName, dataURItoBlob(dataUrl))
+        try { await store.dispatch(act.listScreenshots()) } catch (e) { /* list refresh is cosmetic */ }
+        store.dispatch(act.addLog('echo', `shot.area: saved ${rect.width}x${rect.height}px crop as screenshot '${fileName}'`))
+        return asValue(fileName)
+      }
       await getStorageManager().getVisionStorage().write(fileName, dataURItoBlob(dataUrl))
       // refresh the vision list so the new image shows up in the UI at once
       try { await store.dispatch(act.listVisions()) } catch (e) { /* list refresh is cosmetic */ }
@@ -3781,36 +6725,113 @@ async function dispatchBridge (op, args) {
       // anchor on the window of the CURRENT script tab, so a multi-window
       // setup counts the tabs of the window the run actually works in
       const cur = await getTargetTab()
-      const query = cur ? { windowId: cur.windowId } : {}
+      const wins = await Ext.windows.getAll({ populate: false }).catch(() => [])
+      const winNo = (windowId) => { const i = wins.findIndex(w => w.id === windowId); return i < 0 ? 0 : i + 1 }
+      const curWin = cur ? cur.windowId : (wins[0] ? wins[0].id : undefined)
       // `current` = the script's tab, the position read that replaces the
       // table-macro !CURRENT_TAB_NUMBER variable (stale next to these calls,
       // so getVar refuses it). `active` = the browser's active tab; they
-      // differ if the user clicks another tab mid-run.
-      const info = (t, i, curId) => ({ index: i + 1, title: t.title || '', url: t.url || '', active: !!t.active, current: t.id === curId })
+      // differ if the user clicks another tab mid-run. `index` is the tab's
+      // position in ITS window (1-based), `window` the window's number.
+      const info = (t, curId) => ({ index: (t.index || 0) + 1, window: winNo(t.windowId), title: t.title || '', url: t.url || '', active: !!t.active, current: t.id === curId })
+      const tag = (t) => `#${(t.index || 0) + 1}${t.windowId !== curWin ? ' (window ' + winNo(t.windowId) + ')' : ''}`
+      // the run's window first, then the others in window order
+      const listOf = async (all) => {
+        const tabs = await Ext.tabs.query(all ? {} : { windowId: curWin })
+        return tabs.sort((a, b) => ((a.windowId === curWin ? 0 : 1) - (b.windowId === curWin ? 0 : 1)) || (winNo(a.windowId) - winNo(b.windowId)) || ((a.index || 0) - (b.index || 0)))
+      }
 
       if (op === 'tabsList') {
-        const tabs = await Ext.tabs.query(query)
-        return asValue(tabs.map((t, i) => info(t, i, cur && cur.id)))
+        return asValue((await listOf(!!args.all)).map(t => info(t, cur && cur.id)))
+      }
+
+      // select/close take a number, a list entry {index, window} or a matcher
+      // ({url}/{title} substring in any window, {newest: true}) — OPEN-ISSUES 21.3
+      const findTab = async (a, verb) => {
+        if (typeof a.index === 'number') {
+          const windowId = a.window ? (wins[a.window - 1] ? wins[a.window - 1].id : undefined) : curWin
+          if (windowId === undefined) return { error: `${verb}: window ${a.window} does not exist — uiv.tabs.list({all: true}) shows the windows` }
+          const tabs = (await Ext.tabs.query({ windowId })).sort((x, y) => (x.index || 0) - (y.index || 0))
+          if (!Number.isInteger(a.index) || a.index < 1 || a.index > tabs.length) {
+            return { error: `${verb}: tab ${a.index} does not exist — window ${winNo(windowId)} has ${tabs.length} tab(s), numbered 1..${tabs.length} left to right (uiv.tabs.list() shows them). The index is ABSOLUTE, unlike the classic selectWindow's start-tab-relative counting` }
+          }
+          return { tab: tabs[a.index - 1], how: '' }
+        }
+        const all = await listOf(true)
+        const curId = cur ? cur.id : -1
+        if (a.newest) {
+          // tab ids are handed out in creation order: the highest id is the
+          // tab opened last (a click's target=_blank, a popup) — the run's
+          // own window first, any window if it has no other tab
+          const own = all.filter(t => t.windowId === curWin && t.id !== curId)
+          const pool = own.length ? own : all.filter(t => t.id !== curId)
+          if (!pool.length) return { error: `${verb}: no other tab exists — nothing was opened` }
+          return { tab: pool.reduce((m, t) => (t.id > m.id ? t : m), pool[0]), how: 'the tab opened last' }
+        }
+        const field = a.url != null ? 'url' : 'title'
+        const needle = String(a[field]).toLowerCase()
+        const hits = all.filter(t => String(t[field] || '').toLowerCase().indexOf(needle) >= 0)
+        if (!hits.length) {
+          return { error: `${verb}: no tab whose ${field} contains "${needle}" — open tabs: ${all.map(t => tag(t) + ' ' + String(t[field] || '').slice(0, 50)).join(' | ')}` }
+        }
+        // several: the run's own window first, then the newest
+        const best = hits.slice().sort((x, y) => ((x.windowId === curWin ? 0 : 1) - (y.windowId === curWin ? 0 : 1)) || (y.id - x.id))[0]
+        return { tab: best, how: hits.length > 1 ? `${hits.length} tabs match "${needle}", took the newest in the run's window` : `by ${field} "${needle}"` }
       }
 
       if (op === 'tabsSelect') {
-        const n = args.index
-        const tabs = await Ext.tabs.query(query)
-        if (!Number.isInteger(n) || n < 1 || n > tabs.length) {
-          return { ok: false, error: `uiv.tabs.select: tab ${n} does not exist — the window has ${tabs.length} tab(s), numbered 1..${tabs.length} left to right (uiv.tabs.list() shows them). The index is ABSOLUTE, unlike the classic selectWindow's start-tab-relative counting` }
+        const f = await findTab(args, 'uiv.tabs.select')
+        if (f.error) return { ok: false, error: f.error }
+        let t = f.tab
+        // Firefox creates a tab as about:blank (status already "complete")
+        // and navigates it a beat later — a tabs.select right after
+        // tabs.open / a link that opened a tab was refused as
+        // "browser-internal" (measured live: DemoTabs on Firefox). Give a
+        // blank tab a moment to show its real url before judging it.
+        if (/^about:blank$/i.test(t.url || '')) {
+          const until = Date.now() + 3000
+          while (Date.now() < until) {
+            const now = await Ext.tabs.get(t.id).catch(() => null)
+            if (!now) break
+            t = now
+            if (!/^about:blank$/i.test(now.url || '')) break
+            await delayMs(150)
+          }
         }
-        const t = tabs[n - 1]
         if (!isWebTab(t)) {
-          return { ok: false, error: `uiv.tabs.select: tab ${n} is a browser-internal page (${t.url || 'no url'}) — commands cannot run there, so refusing to switch to it` }
+          return { ok: false, error: `uiv.tabs.select: tab ${tag(t)} is a browser-internal page (${t.url || 'no url'}) — commands cannot run there, so refusing to switch to it` }
         }
+        // another window: bring it to the front too, the way a person would
+        if (t.windowId !== curWin) await Ext.windows.update(t.windowId, { focused: true }).catch(() => {})
         await Ext.tabs.update(t.id, { active: true })
+        // A tab still loading — or a popup still on about:blank whose site
+        // sets the location a beat later — is not ready for a finder: the
+        // first uiv.$ after the switch ran against the vanishing blank
+        // document and burned its whole wait (OPEN-ISSUES 17.9). Let the
+        // load finish first, bounded, with the usual countdown.
+        let settled = t
+        const deadline = Date.now() + 10000
+        try {
+          while (Date.now() < deadline) {
+            if (stopRequested) return { ok: false, error: 'Script stopped' }
+            const now = await Ext.tabs.get(t.id).catch(() => null)
+            if (!now) break
+            settled = now
+            const blank = /^about:blank$/i.test(now.url || '') && !now.pendingUrl
+            if (now.status === 'complete' && !blank) break
+            emit('wait', { label: 'tabs.select — page loading', remainingS: Math.ceil((deadline - Date.now()) / 1000) })
+            await delayMs(150)
+          }
+        } finally {
+          emit('wait', null)
+        }
         scriptTabId = t.id
-        store.dispatch(act.addLog('info', `script tab → #${n} "${(t.title || t.url || '').slice(0, 50)}"`))
-        return asValue(info(t, n - 1, t.id))
+        store.dispatch(act.addLog('info', `script tab → ${tag(t)} "${(settled.title || settled.url || '').slice(0, 50)}"${f.how ? ' — ' + f.how : ''}`))
+        return asValue(info(settled, t.id))
       }
 
       if (op === 'tabsOpen') {
-        // a NEW tab on the url — uiv.open navigates the CURRENT tab instead
+        // a NEW tab on the url — uiv.goto navigates the CURRENT tab instead
         const t = await Ext.tabs.create(cur ? { url: args.url, windowId: cur.windowId } : { url: args.url })
         const deadline = Date.now() + 30000
         let loaded = t
@@ -3820,7 +6841,10 @@ async function dispatchBridge (op, args) {
             const now = await Ext.tabs.get(t.id).catch(() => null)
             if (!now) return { ok: false, error: 'uiv.tabs.open: the new tab was closed before it finished loading' }
             loaded = now
-            if (now.status === 'complete') break
+            // "complete" on about:blank is Firefox's freshly created tab
+            // BEFORE it navigates to the url — not the page (see tabsSelect)
+            const stillBlank = /^about:blank$/i.test(now.url || '') && !/^about:blank$/i.test(String(args.url || ''))
+            if (now.status === 'complete' && !stillBlank) break
             // same status-bar countdown the other page loads show
             emit('wait', { label: 'tabs.open — page loading', remainingS: Math.ceil((deadline - Date.now()) / 1000) })
             await delayMs(200)
@@ -3829,23 +6853,34 @@ async function dispatchBridge (op, args) {
           emit('wait', null)
         }
         scriptTabId = t.id
-        const tabs = await Ext.tabs.query(cur ? { windowId: cur.windowId } : {})
-        const idx = Math.max(0, tabs.findIndex(x => x.id === t.id))
-        store.dispatch(act.addLog('info', `script tab → #${idx + 1} (new) "${(loaded.title || loaded.url || '').slice(0, 50)}"`))
-        return asValue(info(loaded, idx, t.id))
+        store.dispatch(act.addLog('info', `script tab → #${(loaded.index || 0) + 1} (new) "${(loaded.title || loaded.url || '').slice(0, 50)}"`))
+        return asValue(info(loaded, t.id))
       }
 
-      // tabsClose: close the current tab, land on whatever the browser
-      // activates next (its neighbour), re-pin, report where we are
-      if (!cur) return { ok: false, error: 'uiv.tabs.close: no current tab to close' }
-      await Ext.tabs.remove(cur.id).catch(() => {})
+      // tabsClose: no argument closes the CURRENT tab and lands on the
+      // active tab of the same window (never another window's — 21.1); an
+      // argument (number / entry / matcher) closes THAT tab and stays put
+      let victim = cur
+      let other = false
+      if (args && (typeof args.index === 'number' || args.url != null || args.title != null || args.newest)) {
+        const f = await findTab(args, 'uiv.tabs.close')
+        if (f.error) return { ok: false, error: f.error }
+        victim = f.tab
+        other = !!(cur && victim.id !== cur.id)
+      }
+      if (!victim) return { ok: false, error: 'uiv.tabs.close: no current tab to close' }
+      await Ext.tabs.remove(victim.id).catch(() => {})
+      if (other) {
+        store.dispatch(act.addLog('info', `closed tab ${tag(victim)} "${(victim.title || victim.url || '').slice(0, 50)}" — the script stays on its tab`))
+        return asValue(info(cur, cur.id))
+      }
       scriptTabId = null
-      const next = await getTargetTab()
+      let next = (await Ext.tabs.query({ windowId: curWin, active: true }).catch(() => []))[0]
+      if (isWebTab(next)) scriptTabId = next.id
+      else next = await getTargetTab()
       if (!next) return asValue(null)
-      const tabs = await Ext.tabs.query({ windowId: next.windowId })
-      const idx = Math.max(0, tabs.findIndex(x => x.id === next.id))
-      store.dispatch(act.addLog('info', `script tab → #${idx + 1} "${(next.title || next.url || '').slice(0, 50)}" (previous tab closed)`))
-      return asValue(info(next, idx, next.id))
+      store.dispatch(act.addLog('info', `script tab → ${tag(next)} "${(next.title || next.url || '').slice(0, 50)}" (previous tab closed)`))
+      return asValue(info(next, next.id))
     }
 
     // Resize the browser window so the PAGE VIEWPORT reaches the given size —
@@ -3871,6 +6906,112 @@ async function dispatchBridge (op, args) {
         store.dispatch(act.addLog('warning', `W367: only able to resize the viewport to ${actual.width}x${actual.height}, asked for ${args.width}x${args.height} (screen limit)`))
       }
       return asValue({ width: actual.width, height: actual.height })
+    }
+
+    case 'windowRect': {
+      // NO tab requirement up front: a desktop-only macro legitimately runs
+      // with nothing but browser-internal pages open (chrome://dino, the
+      // panel itself), and the native host answers the rect without one.
+      // Only the beacon fallback further down needs a web page.
+      const api = getNativeXYAPI()
+      const scaling = await api.getScalingFactor().catch(() => window.devicePixelRatio || 1)
+      // Viewport size comes from the TABS api, which needs no content
+      // script and therefore also answers on browser-internal pages
+      // (chrome://dino). It is the size uiv.window.resize takes, so a macro
+      // can change ONE axis and hand the other one straight back.
+      const vpSize = await csIpc.ask('PANEL_GET_WINDOW_SIZE_OF_PLAY_TAB').catch(() => null)
+      const viewport = vpSize && vpSize.viewport && vpSize.viewport.width > 0
+        ? { width: vpSize.viewport.width, height: vpSize.viewport.height }
+        : null
+
+      // 1st choice: the host knows the outer rect (X11, Windows, macOS) —
+      // physical pixels, converted to CSS-screen via the scaling factor.
+      try {
+        const hostRect = await api.getActiveBrowserOuterRect()
+        if (hostRect && hostRect.width > 0) {
+          return asValue({
+            x: Math.round(hostRect.x / scaling),
+            y: Math.round(hostRect.y / scaling),
+            width: Math.round(hostRect.width / scaling),
+            height: Math.round(hostRect.height / scaling),
+            source: 'host',
+            viewport: viewport
+          })
+        }
+      } catch (e) { /* wayland: rect is null by design — measure instead */ }
+
+      // The beacon fallback below DOES need the page's own numbers; the
+      // host path above does not, and demanding them first made the whole
+      // call fail on exactly the browser-internal pages where the host
+      // answer is the only one available anyway.
+      const tab = await getTargetTab()
+      if (!tab) return { ok: false, error: 'uiv.window.rect: the native host could not locate the browser window, and the fallback measurement needs a normal web page (only browser-internal pages are open) — is the Desktop Automation host installed and the browser window on screen?' }
+      const dims = await probePage(
+        function () { return { ow: window.outerWidth, oh: window.outerHeight, iw: window.innerWidth, ih: window.innerHeight, sx: window.screenX, sy: window.screenY } },
+        [],
+        'return { ow: window.outerWidth, oh: window.outerHeight, iw: window.innerWidth, ih: window.innerHeight, sx: window.screenX, sy: window.screenY }',
+        '__uiv_windims')
+      const d = dims.ok ? dims.value : null
+      if (!d) return { ok: false, error: 'uiv.window.rect: could not read window dimensions from the page' }
+
+      // Wayland: measure the viewport origin with a beacon (the compositor
+      // hides window positions from everyone, including the browser itself —
+      // screenX above reads 0). The window's top chrome height comes from
+      // outer-inner, all of it above the viewport (CSD Chrome).
+      const BEACON = '#fe3a9c'
+      try {
+        // right-anchored beacon (the left half of a window is the part most
+        // often covered by another app). top:12px, not 0: the browser paints
+        // a ~7px translucent toolbar shadow over the very top of the page,
+        // which eats the beacon's first rows in the capture (measured as a
+        // constant +6.4px y bias). The beacon reports its own
+        // getBoundingClientRect so the origin math needs NO innerWidth
+        // arithmetic — a classic scrollbar between 'right:0' and the
+        // innerWidth edge measured as a constant 15px x error.
+        const inject =
+          "var b = document.createElement('div');" +
+          "b.id = '__uiv_origin_beacon';" +
+          "b.style.cssText = 'position:fixed;right:0;top:12px;width:140px;height:36px;background:" + BEACON + ";z-index:2147483647;margin:0;padding:0;border:0';" +
+          "document.documentElement.appendChild(b);" +
+          "var r = b.getBoundingClientRect();" +
+          "return { bx: r.left, by: r.top }"
+        const r = await probePage(
+          function (color) {
+            var b = document.createElement('div')
+            b.id = '__uiv_origin_beacon'
+            b.style.cssText = 'position:fixed;right:0;top:12px;width:140px;height:36px;background:' + color + ';z-index:2147483647;margin:0;padding:0;border:0'
+            document.documentElement.appendChild(b)
+            var rr = b.getBoundingClientRect()
+            return { bx: rr.left, by: rr.top }
+          },
+          [BEACON], inject, '__uiv_origin_b')
+        if (!r.ok) return { ok: false, error: 'uiv.window.rect: could not inject the measuring beacon' }
+        const beaconPos = r.value || { bx: 0, by: 12 }
+        await delayMs(300)
+        const found = await findBeaconRect(api, BEACON)
+        if (!found || !(found.width > 0)) {
+          return { ok: false, error: 'uiv.window.rect: the measuring beacon was not visible on screen — is the browser window covered or on another display?' }
+        }
+        const vx = found.x / scaling - (Number(beaconPos.bx) || 0)
+        const vy = found.y / scaling - (Number(beaconPos.by) || 0)
+        const chromeH = d.oh - d.ih
+        return asValue({
+          x: Math.round(vx),
+          y: Math.round(vy - chromeH),
+          width: d.ow,
+          height: d.oh,
+          source: 'beacon',
+          viewport: viewport || { width: d.iw, height: d.ih }
+        })
+      } finally {
+        try {
+          await probePage(
+            function () { var b = document.getElementById('__uiv_origin_beacon'); if (b) b.remove(); return true },
+            [],
+            "var b = document.getElementById('__uiv_origin_beacon'); if (b) b.remove(); return true",
+            '__uiv_origin_rm')
+        } catch (e) { /* page may have navigated */ }
+      }
     }
 
     // Window focus, both directions. Unlike windowResize these need NO tab:
@@ -3939,9 +7080,108 @@ async function dispatchBridge (op, args) {
         return false
       }
 
+      // Windows analog of the mac `open -b` assist. The foreground lock
+      // lets no extension API raise the browser above the app the user is
+      // working in — windows.update({focused:true}) only flashes the
+      // taskbar entry (measured live: XType keystrokes went into a chat
+      // app). The HOST process may take the foreground through the OS's
+      // documented escape hatches, and it knows which browser instance
+      // launched it — focus_browser raises that window and answers with
+      // GetForegroundWindow's verdict. That verdict, not hasFocus(), is
+      // the authority on Windows: Firefox answers document.hasFocus()
+      // TRUE in the play tab while another application is foreground
+      // (measured live — the old guard declared success and the
+      // keystrokes went into a chat window).
+      //   'focused'     the browser window IS foreground now
+      //   'denied'      host answered, could not front it — hasFocus must
+      //                 not overrule this, it may be lying
+      //   'unavailable' no host / pre-2.0.5 — fall back to hasFocus
+      let hostFocusBroken = false
+      const hostFocusWindows = async () => {
+        if (hostFocusBroken || !isWindowsOS()) return 'unavailable'
+        try {
+          const r = await getXModule2API().invoke('focus_browser')
+          if (r && r.focused === true) {
+            await delayMs(200) // let the activation settle
+            return 'focused'
+          }
+          return 'denied'
+        } catch (e) {
+          hostFocusBroken = true // absent or old host — do not ask again
+          return 'unavailable'
+        }
+      }
+
+      // Wayland analog of the mac `open -b` assist. The compositor refuses
+      // focus-stealing from background apps, and the browser's window rect
+      // is hidden by design — but a REAL click through the RemoteDesktop
+      // portal focuses whatever it lands on. So the page renders a solid
+      // beacon in an exotic color, the host's find_rectangle (exact-color
+      // scan, no pattern files) locates it on screen, and one desktop click
+      // on the beacon brings the browser to the front legitimately.
+      let triedSelfClick = false
+      const selfClickActivateLinux = async () => {
+        if (triedSelfClick || !isLinuxOS()) return false
+        triedSelfClick = true
+        const BEACON = '#3afe9c'
+        try {
+          const inject =
+            "var b = document.createElement('div');" +
+            "b.id = '__uiv_focus_beacon';" +
+            "b.style.cssText = 'position:fixed;right:8px;top:8px;width:180px;height:48px;background:" + BEACON + ";z-index:2147483647';" +
+            "document.documentElement.appendChild(b);" +
+            "return true"
+          const r = await probePage(
+            function (color) {
+              var b = document.createElement('div')
+              b.id = '__uiv_focus_beacon'
+              b.style.cssText = 'position:fixed;right:8px;top:8px;width:180px;height:48px;background:' + color + ';z-index:2147483647'
+              document.documentElement.appendChild(b)
+              return true
+            },
+            [BEACON], inject, '__uiv_beacon')
+          if (!r.ok) return false
+          await delayMs(300) // paint + capture pipeline
+          const api = getNativeXYAPI()
+          const rect = await findBeaconRect(api, BEACON)
+          if (!rect || !(rect.width > 0)) return false
+          // find_rectangle reports PHYSICAL pixels; sendDesktopMouseEvent
+          // multiplies logical by the scaling factor — divide first.
+          const dpr = window.devicePixelRatio || 1
+          await api.sendDesktopMouseEvent({
+            type: 3 /* click */, button: 0 /* left */,
+            x: Math.round((rect.x + rect.width / 2) / dpr),
+            y: Math.round((rect.y + rect.height / 2) / dpr)
+          })
+          await delayMs(300)
+          return true
+        } catch (e) {
+          return false
+        } finally {
+          try {
+            await probePage(
+              function () { var b = document.getElementById('__uiv_focus_beacon'); if (b) b.remove(); return true },
+              [],
+              "var b = document.getElementById('__uiv_focus_beacon'); if (b) b.remove(); return true",
+              '__uiv_beacon_rm')
+          } catch (e) { /* page may have navigated — beacon went with it */ }
+        }
+      }
+
       for (;;) {
-        await csIpc.ask('PANEL_BRING_PLAYING_WINDOW_TO_FOREGROUND')
+        await bringScriptWindowForward()
         attempt++
+
+        // Windows first, and BEFORE the document checks: the host raises the
+        // window and reports GetForegroundWindow's verdict — the OS's own
+        // answer to the question the documents can only guess at.
+        const hostSays = await hostFocusWindows()
+        if (hostSays === 'focused') {
+          // The native helper activates the browser process. Re-select our
+          // window/tab after that assist if the process has several windows.
+          await bringScriptWindowForward()
+          return asValue(undefined)
+        }
 
         // Ask BOTH documents. The question is "is the browser the active
         // application", and either surface answering yes settles it — but
@@ -3952,10 +7192,15 @@ async function dispatchBridge (op, args) {
         // itself) while OpenBrowserDevTools, whose focus sits in the page,
         // passed in the same run. When another APPLICATION is in front, both
         // are false — which is the case this guard exists for.
-        if (document.hasFocus()) return asValue(undefined)
+        // Skipped when the host just said 'denied': the OS stated another
+        // app holds the foreground, and on Firefox hasFocus() answers true
+        // regardless (measured live) — a yes here would be that lie.
+        if (hostSays !== 'denied') {
+          if (document.hasFocus()) return asValue(undefined)
 
-        const r = await runOneCommand('executeScript', 'return document.hasFocus()', '__uiv_focus', null, { fast: true })
-        if (r.ok && vars.get('__uiv_focus') === true) return asValue(undefined)
+          const r = await probePage(function () { return document.hasFocus() }, [], 'return document.hasFocus()', '__uiv_focus')
+          if (r.ok && r.value === true) return asValue(undefined)
+        }
 
         // One OS-level attempt, after the cheap path has visibly failed. A
         // zero exit from `open -b` means macOS ACTIVATED the app, and that is
@@ -3966,11 +7211,15 @@ async function dispatchBridge (op, args) {
         // Accept the OS's word for it.
         if (attempt >= 2 && await osActivateOnMac()) return asValue(undefined)
 
+        // Linux/Wayland: one self-click attempt, then loop back so
+        // hasFocus() confirms the click actually moved focus to us.
+        if (attempt >= 2) await selfClickActivateLinux()
+
         if (Date.now() >= deadline) {
           return {
             ok: false,
             error: `uiv.window.focus(): the browser did not come to the front after ${attempt} attempts — another application still has it. ` +
-              `Real OS input (uiv.desktop.click / .type, XClick / XType) goes to the FOCUSED window, so continuing would send clicks and keystrokes into that other application instead of the browser. ` +
+              `Real OS input (uiv.desktop.mouse.click / .type, XClick / XType) goes to the FOCUSED window, so continuing would send clicks and keystrokes into that other application instead of the browser. ` +
               `Click the browser window once and re-run, and keep it uncovered while a desktop macro runs. ` +
               // WHY it could not be raised differs by platform, and the wrong
               // explanation sends the user looking in the wrong place. macOS
@@ -3994,8 +7243,25 @@ async function dispatchBridge (op, args) {
 
     // storage -> the browser's Downloads folder, whatever the file is
     case 'exportToDownloads': {
-      const r = await runOneCommand('localStorageExport', args.name, '')
-      return r.ok ? asValue(args.name) : r
+      // 'log' is rendered from log state, not read from a store — it has no
+      // name to resolve, so it goes straight through
+      if (/^log$/i.test(String(args.name || '').trim())) {
+        const r = await runOneCommand('localStorageExport', args.name, '')
+        return r.ok ? asValue(args.name) : r
+      }
+
+      // Resolve here rather than leaving it to the classic command, so an
+      // ambiguous .png gets the same "say which tab" error the other verbs
+      // give, and {store} is honoured. The resolved tab rides along in the
+      // command's own fields — no classic-syntax token for it to get wrong.
+      const { fileName, fileStore, missingFrom } = await resolveStoredFile(args.name, 'uiv.files.exportToDownloads', false, args.store)
+      if (!(await fileStore.get().exists(fileName))) {
+        const where = missingFrom ? ` (looked in ${missingFrom.map(s => s.label).join(' and ')})` : ''
+        throw new Error(`uiv.files.exportToDownloads: '${fileName}' does not exist${where} — uiv.files.list() shows what is there, uiv.files.exists('${fileName}') tests without throwing`)
+      }
+
+      const r = await runOneCommand('localStorageExport', fileName, '', { uivStore: fileStore.id })
+      return r.ok ? asValue(fileName) : r
     }
 
     // --- OS clipboard ------------------------------------------------------
@@ -4024,12 +7290,81 @@ async function dispatchBridge (op, args) {
     // 'downloadArm'/'downloadWait' are the two-phase thunk form: arm, let the
     // script run its own trigger (a click), then wait — the same contract the
     // classic onDownload + click pair has, minus the hidden state.
+    // uiv.screenshot — viewport capture, optionally cropped to an element or
+    // area, saved under Shots and (with 'as') exported (OPEN-ISSUES 24.3)
+    case 'screenshot': {
+      const tab = await getTargetTab()
+      if (!tab) return { ok: false, error: E901_NO_TAB }
+      const stem = String(args.as || args.name || 'screenshot').replace(/\.png$/i, '').replace(/[\\/:*?"<>|]/g, '_')
+      const fileName = stem + '.png'
+      let rect = null
+      let note = ''
+      const foreignNote = 'the element sits in a cross-origin frame whose position on the page is unknown here — kept the whole viewport instead of cropping'
+      if (args.locator) {
+        const r = await elementSearchOnce(tab, { locator: String(args.locator) })
+        const m = r.matches && r.matches[0]
+        if (!m) return { ok: false, error: `uiv.screenshot: nothing matches '${args.locator}'${r.hiddenCount ? ` (${r.hiddenCount} hidden match(es) exist)` : ''}` }
+        if (m.frameLocal) note = foreignNote
+        else rect = m.rect
+      } else if (args.rect) {
+        if (args.frameLocal) note = foreignNote
+        else rect = args.rect
+      } else if (args.area) {
+        rect = { left: args.area.x, top: args.area.y, width: args.area.width, height: args.area.height }
+      }
+      const cap = await runOneCommand('captureScreenshot', fileName, '')
+      if (!cap.ok) return cap
+      let cropped = false
+      if (rect) {
+        try {
+          const buf = await getFileBufferFromScreenshotStorage(fileName)
+          if (!buf) throw new Error('capture not found in Shots')
+          const { Jimp } = await import('jimp')
+          const img = await Jimp.read(buf)
+          const W = img.bitmap.width
+          const H = img.bitmap.height
+          // the stored capture is in PHYSICAL px (1683 wide for a 1347 px CSS
+          // viewport at 125%), finder rects are CSS px — scale by the ratio of
+          // the capture width to the document's client width
+          let scale = 1
+          try {
+            const hr = await elementSearchOnce(tab, { locator: 'css=html' })
+            const cw = hr.matches && hr.matches[0] && hr.matches[0].rect && hr.matches[0].rect.width
+            if (cw > 0) scale = W / cw
+          } catch (e) { /* keep 1 */ }
+          const x = Math.max(0, Math.round(rect.left * scale))
+          const y = Math.max(0, Math.round(rect.top * scale))
+          const w = Math.min(W - x, Math.round(rect.width * scale))
+          const h = Math.min(H - y, Math.round(rect.height * scale))
+          if (w < 2 || h < 2) {
+            note = `the region ${Math.round(rect.left)},${Math.round(rect.top)} ${Math.round(rect.width)}x${Math.round(rect.height)} lies outside the ${W}x${H} viewport capture — kept the whole capture (scroll the element into view first)`
+          } else {
+            img.crop({ x, y, w, h })
+            const out = await img.getBuffer('image/png')
+            await getStorageManager().getScreenshotStorage().overwrite(fileName, new Blob([out], { type: 'image/png' }))
+            cropped = true
+          }
+        } catch (e) {
+          note = 'crop failed (' + ((e && e.message) || e) + ') — kept the whole capture'
+        }
+      }
+      let exported = ''
+      if (args.as) {
+        const ex = await runOneCommand('localStorageExport', fileName, '')
+        if (!ex.ok) return ex
+        exported = fileName
+      }
+      if (note) store.dispatch(act.addLog('warning', 'uiv.screenshot: ' + note))
+      return asValue({ name: fileName, exported, cropped })
+    }
+
     case 'download':
     case 'downloadArm': {
       const vars = getVarsInstance()
       const wait = args.wait !== false
       const timeoutS = args.timeout != null ? parseFloat(args.timeout) : (parseFloat(vars.get('!TIMEOUT_DOWNLOAD')) || 60)
       const startS = parseFloat(vars.get('!TIMEOUT_WAIT')) || 10
+      armShape = await pageShape()
       await csIpc.ask('PANEL_ON_DOWNLOAD', {
         fileName: args.as || '',
         wait,
@@ -4038,24 +7373,57 @@ async function dispatchBridge (op, args) {
       })
       // a name left over from an earlier download must not read as this one's
       vars.set({ '!LAST_DOWNLOADED_FILE_NAME': '' }, true)
+      downloadArmed = true
+      downloadTrigger = ''
       if (op === 'downloadArm') return asValue(undefined)
 
+      // a URL/locator form that fails BEFORE any download starts (element not
+      // found, downloads.download refused) must release the arm, or the
+      // script's next uiv.download is refused with "only one not-created
+      // download allowed at a time" (OPEN-ISSUES 19.3)
+      const disarm = async () => {
+        downloadArmed = false
+        await csIpc.ask('PANEL_CANCEL_PENDING_DOWNLOAD', { reason: 'uiv.download: nothing started' }).catch(() => {})
+      }
       if (args.url) {
+        // the URL form fetching the SAME URL a third time in one run is a
+        // loop gone wrong (Amazon: the "next page" that never came, 28
+        // copies of four invoices) — refuse, the warning came on the 2nd
+        const seen = (urlDownloadsThisRun.get(String(args.url)) || 0) + 1
+        urlDownloadsThisRun.set(String(args.url), seen)
+        if (seen >= 3) {
+          await disarm()
+          return { ok: false, error: `uiv.download: this URL has already been downloaded ${seen - 1} times in this run — refusing the ${seen}${seen === 3 ? 'rd' : 'th'} copy. A loop is fetching the same link; if it pages through a list, the page did not change (check that the first row differs before downloading again).` }
+        }
         // plain URL: straight to chrome.downloads in the background
-        await csIpc.ask('PANEL_DOWNLOAD_URL', { url: String(args.url) })
+        try {
+          await csIpc.ask('PANEL_DOWNLOAD_URL', { url: String(args.url) })
+        } catch (e) {
+          await disarm()
+          throw e
+        }
       } else {
         // locator: the classic saveItem does the element resolution (all
         // frames) and href/src extraction — proven plumbing, reused as is
         const r = await runOneCommand('saveItem', args.locator, '')
-        if (!r.ok) return r
+        if (!r.ok) { await disarm(); return r }
       }
-      return waitForArmedDownload(wait, timeoutS)
+      return waitForArmedDownload(wait, timeoutS, args.as)
     }
 
     case 'downloadWait': {
       const vars = getVarsInstance()
       const timeoutS = args.timeout != null ? parseFloat(args.timeout) : (parseFloat(vars.get('!TIMEOUT_DOWNLOAD')) || 60)
-      return waitForArmedDownload(args.wait !== false, timeoutS)
+      return waitForArmedDownload(args.wait !== false, timeoutS, args.as)
+    }
+
+    // the trigger threw: drop the armed-but-not-started download so the
+    // script's next uiv.download is not refused with "only one not-created
+    // download allowed at a time"
+    case 'downloadDisarm': {
+      downloadArmed = false
+      await csIpc.ask('PANEL_CANCEL_PENDING_DOWNLOAD', { reason: args.reason ? String(args.reason) : '' })
+      return asValue(undefined)
     }
 
     // --- the model ---------------------------------------------------------
@@ -4101,7 +7469,12 @@ async function dispatchBridge (op, args) {
         rememberScriptScopeOverride('!CVSCOPE', wantScope)
       }
       try {
-        await runAiCommand('aiScreenXY', args.question)
+        // withBannerHidden, for the same reason imageSearch and textSearch use
+        // it: ai.find is a capture-based finder, so a banner left up lands in
+        // the screenshot the MODEL is shown. Worse here than for OCR — the
+        // banner is a block of prose in the middle of the image, competing for
+        // the model's attention with the thing it was asked to locate.
+        await withBannerHidden(() => runAiCommand('aiScreenXY', args.question))
       } finally {
         if (wantScope) {
           vars.set({ '!CVSCOPE': prevScope }, true)
@@ -4117,12 +7490,29 @@ async function dispatchBridge (op, args) {
       // and the scope guard catches a desktop point used in the browser tier.
       // A per-call scope wins; otherwise the global CV scope tags the match.
       const scope = wantScope || (/desktop/i.test(String(vars.get('!CVSCOPE') || '')) ? 'desktop' : 'browser')
+      // trail: an ai.find point that lands off-target is invisible until the
+      // click that uses it — mark WHERE the model pointed, tagged as such
+      recordPointTrail({ kind: 'ai', x: Math.round(x), y: Math.round(y), scope, label: String(args.question || '').slice(0, 60) })
       return asValue({ x: Math.round(x), y: Math.round(y), scope })
     }
 
     case 'aiComputerUse': {
       const value = await runAiCommand('aiComputerUse', args.task)
       return asValue(value)
+    }
+
+    // fire-and-forget provenance ping from the uiv.offset polyfill: anchor
+    // point -> derived landing point, so the post-run picture can draw the
+    // step. Never fails, never blocks anything meaningful.
+    case 'offsetTrace': {
+      const ax = Number(args.ax)
+      const ay = Number(args.ay)
+      const x = Number(args.x)
+      const y = Number(args.y)
+      if ([ax, ay, x, y].every(isFinite)) {
+        recordPointTrail({ kind: 'offset', ax: Math.round(ax), ay: Math.round(ay), x: Math.round(x), y: Math.round(y), scope: args.scope === 'desktop' ? 'desktop' : 'browser' })
+      }
+      return asValue(undefined)
     }
 
     // OCR proper — the reader. textSearch answers "where is X"; this answers
@@ -4161,25 +7551,29 @@ async function dispatchBridge (op, args) {
 
     // --- the file store: the verbs that take a name, whatever the file is ---
     case 'filesList': {
-      // both stores, one flat list of FILE names — folders are entries too
+      // every store, one flat list of FILE names — folders are entries too
       // (Entry carries isDirectory), and a folder is not something the other
-      // uiv.files verbs can act on
-      const lists = await Promise.all(FILE_STORES.map(s => s.get().list()))
+      // uiv.files verbs can act on. {store} narrows it to one tab.
+      const stores = args.store ? [storeById(args.store, 'uiv.files.list')] : FILE_STORES
+      const lists = await Promise.all(stores.map(s => s.get().list()))
       const names = lists.reduce((all, files) => {
         return all.concat((files || []).filter(f => !f.isDirectory).map(f => f.name))
       }, [])
-      return asValue(names.filter(Boolean).sort())
+      // the same .png name can sit in Screenshots AND Vision; list() answers
+      // "which names are stored", so it reports such a name once
+      return asValue(names.filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i).sort())
     }
 
     case 'filesExists': {
-      const hit = await resolveStoredFile(args.name, 'uiv.files.exists', true)
+      const hit = await resolveStoredFile(args.name, 'uiv.files.exists', true, args.store)
       return asValue(hit ? await hit.fileStore.get().exists(hit.fileName) : false)
     }
 
     case 'filesRemove': {
-      const { fileName, fileStore } = await resolveStoredFile(args.name, 'uiv.files.remove')
+      const { fileName, fileStore, missingFrom } = await resolveStoredFile(args.name, 'uiv.files.remove', false, args.store)
       if (!(await fileStore.get().exists(fileName))) {
-        throw new Error(`uiv.files.remove: '${fileName}' does not exist — uiv.files.list() shows what is there, uiv.files.exists('${fileName}') tests without throwing`)
+        const where = missingFrom ? ` (looked in ${missingFrom.map(s => s.label).join(' and ')})` : ''
+        throw new Error(`uiv.files.remove: '${fileName}' does not exist${where} — uiv.files.list() shows what is there, uiv.files.exists('${fileName}') tests without throwing`)
       }
       // awaited, unlike the classic #DeleteAfterExport, which fires the remove
       // and returns: a script that deletes a file and asks for it on the next
@@ -4193,8 +7587,12 @@ async function dispatchBridge (op, args) {
     case 'textRead':
       return asValue(await textReadRaw(args.file))
 
-    case 'textWrite':
-      return asValue(await textWriteRaw(args.file, args.text))
+    case 'textWrite': {
+      const fn = await textWriteRaw(args.file, args.text)
+      // it is NOT a disk file — say where it went and how to get it out (30.16)
+      store.dispatch(act.addLog('info', `uiv.text.write: "${fn}" saved in the extension's CSV/Text store (Ui.Vision panel → CSV/TXT tab), not in the download folder — uiv.files.exportToDownloads('${fn}') writes it there`))
+      return asValue(fn)
+    }
 
     default:
       return { ok: false, error: `unknown uiv bridge op '${op}'` }
@@ -4213,6 +7611,39 @@ async function textSearchOnce (args) {
   const engineAsked = resolveOcrEngine(args.engine, 'uiv.ocr.findText')
   guardOcrSettings({ store, engine: engineAsked })
 
+  const state = store.getState()
+  const engine = engineAsked !== undefined ? engineAsked : state.config.ocrEngine
+  const lang = String(args.language || state.config.ocrLanguage || 'eng').toLowerCase()
+
+  if (args.image) {
+    // {image: 'x.png'} searches a STORED IMAGE instead of the live viewport /
+    // screen — same source rules as uiv.ocr.read({image}), so the reader and
+    // the finder stay symmetric. Matches come back in IMAGE pixels tagged
+    // scope 'image' — not clickable in either tier (the scope guard says so
+    // loudly) — and {area} crops in image pixels too.
+    const rect = normalizeRectArg(args.area, 'uiv.ocr.findText')
+    const name = String(args.image)
+    const resolved = await resolveStoredFile(/\.png$/i.test(name) ? name : `${name}.png`, 'uiv.ocr.findText', false, args.store)
+    if (resolved.missingFrom) {
+      throw new Error(`uiv.ocr.findText: image '${resolved.fileName}' is not stored — looked in ${resolved.missingFrom.map(s => s.label).join(' and ')}. uiv.shot.viewport/page/element/desktop capture one; uiv.files.list() shows what exists`)
+    }
+    const stored = await resolved.fileStore.get().read(resolved.fileName, 'DataURL')
+    const imageDataUrl = rect ? await subImage(stored, rect) : stored
+    const { response } = await getOcrResponse({
+      ocrApiTimeout: config.ocr.apiTimeout,
+      store,
+      lang,
+      engine,
+      engineExplicit: engineAsked !== undefined,
+      scale: 'true',
+      isTable: false,
+      isDesktop: false,
+      isLog: false,
+      imageDataUrl
+    })
+    return collectTextMatches(response, rect ? { x: rect.x, y: rect.y } : { x: 0, y: 0 }, args.text)
+  }
+
   // {scope: 'desktop'} OCRs the whole screen instead of the viewport — the
   // matches come back in SCREEN pixels, tagged scope: 'desktop', so they feed
   // uiv.desktop.* and the scope guard rejects them in the browser tier. Same
@@ -4226,10 +7657,6 @@ async function textSearchOnce (args) {
     // the capture path resolves the tab via global state's toPlay id
     await updateState(setIn(['tabIds', 'toPlay'], tab.id))
   }
-
-  const state = store.getState()
-  const engine = engineAsked !== undefined ? engineAsked : state.config.ocrEngine
-  const lang = String(args.language || state.config.ocrLanguage || 'eng').toLowerCase()
 
   // {area: match | rect} limits THIS search to one region — same option and
   // scope rules as uiv.findImage; visionLimitSearchArea is blocked in scripts
@@ -4249,16 +7676,33 @@ async function textSearchOnce (args) {
     isLog: false
   })
 
-  // rebase OCR word coords to viewport CSS px (offset is {0,0} for the
+  const out = collectTextMatches(response, viewportOffset, args.text)
+
+  // bounding boxes on the actual desktop (gold = OCR match) — the match
+  // rects are global DIP screen coords in desktop scope; fire-and-forget.
+  // The first match is emphasized: it is what uiv.ocr.findText returns.
+  if (isDesktop && out.matches.length) {
+    showDesktopMatchMarksDip(out.matches.map(m => ({ x: m.rect.left, y: m.rect.top, width: m.rect.width, height: m.rect.height })), 'ocr', 0)
+  }
+
+  return out
+}
+
+// Shared tail of every OCR text search: rebase the recognised words by
+// `offset` (viewport offset for live captures, the crop origin for stored
+// images), run the wildcard word search, and shape matches + the word list
+// for the post-run picture.
+function collectTextMatches (response, offset, text) {
+  // rebase OCR word coords into the caller's space (offset is {0,0} for the
   // 'viewport' search area, but keep the rebase for correctness)
   const rebased = safeUpdateIn(
     ['[]', 'TextOverlay', 'Lines', '[]', 'Words', '[]'],
-    (w) => ({ ...w, Top: w.Top + viewportOffset.y, Left: w.Left + viewportOffset.x }),
+    (w) => ({ ...w, Top: w.Top + offset.y, Left: w.Left + offset.x }),
     (response && response.ParsedResults) || []
   )
 
   const { all } = searchTextInOCRResponse({
-    text: args.text,
+    text,
     index: 0,
     exhaust: true,
     parsedResults: rebased
@@ -4274,9 +7718,32 @@ async function textSearchOnce (args) {
     }
   })
 
+  // EVERY word the engine recognised, with its box — the raw material for the
+  // post-run "what OCR saw" picture (see ocrTrail below). Capped: a text-heavy
+  // page yields hundreds, and past ~300 the overlay is noise anyway.
+  const words = []
+  outer:
+  for (const pr of rebased) {
+    const lines = (pr && pr.TextOverlay && pr.TextOverlay.Lines) || []
+    for (const line of lines) {
+      for (const w of (line.Words || [])) {
+        words.push({
+          left: Math.round(w.Left),
+          top: Math.round(w.Top),
+          width: Math.round(w.Width),
+          height: Math.round(w.Height),
+          // what the engine READ here — printed under the highlight so a
+          // misread shows as a visible disagreement with the page
+          text: String(w.WordText || '').slice(0, 24)
+        })
+        if (words.length >= 300) break outer
+      }
+    }
+  }
+
   // hand the recognised text back with the matches: on a miss it is the whole
   // diagnosis, and this pass already paid for it
-  return { matches, text: parsedResultsToText(response) }
+  return { matches, text: parsedResultsToText(response), words }
 }
 
 // ---------------------------------------------------------------------------
@@ -4345,6 +7812,7 @@ export async function probeFind (kind, target, opts = {}) {
     let matches = []
     let hiddenCount = 0
     let ocrText = ''
+    let ocrWords = []
     switch (kind) {
       case 'elementSearch': {
         if (onDesktop) {
@@ -4365,6 +7833,30 @@ export async function probeFind (kind, target, opts = {}) {
         const r = await textSearchOnce({ text: target, scope: opts.scope, engine: opts.engine, language: opts.language })
         matches = r.matches
         ocrText = r.text
+        ocrWords = r.words || []
+        break
+      }
+      case 'ai': {
+        // ONE real model call — Find on a uiv.ai.find line asks the model the
+        // user explicitly wrote about. Unlike the free finders the answer is
+        // fresh (and billed) each time, so this runs only on the button click.
+        const vars = getVarsInstance()
+        const wantScope = opts.scope === 'desktop' ? 'desktop' : (opts.scope === 'browser' ? 'browser' : null)
+        const prevScope = wantScope ? vars.get('!CVSCOPE') : null
+        if (wantScope) vars.set({ '!CVSCOPE': wantScope }, true)
+        try {
+          await withBannerHidden(() => runAiCommand('aiScreenXY', target))
+        } finally {
+          if (wantScope) vars.set({ '!CVSCOPE': prevScope }, true)
+        }
+        const ax = Number(vars.get('!AI1'))
+        const ay = Number(vars.get('!AI2'))
+        if (!isFinite(ax) || !isFinite(ay)) {
+          return { ok: false, error: `the model did not return usable coordinates for '${target}' — describe the target by what it LOOKS like and where it sits, and make sure it is visible` }
+        }
+        // a point, not a box — a small rect around it lets the normal match
+        // display (page flash / screenshot viewer) show where the model points
+        matches = [{ x: Math.round(ax), y: Math.round(ay), rect: { left: Math.round(ax) - 14, top: Math.round(ay) - 14, width: 28, height: 28 } }]
         break
       }
       default:
@@ -4374,13 +7866,50 @@ export async function probeFind (kind, target, opts = {}) {
     // SHOW the matches. Two different surfaces, because the coordinates live
     // in two different spaces.
     //
+    // Desktop OCR: ALWAYS open the capture with the full OCR overlay — every
+    // recognised word plus the query matches — hit or MISS. A bare "no
+    // matches on the SCREEN" left the user staring at a word plainly on
+    // screen (measured: 'BETA') with no way to see what the reader saw; the
+    // overlay is the same picture the OCR test button shows, and it answers
+    // whether the reader or the query is at fault in one look.
+    if (onDesktop && kind === 'textSearch') {
+      try {
+        const posWord = (text, r, i) => ({
+          word: { WordText: text, Left: r.left, Top: r.top, Width: r.width, Height: r.height },
+          position: { pIndex: 0, lIndex: 0, wIndex: i }
+        })
+        const ocrMatches = [{
+          similarity: 1,
+          highlight: OcrHighlightType.Identified,
+          words: (ocrWords || []).map((w, i) => posWord(w.text, w, i))
+        }]
+        if (matches.length) {
+          ocrMatches.push({
+            similarity: 1,
+            highlight: OcrHighlightType.TopMatched,
+            words: matches.map((m, i) => posWord(m.text, m.rect, 1000 + i))
+          })
+        }
+        await csIpc.ask('PANEL_HIGHLIGHT_OCR_MATCHES', {
+          ocrMatches,
+          isDesktop: true,
+          screenAvailableSize: { width: screen.availWidth, height: screen.availHeight },
+          localStorage: cloneSerializableLocalStorage(localStorage),
+          showOcrOverlay: true
+        })
+      } catch (e) { /* showing the overlay is best-effort — the log still has it */ }
+    }
+
     // Screen search: the rects are SCREEN pixels, so drawing them inside the
     // page would point at an unrelated spot. The desktop screenshot editor is
     // the surface that CAN show them — it opens the capture the search just
     // took (searchVision saves it as __lastdesktopscreenshot) and draws the
     // boxes on it, which is the same thing the classic visual commands show in
-    // debug mode. Best match first, so it is the one highlighted.
-    if (onDesktop && matches.length) {
+    // debug mode. Best match first, so it is the one highlighted. Shown on a
+    // MISS too, with "no match" written on the picture — a bare "no matches
+    // on the SCREEN" gave the user nothing to look at (user report), and the
+    // capture is what answers whether the image or the screen changed.
+    if (onDesktop && kind !== 'textSearch') {
       try {
         // Where the capture actually IS depends on the storage strategy — with
         // XFile it lives on disk, not in extension storage, and asking for the
@@ -4396,15 +7925,27 @@ export async function probeFind (kind, target, opts = {}) {
           },
           screenAvailableSize: { width: screen.availWidth, height: screen.availHeight },
           selectedIndex: 0,
-          scoredRects: matches.map((m, i) => ({
-            type: i === 0 ? DesktopScreenshot.RectType.BestMatch : DesktopScreenshot.RectType.Match,
-            index: i,
-            x: m.rect.left,
-            y: m.rect.top,
-            width: m.rect.width,
-            height: m.rect.height,
-            score: m.score
-          }))
+          scoredRects: matches.length
+            ? matches.map((m, i) => ({
+                type: i === 0 ? DesktopScreenshot.RectType.BestMatch : DesktopScreenshot.RectType.Match,
+                index: i,
+                x: m.rect.left,
+                y: m.rect.top,
+                width: m.rect.width,
+                height: m.rect.height,
+                score: m.score
+              }))
+            // no match: one labelled banner rect pinned top-left, so the
+            // verdict is written ON the capture the search actually used
+            : [{
+                type: DesktopScreenshot.RectType.Match,
+                index: 0,
+                x: 16,
+                y: 16,
+                width: 420,
+                height: 30,
+                text: `NO MATCH for '${target}'` + (opts.minScore != null ? ` at minScore ${opts.minScore}` : '')
+              }]
         })
       } catch (e) { /* showing the result is best-effort — the log still has it */ }
     }
@@ -4445,7 +7986,7 @@ export async function probeFind (kind, target, opts = {}) {
           (first.score !== undefined ? ` score=${Number(first.score).toFixed(2)}` : '') +
           (first.frameLocal ? ` [frame ${first.frameId}, frame-local]` : '')
         : hiddenNote)
-    const displayName = { elementSearch: 'findElements', imageSearch: 'findImages', textSearch: 'ocr.findTexts' }[kind] || kind
+    const displayName = { elementSearch: 'findElements', imageSearch: 'findImages', textSearch: 'ocr.findTexts', ai: 'ai.find' }[kind] || kind
     // name the scope in the log: "no matches" means something different on the
     // screen than in the viewport, and the coordinates below are in different
     // spaces too (screen pixels vs viewport CSS pixels)
@@ -4542,7 +8083,7 @@ function shouldPublishLiveVars () {
 // interpreter setup + run loop
 // ---------------------------------------------------------------------------
 
-function buildInterpreter (code) {
+function buildInterpreter (code, opts = {}) {
   // node.loc is required for line highlighting
   Interpreter.PARSE_OPTIONS = Interpreter.PARSE_OPTIONS || {}
   Interpreter.PARSE_OPTIONS.locations = true
@@ -4550,6 +8091,8 @@ function buildInterpreter (code) {
   const vars = getVarsInstance()
 
   const interpreter = new Interpreter(POLYFILL + code, (interp, globalObject) => {
+    installEvaluateFunctionSource(interp, globalObject, opts.evaluateFunctions)
+    interp.setProperty(globalObject, '__uiv_call_data', interp.nativeToPseudo({ args: opts.args || {}, context: opts.context || {} }))
     // the callback MUST always fire — a rejected bridge promise would leave
     // the interpreter suspended forever with no error anywhere
     interp.setProperty(globalObject, '__uiv_bridge', interp.createAsyncFunction(
@@ -4681,7 +8224,7 @@ function buildInterpreter (code) {
   // completed, at the first regex in any script (uiv.browser.click(locator)
   // hits one inside the polyfill's __domTarget). Native mode is the same
   // trust model as the rest of the runner: the script's author already has
-  // uiv.eval, and the classic player runs user regexes natively too — the
+  // uiv.evaluate, and the classic player runs user regexes natively too — the
   // worker only guarded against self-inflicted catastrophic backtracking.
   interpreter['REGEXP_MODE'] = 1
 
@@ -4721,27 +8264,57 @@ export async function runScript (code, opts = {}) {
   }
 
   running = true
+  startExecutionLocality('script')
+  scriptReturnValue = null
+  executionMacroId = opts.macroId || null
   stopRequested = false
   firstCommandDone = false
   paused = false
   pauseRequested = false
   runToLine = typeof opts.runToLine === 'number' ? opts.runToLine : null
-  scriptTabId = null // each run pins its tab chain fresh
+  scriptTabId = typeof opts.tabId === 'number' ? opts.tabId : null // a subcall uses the viewport it measured
+  pendingTabPickNotice = null // and a parked which-tab notice dies with the old pin
+  if (opts.stickyTab) {
+    // a bridge run (Claude Code's run_macro) keeps the session's tab instead
+    // of following the user's focus into another window (OPEN-ISSUES 21.1)
+    try {
+      const picked = await pickBridgeTab()
+      if (picked.tab) {
+        scriptTabId = picked.tab.id
+        if (picked.note) store.dispatch(act.addLog('warning', picked.note))
+      }
+    } catch (e) { /* the usual pick below */ }
+  }
   scriptBaseTabId = null // ... and a fresh base for relative tab=N locators
   scriptScopeOverrides = {} // ... and no leftover setVar'd timeouts
+  clickTrail = [] // ... and no click points carried over from the last run
+  bridgeOpSeq = 0
+  startRunFrames('script') // ... and a fresh ring of finder captures (run pictures)
+  holdCdpAttachDuringRun(true) // one debugger attach per run — see cdp_input
+  ocrTrail = [] // ... nor last run's OCR searches
+  imageTrail = [] // ... nor its image searches
+  pointTrail = [] // ... nor its ai.find / offset points
   scriptSessionActive = false // ... and a fresh command session
   scriptSessionStale = false
   scriptFrameId = null
   scriptStartedAt = Date.now() // wall clock for the end-of-run Runtime line
   perfReset()
+  downloadsCapturedThisRun = 0
+  viaLabelNoted = new Set()
+  urlDownloadsThisRun = new Map()
+  lastOpenSig = null
   armNavigationWatcher() // one listener for the run; see settleAfterClick
   emit('status', 'running')
   // hold the automation tab mark for the whole script: without this, every
   // uiv.* call would group/ungroup the tab and re-inject the border
   csIpc.ask('PANEL_SCRIPT_RUN_MARK', { marked: true }).catch(() => { /* cosmetic */ })
   // name the script in the log, like the table player's "Playing macro X" —
-  // with several macros in a session, an unnamed start line is ambiguous
+  // with several macros in a session, an unnamed start line is ambiguous.
+  // opts.name wins: an INLINE script (Claude Code's run_macro {script})
+  // never touches the editor, so the editor's macro name would label the
+  // started/completed/failed lines with a macro that did not run.
   const scriptName = (() => {
+    if (opts.name) return opts.name
     try {
       const src = store.getState().editor.editing.meta.src
       return src && src.name && src.name.length ? src.name : 'Untitled'
@@ -4750,6 +8323,10 @@ export async function runScript (code, opts = {}) {
     }
   })()
   store.dispatch(act.addLog('status', `${scriptName} started`))
+  // outdated native host = subtle failures all over — say it at the top of
+  // EVERY run log, where the person debugging the run actually looks
+  const xmoduleWarn = xmoduleOutdatedWarning()
+  if (xmoduleWarn) store.dispatch(act.addLog('warning', xmoduleWarn))
   // fresh run, fresh live-variable view (Variables tab)
   // scriptRunning travels in the SAME redux slice the status bar reads, so it
   // cannot go stale relative to the line number the way a module-level flag in
@@ -4772,7 +8349,7 @@ export async function runScript (code, opts = {}) {
   // prepareRunMacro); do this before touching the interpreter so a
   // cancelled dialog aborts cleanly
   try {
-    const prepared = await prepareRunMacro(code)
+    const prepared = await prepareRunMacro(code, opts.macroId)
     if (!prepared) {
       error = 'Run cancelled — unsaved macro dialog was dismissed'
     } else if (!opts.keepVars) {
@@ -4811,7 +8388,22 @@ export async function runScript (code, opts = {}) {
       getVarsInstance().set(opts.seedVars)
     }
   } catch (e) {
-    error = `Cannot prepare the macro for the script run: ${(e && e.message) || e}`
+    // storage APIs reject with the raw event from their onerror handler,
+    // which stringifies to "[object Event]" and buries the real cause (field
+    // data: a user stuck on exactly that message, asking the AI chat why).
+    // Name what the event actually carries instead.
+    let reason = (e && e.message)
+      || (e && e.target && e.target.error && e.target.error.message)
+      || (e && e.type ? `'${e.type}' event from ${(e.target && e.target.constructor && e.target.constructor.name) || 'the storage layer'}` : String(e))
+    // Gecko's InvalidStateError wording for a profile that refuses IndexedDB
+    // writes — a Firefox private window (pre-115 semantics) or a "never
+    // remember history" profile. Field data 2026-08-13: two users hit this
+    // as an unexplained dead end. Say what it means and what to do; NOT a
+    // Chrome-incognito case (extension IndexedDB works there).
+    if (/did not allow mutations/i.test(String(reason))) {
+      reason = 'Firefox is blocking extension storage writes in this profile — this happens in private-browsing windows and in profiles set to "never remember history". Macros cannot be saved or run from such a profile: open a normal Firefox window (or disable permanent private browsing in Firefox Settings > Privacy & Security) and try again'
+    }
+    error = `Cannot prepare the macro for the script run: ${reason}`
   }
 
   // ES6+ -> ES5 for the sandbox. Babel is lazy-loaded here, so a session that
@@ -4819,6 +8411,7 @@ export async function runScript (code, opts = {}) {
   // every reported position back to the line the user wrote — the debugger
   // (marker, breakpoints, error lines) works on user lines throughout.
   let runnableCode = code
+  let evaluateFunctions = {}
   scriptLineMap = null
   scriptSegments = null
   scriptSourceText = code
@@ -4830,7 +8423,7 @@ export async function runScript (code, opts = {}) {
   if (!error) {
     try {
       const src = store.getState().editor.editing.meta.src
-      const merged = await resolveIncludes(code, src && src.id)
+      const merged = await resolveIncludes(code, opts.macroId || (src && src.id))
       if (merged.segments.length > 1) {
         mergedCode = merged.source
         scriptSegments = merged.segments
@@ -4844,21 +8437,42 @@ export async function runScript (code, opts = {}) {
   }
 
   if (!error) {
+    const table = describeCommandTableScript(mergedCode)
+    if (table) error = table
+  }
+
+  if (!error) {
     try {
       const compiled = await transpileScript(mergedCode)
       runnableCode = compiled.code
+      evaluateFunctions = compiled.evaluateFunctions
       scriptLineMap = compiled.lineMap
     } catch (e) {
-      // syntax errors and the async/await rejection land here; Babel reports
-      // positions in the user's own source, so they need no offsetting
+      // syntax errors and the async/await rejection land here. For a plain
+      // script Babel parsed the user's own source, so its positions are
+      // exact. Once @include has spliced files into one program they are
+      // merged-source positions: map them back to the file and line the
+      // user wrote, the way the runtime path does in describeScriptLine —
+      // errorLine may only ever carry a MAIN-file line (it feeds the
+      // editor's jump-to-line), an included file's position goes in
+      // errorWhere as text.
       error = (e && e.message) || String(e)
-      if (e && typeof e.scriptLine === 'number') errorLine = e.scriptLine
+      if (e && typeof e.scriptLine === 'number') {
+        if (!scriptSegments) {
+          errorLine = e.scriptLine
+        } else {
+          const located = await locateCompileError(mergedCode, scriptSegments, e)
+          errorLine = located.errorLine
+          errorWhere = located.errorWhere
+          if (located.message) error = located.message
+        }
+      }
     }
   }
 
   let interp = null
   try {
-    if (!error) interp = buildInterpreter(runnableCode)
+    if (!error) interp = buildInterpreter(runnableCode, { ...opts, evaluateFunctions })
   } catch (e) {
     // acorn syntax error — its line numbers include the uiv polyfill prefix;
     // shift both the message "(line:col)" and .loc back to user-script lines
@@ -4905,6 +8519,7 @@ export async function runScript (code, opts = {}) {
         continue
       }
 
+      visitScriptExecutionLine(interp, describeScriptLine)
       interp.step()
 
       const rawLine = currentInterpLine(interp)
@@ -4964,12 +8579,28 @@ export async function runScript (code, opts = {}) {
     } else if (!e || e.message !== '__uiv_pre_run_error__') {
       // unhandled script throws land here (pre-run errors were handled above)
       error = (e && e.message) ? e.message : String(e)
+      // "KEY_CTRL is not defined": a key NAME written as a JS identifier —
+      // 17 chats in the 2026-09-06 drop (OPEN-ISSUES 35.7); say the string form
+      const keyRef = /^(KEY_[A-Z0-9_]+) is not defined$/.exec(error)
+      if (keyRef) {
+        error += ` — key names are TEXT inside the typed string, not JS variables: uiv.browser.type('\${${keyRef[1]}}'), a combo as '\${KEY_CTRL+KEY_F}', or uiv.browser.press('Control+F')`
+      }
       errorLine = lastLine
       errorWhere = lastWhere
     }
   }
 
+  for (const text of Array.from(heldDesktopKeys).reverse()) {
+    try {
+      await getXModule2API().invoke('send_text', { text, hold: false })
+      heldDesktopKeys.delete(text)
+    } catch (e) { store.dispatch(act.addLog('warning', 'Failed to release desktop key ' + text + ': ' + String(e))) }
+  }
+  try { await releaseCdpKeys() }
+  catch (e) { store.dispatch(act.addLog('warning', String(e))) }
   running = false
+  // the tab this run ended on is the bridge session's tab from now on
+  if (opts.stickyTab && scriptTabId !== null) setBridgeTab(scriptTabId)
   stopRequested = false
   paused = false
   pauseRequested = false
@@ -4987,6 +8618,10 @@ export async function runScript (code, opts = {}) {
   // release the tab mark held for the whole run (see PANEL_SCRIPT_RUN_MARK)
   csIpc.ask('PANEL_SCRIPT_RUN_MARK', { marked: false }).catch(() => { /* cosmetic */ })
 
+  // the run is over — take down the desktop border indicator (no-op if no
+  // desktop-scope command ever showed it)
+  hideDesktopBorder()
+
   // final variable values stay inspectable after the run; the line marker is
   // not meaningful once nothing is executing
   if (interp) publishScriptVars(interp)
@@ -5003,20 +8638,41 @@ export async function runScript (code, opts = {}) {
     }))
   } catch (e) { /* best-effort */ }
 
+  // run pictures: the last finder captures go to Shots as _run_last*.png
+  try {
+    const written = await flushRunFrames()
+    if (written.length) store.dispatch(act.addLog('info', describeRunFrames(written)))
+  } catch (e) { /* best-effort */ }
+
+  holdCdpAttachDuringRun(false) // the run is over: back to the short idle detach
   perfSummary()
 
   // total wall clock, worded like the table macro's end line ("Macro completed
   // (Runtime 3.02s)") so both macro types read the same in the log
   const runtime = milliSecondsToStringInSecond(scriptRuntimeMs())
+  const locality = finishExecutionLocality('script')
   try { getVarsInstance().set({ '!RUNTIME': runtime }, true) } catch (e) { /* best-effort */ }
 
   if (ok) {
     if (exitRequested !== null) {
       store.dispatch(act.addLog('info', `${scriptName} ended early by uiv.exit${exitRequested ? `: ${exitRequested}` : ''}`))
     }
-    store.dispatch(act.addLog('info', `${scriptName} completed (Runtime ${runtime})`))
+    store.dispatch(act.addLog('info', `${scriptName} completed (Runtime ${runtime}, ${locality})`, { localExecution: locality.endsWith(', no cloud used') }))
   } else {
-    store.dispatch(act.addLog('error', `${scriptName} ${error === 'Script stopped' ? 'stopped' : 'failed'}: ${error}${errorWhere ? ` (${errorWhere})` : (errorLine ? ` (line ${errorLine})` : '')} (Runtime ${runtime})`))
+    // structured jump target for the log's "Jump to line" link — the same
+    // main-file line the editor marks red at run end (an error inside an
+    // @include'd file carries its position in errorWhere text only)
+    const jumpOpts = (() => {
+      if (error === 'Script stopped' || typeof errorLine !== 'number') return {}
+      try {
+        const src = store.getState().editor.editing.meta.src
+        const macroId = opts.macroId || (src && src.id)
+        return macroId ? { scriptJump: { macroId, line: errorLine } } : {}
+      } catch (e) {
+        return {}
+      }
+    })()
+    store.dispatch(act.addLog('error', `${scriptName} ${error === 'Script stopped' ? 'stopped' : 'failed'}: ${error}${errorWhere ? ` (${errorWhere})` : (errorLine ? ` (line ${errorLine})` : '')} (Runtime ${runtime})`, jumpOpts))
     // a failed run must show WHY without hunting: pop the Logs drawer open
     if (error !== 'Script stopped') {
       try { store.dispatch(act.updateUI({ runPanelOpen: true, runPanelTab: 'Logs' })) } catch (e) { /* best-effort */ }
@@ -5028,12 +8684,15 @@ export async function runScript (code, opts = {}) {
   try {
     const editing = store.getState().editor.editing
     const src = editing.meta && editing.meta.src
-    if (src && src.id && typeof editing.script === 'string' && error !== 'Script stopped') {
-      store.dispatch(act.updateMacroPlayStatus(src.id, ok ? MacroResultStatus.Success : MacroResultStatus.Error))
+    const macroId = opts.macroId || (src && src.id)
+    if (macroId && (opts.macroId || typeof editing.script === 'string') && error !== 'Script stopped') {
+      store.dispatch(act.updateMacroPlayStatus(macroId, ok ? MacroResultStatus.Success : MacroResultStatus.Error))
     }
   } catch (e) { /* badge is best-effort */ }
 
   emit('status', 'stopped')
+  reportUsage('macro', ok ? 'script.ok' : error === 'Script stopped' ? 'script.stopped' : 'script.failed')
   emit('done', { ok, error, errorLine })
-  return { ok, error, errorLine }
+  executionMacroId = null
+  return { ok, error, errorLine, value: ok ? scriptReturnValue : null }
 }

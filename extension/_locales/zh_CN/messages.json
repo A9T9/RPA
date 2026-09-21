@@ -4,7 +4,7 @@
     "description": "extension name"
   },
   "description": {
-    "message": "开源的 Selenium IDE, 现代的网页自动化工具 （支持行为录制和回放）。适用于网页自动化测试，表单填写以及网页内容抓取。",
+    "message": "开源、在本地运行（非云端）的浏览器与桌面自动化工具（RPA）。支持图像识别、OCR、内置 AI，并可通过 MCP 连接你的 AI 智能体和 LLM。适用于表单填写、网页抓取和自动化测试，支持 Windows、Mac、Linux。",
     "description": "extension description"
   },
   "short_name": {

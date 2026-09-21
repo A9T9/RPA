@@ -26,6 +26,11 @@ declare enum NEXT_INDEX_INITIATOR {
 export declare class Player {
   constructor()
 
+  // the run controls the side panel / MCP emergency stop call
+  stop(opts?: any): void
+  pause(): void
+  resume(): void
+
   static C: {
     MODE: typeof MODE
     STATUS: typeof STATUS

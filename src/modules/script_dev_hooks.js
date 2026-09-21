@@ -52,8 +52,8 @@ export function initScriptDevHooks () {
   setInterval(mirror, 500)
 
   const script = params.get('jsdev_script') || [
-    "uiv.open('https://ui.vision/');",
-    "var t = uiv.eval('return document.title');",
+    "uiv.goto('https://ui.vision/');",
+    "var t = uiv.evaluate('return document.title');",
     "uiv.log('TITLE=' + t);",
     "var els = uiv.elementSearch('css=h1,h2', { required: false });",
     "uiv.log('HEADINGS=' + els.length);",

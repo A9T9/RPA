@@ -352,6 +352,8 @@ export type PageInfo = {
   windowWidth:  number;
   windowHeight: number;
   hasBody:      boolean;
+  documentScrolls?: boolean;
+  innerScrollerHeight?: number;
   originalX:    number;
   originalY:    number;
   originalOverflowStyle: string;
@@ -384,11 +386,33 @@ export const captureClientAPI = {
       body ? body.offsetHeight : 0
     ]
 
+    // does the DOCUMENT scroll at all? Apps that scroll an inner box (a
+    // fixed-height main area) stitch to nothing — the caller says so instead
+    // of claiming an "entire page" capture (OPEN-ISSUES 24.4)
+    const de = document.documentElement
+    const documentScrolls = de.scrollHeight > de.clientHeight + 2
+    let innerScrollerHeight = 0
+    if (!documentScrolls) {
+      const all = document.querySelectorAll('*')
+      let bestArea = 0
+      for (let i = 0; i < all.length; i++) {
+        const el = all[i] as HTMLElement
+        if (el.scrollHeight <= el.clientHeight + 2) continue
+        const st = window.getComputedStyle(el)
+        if (!/(auto|scroll)/.test(st.overflowY)) continue
+        const r = el.getBoundingClientRect()
+        const area = r.width * r.height
+        if (area > bestArea) { bestArea = area; innerScrollerHeight = el.scrollHeight }
+      }
+    }
+
     const data = {
       pageWidth:    Math.max(...widths),
       pageHeight:   Math.max(...heights),
       windowWidth:  window.innerWidth,
       windowHeight: window.innerHeight,
+      documentScrolls,
+      innerScrollerHeight,
       hasBody:      !!body,
       originalX:    window.scrollX,
       originalY:    window.scrollY,

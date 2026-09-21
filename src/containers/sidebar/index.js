@@ -93,12 +93,16 @@ class Sidebar extends React.Component {
       throw new Error('It should be impossible to get isOk as false')
     })
     .catch(e => {
-      message.warn(e.message)
+      message.warn(e.message, 8)
 
-      if (e.message && /xFile is not installed yet/.test(e.message)) {
+      // Only a host the browser cannot find at all gets the install dialog;
+      // any other reason (allowlist, blocked, won't start, folder problems)
+      // is explained on the Desktop Automation settings page.
+      const raw = e.connectError || ''
+      if (/not found|no such native application/i.test(raw)) {
         this.props.updateUI({ showXFileNotInstalledDialog: true })
       } else {
-        openSettings('xmodules')
+        openSettings('desktop-automation')
       }
     })
   }
@@ -171,14 +175,14 @@ class Sidebar extends React.Component {
         }}
       >
         <p>
-          XFileAccess Module not installed.
+          The Desktop Automation module (needed for file access) is not installed.
         </p>
         <div>
           <Button
             type="primary"
             onClick={() => {
               this.props.updateUI({ showXFileNotInstalledDialog: false })
-              openSettings('xmodules')
+              openSettings('desktop-automation')
             }}
           >
             Open Settings

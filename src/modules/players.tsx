@@ -1,3 +1,6 @@
+import { reportUsage } from '@/services/usage'
+import { startExecutionLocality, visitExecutionLine, finishExecutionLocality } from '../common/execution_locality'
+import { startRunFrames, flushRunFrames, describeRunFrames } from '../common/run_frames'
 import * as act from '@/actions'
 import { Actions } from '@/actions/simple_actions'
 import clipboard from '@/common/clipboard'
@@ -18,6 +21,9 @@ import { getStorageManager } from '@/services/storage'
 import { message } from 'antd'
 import React from 'react'
 import { ocrCmdCounter, xCmdCounter, proxyCounter } from '@/modules/counters'
+import { runScript, stopScript, pauseScript, resumeScript, isScriptRunning, isScriptPaused } from '@/modules/script_runner'
+import { hideDesktopBorder } from '@/services/desktop_border'
+import { xmoduleOutdatedWarning } from '@/services/xmodules2/routing'
 
 import {
   askBackgroundToRunCommand
@@ -161,6 +167,8 @@ export const initTestCasePlayer = ({ store, vars, interpreter, xCmdCounter, ocrC
       })
     },
     run: (command, state) => {
+      reportUsage('command', command.cmd)
+      if (/^X/.test(command.cmd)) reportUsage('xmodule', 'used')
       return askBackgroundToRunCommand({
         command,
         state,
@@ -613,6 +621,12 @@ export const initTestCasePlayer = ({ store, vars, interpreter, xCmdCounter, ocrC
 
   player.on('START', ({ title, extra, loopsCursor }) => {
     log('START')
+    if (!extra.scriptSilent && extra.isBottomFrame && !extra.isBackFromCalling) startExecutionLocality(extra.frameId, true)
+
+    // run pictures: a fresh ring per table-macro run. A JS script's silent
+    // one-command runs pass through here too — those belong to the script's
+    // ring, which the script runner started, so they must not reset it.
+    if (extra && extra.isBottomFrame && !extra.isBackFromCalling && !extra.scriptSilent) startRunFrames('classic')
 
     if (store.getState().player.mode === C.PLAYER_MODE.TEST_CASE &&
       extra.isBottomFrame && !extra.isBackFromCalling) {
@@ -642,6 +656,10 @@ export const initTestCasePlayer = ({ store, vars, interpreter, xCmdCounter, ocrC
     // script has its own start/end log lines, so skip the per-run banner
     if (!extra.scriptSilent) {
       store.dispatch(act.addLog('status', `Playing macro ${title}`))
+      // outdated native host = subtle failures all over — say it at the top
+      // of EVERY run log, where the person debugging the run actually looks
+      const xmoduleWarn = xmoduleOutdatedWarning()
+      if (xmoduleWarn) store.dispatch(act.addLog('warning', xmoduleWarn))
     }
   })
 
@@ -680,6 +698,14 @@ export const initTestCasePlayer = ({ store, vars, interpreter, xCmdCounter, ocrC
   player.on('END', (obj) => {
     log('END', obj)
 
+    // Desktop border indicator comes down when the run ends. NOT on
+    // scriptSilent ENDs: those are single-command sub-runs inside a JS
+    // script — hiding per sub-command would flicker the frame; the script
+    // runner hides it once in its own epilogue (runScript).
+    if (!(obj.extra && obj.extra.scriptSilent)) {
+      hideDesktopBorder()
+    }
+
     csIpc.ask('PANEL_STOP_PLAYING', {})
 
     store.dispatch(act.stopPlaying())
@@ -705,6 +731,7 @@ export const initTestCasePlayer = ({ store, vars, interpreter, xCmdCounter, ocrC
     // no per-run "Macro completed" log, no badge blink; the script runner
     // reports start/end/errors itself. Error logs from commands still appear.
     const scriptSilent = !!(obj.extra && obj.extra.scriptSilent)
+    if (!scriptSilent && obj.extra?.isBottomFrame) reportUsage('macro', obj.reason === player.C.END_REASON.COMPLETE ? 'classic.ok' : obj.reason === player.C.END_REASON.MANUAL ? 'classic.stopped' : 'classic.failed')
 
     switch (obj.reason) {
       case player.C.END_REASON.COMPLETE:
@@ -733,14 +760,20 @@ export const initTestCasePlayer = ({ store, vars, interpreter, xCmdCounter, ocrC
 
     const { frameId } = obj.extra
     const ms = getMacroMonitor().getDataFromInspector(frameId, MacroInspector.Timer)
+    const locality = scriptSilent ? '' : finishExecutionLocality(frameId, obj.extra.isBottomFrame || obj.reason !== player.C.END_REASON.COMPLETE)
 
     if (!scriptSilent) {
       store.dispatch(
         act.addLog(
           'info',
-          logMsg[obj.reason] + ` (Runtime ${milliSecondsToStringInSecond(ms)})`
+          logMsg[obj.reason] + ` (Runtime ${milliSecondsToStringInSecond(ms)}${obj.reason === player.C.END_REASON.COMPLETE && locality ? ', ' + locality : ''})`,
+          { localExecution: obj.reason === player.C.END_REASON.COMPLETE && locality.endsWith(', no cloud used') }
           )
         )
+      // run pictures: the last finder captures go to Shots as _run_last*.png
+      flushRunFrames()
+        .then(written => { if (written.length) store.dispatch(act.addLog('info', describeRunFrames(written))) })
+        .catch(() => {})
     }
 
     getMacroMonitor().stopInspector(frameId, MacroInspector.Timer)
@@ -767,6 +800,7 @@ export const initTestCasePlayer = ({ store, vars, interpreter, xCmdCounter, ocrC
   })
 
   player.on('TO_PLAY', ({ index, currentLoop, loops, resource, extra }) => {
+    if (!extra.scriptSilent) visitExecutionLine(`classic:${extra.macroId || extra.id || extra.frameId}:${index}`)
     // log('TO_PLAY', index, resource, 'currentLoop', currentLoop)
 
     store.dispatch(act.setPlayerState({
@@ -778,9 +812,14 @@ export const initTestCasePlayer = ({ store, vars, interpreter, xCmdCounter, ocrC
       } : {})
     }))
 
-    const triple  = [resource.cmd, resource.target, resource.value]
-    const str     = ['', ...triple, ''].join(' | ')
-    store.dispatch(act.addLog('reflect', `Executing: ${str}`))
+    // a JS-script sub-run whose uiv.* call already wrote its own
+    // "Executing: uiv.download …" line does not get the classic triple on
+    // top — that second line named the legacy command (OPEN-ISSUES 30.2)
+    if (!(extra && extra.loggedAs)) {
+      const triple  = [resource.cmd, resource.target, resource.value]
+      const str     = ['', ...triple, ''].join(' | ')
+      store.dispatch(act.addLog('reflect', `Executing: ${str}`))
+    }
 
       // Note: show in badage the current command index (start from 1)
       if (!extra || !extra.scriptSilent) {
@@ -870,11 +909,59 @@ export const initTestSuitPlayer = ({store, vars, tcPlayer, xCmdCounter, ocrCmdCo
 
       return getStorageManager().getMacroStorage().read(tcId, 'Text')
       .then(tc => {
-        const openTc  = tc && tc.data.commands.find(c => c.cmd.toLowerCase() === 'open' || c.cmd.toLowerCase() === 'openBrowser')
-
         if (!tc) {
           throw new Error('macro does not exist')
         }
+
+        // JS script macro: its data.commands is empty, so the table player
+        // would report "completed (Runtime 0.00s)" without running a thing.
+        // Run it through the script runner (like the panel Play button) and
+        // feed the outcome into the suite report like a classic macro.
+        if (typeof (tc.data as any).script === 'string') {
+          store.dispatch(act.editTestCase(tc.id))
+
+          const script = (tc.data as any).script
+          const runRound = (round: number): Promise<any> => {
+            if (tcLoops > 1) {
+              store.dispatch(act.addLog('status', `Loop round ${round} of ${tcLoops}`))
+            }
+            return runScript(script).then((r: any) => {
+              return (r.ok && round < tcLoops) ? runRound(round + 1) : r
+            })
+          }
+
+          return runRound(1).then((r: any) => {
+            const stopped = !r.ok && r.error === 'Script stopped'
+            addReport({
+              id:         tc.id,
+              name:       tc.name,
+              errMsg:     r.error || '',
+              stopReason: r.ok ? Player.C.END_REASON.COMPLETE
+                               : (stopped ? Player.C.END_REASON.MANUAL : Player.C.END_REASON.ERROR),
+              usedTime:   tcTracker.elapsedInSeconds(),
+              stack:      []
+            })
+
+            if (r.ok) return true
+
+            if (stopped) {
+              // the user's Stop ends the whole suite; leave this run pending,
+              // same as the classic path on a manual stop
+              tsPlayer.stop({ tcPlayerStopped: true })
+              return new Promise(() => {})
+            }
+
+            setState({ stopReason: Player.C.END_REASON.ERROR })
+            if (vars.get('!GLOBAL_TESTSUITE_STOP_ON_ERROR')) {
+              tsPlayer.stop({ tcPlayerStopped: true })
+              return Promise.reject(new Error(r.error))
+            }
+            // like the classic path: even on error the suite moves on
+            return true
+          })
+        }
+
+        const openTc  = tc.data.commands.find(c => c.cmd.toLowerCase() === 'open' || c.cmd.toLowerCase() === 'openBrowser')
 
         // update editing && start to play tcPlayer
         store.dispatch(act.editTestCase(tc.id))
@@ -939,13 +1026,22 @@ export const initTestSuitPlayer = ({store, vars, tcPlayer, xCmdCounter, ocrCmdCo
   tsPlayer.on('PAUSED', ({ extra }) => {
     log('PAUSED SUITE')
     store.dispatch(act.addLog('status', `Test suite paused`))
-    tcPlayer.pause()
+    // a JS script macro runs through the script runner, not tcPlayer
+    if (isScriptRunning() && !isScriptPaused()) {
+      pauseScript()
+    } else {
+      tcPlayer.pause()
+    }
   })
 
   tsPlayer.on('RESUMED', ({ extra }) => {
     log('RESUMED SUIITE')
     store.dispatch(act.addLog('status', `Test suite resumed`))
-    tcPlayer.resume()
+    if (isScriptPaused()) {
+      resumeScript()
+    } else {
+      tcPlayer.resume()
+    }
   })
 
   tsPlayer.on('TO_PLAY', ({ index, extra }) => {
@@ -975,7 +1071,12 @@ export const initTestSuitPlayer = ({store, vars, tcPlayer, xCmdCounter, ocrCmdCo
     store.dispatch(act.updateUI({ shouldEnableDesktopAutomation: undefined }))
 
     if (reason === Player.C.END_REASON.MANUAL && (!opts || !opts.tcPlayerStopped)) {
-      tcPlayer.stop()
+      // a JS script macro runs through the script runner, not tcPlayer
+      if (isScriptRunning()) {
+        stopScript()
+      } else {
+        tcPlayer.stop()
+      }
     }
 
     // Note: give it some time, in case we're stopping tc player above

@@ -1,4 +1,5 @@
 import * as act from '@/actions'
+import { setLastDownloadPath } from '@/common/last_download'
 import { isExtensionResourceOnlyCommand } from '@/common/command'
 import Interpreter from '@/common/interpreter'
 import csIpc from '@/common/ipc/ipc_cs'
@@ -16,7 +17,6 @@ import { MacroInspector } from '@/services/player/monitor/types'
 import { ocrCmdCounter, proxyCounter, xCmdCounter } from '@/modules/counters'
 import { interpretSpecialCommands } from '@/modules/interpret_commands'
 import { initTestCasePlayer, initTestSuitPlayer } from '@/modules/players'
-import { showDownloadBarFinally } from './modules/helper'
  
 
 type PlayerType  = any
@@ -152,29 +152,24 @@ export const initPlayer = (store) => {
         isBackFromCalling:  isResume
       }
 
-      return showDownloadBarFinally(
-        () => xCmdCounter.get() > 0,
-        () => {
-          if (isResume) {
-            tcPlayer.setState(playerState)
-            // Note: already increase `nextIndex` by one
-            tcPlayer.__setNext(runningStatus.nextIndex)
+      if (isResume) {
+        tcPlayer.setState(playerState)
+        // Note: already increase `nextIndex` by one
+        tcPlayer.__setNext(runningStatus.nextIndex)
 
-            return tcPlayer.play(
-              tcPlayer.getState()
-              )
-          } else {
-            const needDelayAfterLoop = and(
-              ...playerState.resources.map(command => isExtensionResourceOnlyCommand(command.cmd))
-              )
-            const args = {
-              ...playerState,
-              needDelayAfterLoop
-            }
-            return tcPlayer.play(args)
-          }
+        return tcPlayer.play(
+          tcPlayer.getState()
+          )
+      } else {
+        const needDelayAfterLoop = and(
+          ...playerState.resources.map(command => isExtensionResourceOnlyCommand(command.cmd))
+          )
+        const args = {
+          ...playerState,
+          needDelayAfterLoop
         }
-      )
+        return tcPlayer.play(args)
+      }
     }
   })
 
@@ -192,7 +187,7 @@ export const initPlayer = (store) => {
 
   const tcPlayer    = initTestCasePlayer({store, vars, interpreter, xCmdCounter, ocrCmdCounter, proxyCounter})
   PlayerInstance.setInstance(tcPlayer)
-  // **important: don't remove tsPlayer. It's actually used by context menu "Testsuite: Play all in folder"
+  // **important: don't remove tsPlayer. It's actually used by context menu "Play all in folder"
   const tsPlayer    = initTestSuitPlayer({store, vars, tcPlayer, xCmdCounter, ocrCmdCounter, proxyCounter})
 
   initMacroMonitor({ vars, store })
@@ -228,6 +223,8 @@ export const initPlayer = (store) => {
         if (!fileName) {
           return false
         }
+        // the full path too — uiv.download logs where the file landed (23.5)
+        setLastDownloadPath(args.filename, args.uivSiteName, args.uivOrphanWarning, args.uivDuplicateOf || null)
         vars.set({ '!LAST_DOWNLOADED_FILE_NAME': fileName }, true)
         return true
       }

@@ -7,7 +7,7 @@ import { Button, Checkbox, Input, message } from 'antd'
 import * as actions from '@/actions'
 import { Actions as simpleActions } from '@/actions/simple_actions'
 import { restoreBackup } from '@/services/backup/restore'
-import { getStorageManager, StorageManagerEvent } from '@/services/storage'
+import { getStorageManager, StorageManagerEvent, requestCrossPageForceReload } from '@/services/storage'
 import { State } from '@/reducers/state'
 
 interface BackupTabProps {
@@ -168,7 +168,10 @@ class BackupTab extends React.Component<BackupTabProps, BackupTabState> {
                 storage: getStorageManager().getCurrentStrategyType()
               }).then(
                 (result: any) => {
+                  // local emit reaches only this page — the nonce tells the
+                  // side panel / IDE window to reload their file trees too
                   getStorageManager().emit(StorageManagerEvent.ForceReload)
+                  requestCrossPageForceReload()
                   message.success('Backup restored')
 
                   this.props.addLog(

@@ -4,6 +4,9 @@ import { createListenerRegistry } from '../registry'
 import { WeakConsecutive, withConsecutive } from '../consecutive';
 import { retry } from '../ts_utils';
 
+// Requests here are signed like the content scripts' (cs_postmessage.js), so
+// a context using these helpers must call setChannelKeySource first. Neither
+// helper has a caller today.
 const postMsg = postMessage
 
 type CommandArgs = {

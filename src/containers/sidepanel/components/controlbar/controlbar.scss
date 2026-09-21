@@ -46,5 +46,24 @@
       color: #007bff;
       cursor: pointer;
     }
+
+    // MCP bridge badge — replaces the links row while an MCP client is
+    // connected. Deliberately loud: with several browsers on one bridge
+    // this label ("chrome#1", "firefox#2") is how the user tells at a
+    // glance which connection THIS browser holds. Click opens Settings > AI.
+    .mcp-bridge-badge {
+      font: 600 12px/1.4 Consolas, Menlo, monospace;
+      color: #fff;
+      background: #7c3aed;
+      padding: 2px 10px;
+      border-radius: 10px;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+      white-space: nowrap;
+
+      &:hover {
+        background: #6d28d9;
+      }
+    }
   }
 }

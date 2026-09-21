@@ -1,7 +1,12 @@
+import { reportUsage } from '@/services/usage'
+import { captureExecutionCloudCall } from '@/common/execution_locality'
 import { getAIProviderConfig } from '@/services/ai/computer_use/service'
+import Ext from '@/common/web_extension'
+import { getXModuleVersion } from '@/services/xmodules2/routing'
 import { chatCompletionsUrl } from '@/common/uiv_link'
 import { uivInstallHeader } from '@/services/ai/uivision_free_tier'
 import { CoordSpace, coordSpaceForModel } from '@/services/ai/openai_compatible/sampling'
+import { openrouterReasoningParam, isReasoningMandatoryError, markReasoningMandatory } from '@/services/ai/openai_compatible/reasoning'
 
 // OpenAI-compatible vision calls for aiPrompt and aiScreenXY.
 //
@@ -70,6 +75,10 @@ export type OpenAICompatAnswer = {
   // model id the response reports, then the configured model. Same priority
   // chain the computer-use loop uses (see openai_compatible/sampling.ts).
   coordSpace: CoordSpace
+  // per input image (null where the input was null/undefined): what was
+  // actually SENT after scaleForVision. Coordinates in the answer live in this
+  // space; callers that parse coordinates must divide scaleFactor back out.
+  imageScales: Array<{ scaleFactor: number; width: number; height: number } | null>
 }
 
 /**
@@ -79,20 +88,29 @@ export type OpenAICompatAnswer = {
 export async function askOpenAICompatible (
   promptText: string,
   imageBuffers: Array<ArrayBuffer | null | undefined>,
-  task: string = 'unknown'
+  task: string = 'unknown',
+  opts: { maxTokens?: number } = {}
 ): Promise<OpenAICompatAnswer> {
   const providerConfig = getAIProviderConfig()
+  const recordCloudCall = captureExecutionCloudCall(providerConfig.provider)
 
   const content: any[] = [{ type: 'text', text: promptText }]
+  const imageScales: OpenAICompatAnswer['imageScales'] = []
   for (const buffer of imageBuffers) {
-    if (!buffer) continue
+    if (!buffer) {
+      imageScales.push(null)
+      continue
+    }
     const scaled = await scaleForVision(buffer)
+    imageScales.push({ scaleFactor: scaled.scaleFactor, width: scaled.width, height: scaled.height })
     content.push({ type: 'image_url', image_url: { url: toDataUrl(scaled.buffer) } })
   }
 
   const body: any = {
     model: providerConfig.model,
-    max_tokens: 1024,
+    // 1024 fits an answer; word-by-word outputs (aiocr) need real room —
+    // a text-heavy screen truncates at 1024 and the JSON dies mid-array
+    max_tokens: opts.maxTokens || 1024,
     messages: [{ role: 'user', content }]
   }
   // Reasoning models burn "thinking" tokens against max_tokens and then return
@@ -100,9 +118,10 @@ export async function askOpenAICompatible (
   // reply came back blank). Same fix as the chat and computer-use loops:
   // OpenRouter's unified param, only sent there (local endpoints may not know
   // it, and the Ui.Vision proxy forces it server-side anyway).
-  if (/openrouter\.ai/i.test(providerConfig.baseURL)) body.reasoning = { enabled: false }
+  const onOpenRouter = /openrouter\.ai/i.test(providerConfig.baseURL)
+  if (onOpenRouter) body.reasoning = openrouterReasoningParam(providerConfig.model)
 
-  const res = await fetch(chatCompletionsUrl(providerConfig.baseURL), {
+  const doFetch = () => fetch(chatCompletionsUrl(providerConfig.baseURL), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -116,12 +135,32 @@ export async function askOpenAICompatible (
       // and it stays out of the request body schema. It is a HINT, not a
       // trust boundary — the client sets it, so route COST on it, not access.
       'X-UIV-Task': task,
+      // build cohort marker — lets the proxy split metrics by client version
+      // (retention.md 9.4); a HINT like the task header, never an access key
+      'X-UIV-Version': Ext.runtime.getManifest().version,
+      'X-UIV-XModule-Version': getXModuleVersion(),
       'X-Title': 'Ui.Vision RPA',
       // device id — our proxy only; on PRO the Bearer header is the account key
       ...uivInstallHeader(providerConfig.baseURL)
     },
     body: JSON.stringify(body)
   })
+
+  recordCloudCall()
+  let res = await doFetch()
+
+  // Models that refuse reasoning-off (HTTP 400 "Reasoning is mandatory",
+  // e.g. gemini-3.7-flash): remember the model, retry once with the closest
+  // legal request, {effort:'low'}.
+  if (!res.ok && onOpenRouter) {
+    const detail = await res.text().catch(() => '')
+    if (!isReasoningMandatoryError(res.status, detail)) {
+      throw new Error(`E353: ${providerConfig.label} API returned HTTP ${res.status}. ${detail.slice(0, 300)}`)
+    }
+    markReasoningMandatory(providerConfig.model)
+    body.reasoning = openrouterReasoningParam(providerConfig.model)
+    res = await doFetch()
+  }
 
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
@@ -143,7 +182,9 @@ export async function askOpenAICompatible (
       ? headerSpace
       : coordSpaceForModel(typeof json.model === 'string' && json.model ? json.model : providerConfig.model)
 
-  return { text, coordSpace }
+  reportUsage('ai', providerConfig.provider === 'uivision' ? (providerConfig.tier === 'pro' ? 'pro' : 'free') : providerConfig.provider === 'local' ? 'local' : 'own-key')
+  window.dispatchEvent(new Event('uiv-allowance-changed'))
+  return { text, coordSpace, imageScales }
 }
 
 /**
@@ -176,7 +217,22 @@ export async function visionPrompt (
   promptText: string
 ): Promise<VisionResult> {
   const answer = await askOpenAICompatible(promptText, [mainImageBuffer, searchImageBuffer], 'ai.ask')
-  return { coords: parseCoordsFromText(answer.text), isSinglePoint: true, aiResponse: answer.text }
+  const rawCoords = parseCoordsFromText(answer.text)
+
+  // Any coordinates in the answer name a spot on the MAIN image, which
+  // askOpenAICompatible may have downscaled to the pixel ceiling — so the same
+  // two conversions as visionLocate: model convention into sent-image pixels,
+  // then the scale factor back out. Skipping the second step was the measured
+  // ai.ask bug: every coordinate came back multiplied by ~0.76 on a 4K screen.
+  const main = answer.imageScales[0]
+  const coords = main
+    ? (answer.coordSpace === 'normalized-1000'
+        ? rawCoords.map(c => ({ x: (c.x / 1000) * main.width, y: (c.y / 1000) * main.height }))
+        : rawCoords
+      ).map(c => ({ x: Math.round(c.x / main.scaleFactor), y: Math.round(c.y / main.scaleFactor) }))
+    : rawCoords
+
+  return { coords, isSinglePoint: true, aiResponse: answer.text }
 }
 
 /**

@@ -28,7 +28,7 @@ import csIpc from '@/common/ipc/ipc_cs'
 import log from '@/common/log'
 import { Player } from '@/common/player'
 import storage from '@/common/storage'
-import { delay, isMac } from '@/common/ts_utils'
+import { isMac } from '@/common/ts_utils'
 import config from '@/config'
 import { getActiveTabId, showPanelWindow } from '@/ext/common/tab'
 import {
@@ -523,19 +523,6 @@ class MacroTable extends React.Component {
 
   isPlayerStopped () {
     return this.props.player.status === C.PLAYER_STATUS.STOPPED
-  }
-
-  waitBeforeScreenCapture () {
-    if (!isCVTypeForDesktop(this.props.config.cvScope)) {
-      return Promise.resolve()
-    }
-
-    if (this.props.config.waitBeforeDesktopScreenCapture && this.props.config.secondsBeforeDesktopScreenCapture > 0) {
-      message.info(`About to take desktop screenshot in ${this.props.config.secondsBeforeDesktopScreenCapture} seconds`)
-      return delay(() => {}, this.props.config.secondsBeforeDesktopScreenCapture * 1000)
-    }
-
-    return Promise.resolve()
   }
 
   onContextMenu = (e, index) => {

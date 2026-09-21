@@ -1,3 +1,6 @@
+import { usageStatisticsDefault } from '@/services/usage/preferences'
+import { migrateInvokeConfig } from './common/invoke_policy'
+import { withDebugger } from './common/debugger'
 /* global PREINSTALL_CSV_LIST PREINSTALL_VISION_LIST */
 
 import React, { lazy } from 'react'
@@ -18,6 +21,7 @@ import { initPlayer } from './init_player'
 import Ext from './common/web_extension'
 import csIpc from './common/ipc/ipc_cs'
 import { getStorageManager, StorageManagerEvent, StorageStrategyType } from './services/storage'
+import { PREINSTALL_ROOT_FOLDER } from './config/preinstall_macros'
 import { polyfillTimeoutFunctions } from './services/timeout/cs_timeout'
 import { FlatStorageEvent } from './services/storage/flat/storage'
 import { getXFile } from './services/xmodules/xfile'
@@ -83,7 +87,9 @@ import { checkIfSidePanelOpen } from './ext/common/sidepanel'
 import interceptLog from './common/intercept_log'
 import { createRoot } from 'react-dom/client'
 import { isSidePanelWindow } from './common/utils'
+import { getState as getBgState } from './ext/common/global_state'
 import { installGoUivLinkDecorator } from './common/uiv_link'
+import { isDevTestBrowser } from './services/mcp_bridge'
 
 const App = lazy(() => import('./app'));
 const SidepanelApp = lazy(() => import('./sidepanel_app'));
@@ -282,14 +288,24 @@ const restoreConfig = () => {
         useDarkTheme: false,
         sidePanelOnLeft: false,
         anthropicAPIKey: '',
-        aiComputerUseMaxLoops: 50,
         // custom system prompt for the sidebar AI chat (macro assistant);
         // empty = use the built-in default from macro_agent/service.ts
         aiMacroAgentSystemPrompt: '',
+        // DEV: send this build's prompt on the Ui.Vision tier instead of the
+        // server-served one — for testing prompt edits without a proxy deploy
+        aiDevLocalPrompt: false,
         showSidebar: false,
         showBottomArea: true,
         playScrollElementsIntoView: true,
         playHighlightElements: true,
+        // desktop automation overlays (Windows; drawn by the xmodule2 host):
+        // display border while automation runs + bounding boxes around
+        // image/OCR matches — see services/desktop_border.ts
+        playDesktopAnimations: true,
+        // sub-option: skip DWM capture-exclusion so the overlays show in
+        // RDP/screen-sharing streams — and consequently in screenshots and
+        // OCR/vision captures too
+        desktopBorderCaptureVisible: false,
         // command interval: fast (no delay) is the default since the 2026-07
         // settings cleanup; the setting itself moved to Settings > Advanced
         playCommandInterval: 0,
@@ -302,7 +318,7 @@ const restoreConfig = () => {
         // Run macros from outside
         allowRunFromBookmark: true,
         allowRunFromFileSchema: true,
-        allowRunFromHttpSchema: true,
+        allowRunFromHttpSchema: false,
         // timeout in seconds
         timeoutPageLoad: 60,
         timeoutElement: 10,
@@ -337,14 +353,15 @@ const restoreConfig = () => {
         cvScope: 'browser',
         defaultVisionSearchConfidence: 0.6,
         useDesktopScreenCapture: true,
-        waitBeforeDesktopScreenCapture: false,
-        secondsBeforeDesktopScreenCapture: 3,
         // proxy related,
         defaultProxy: '',
         defaultProxyAuth: '',
         turnOffProxyAfterReplay: true,
         ...config,
       }
+
+      cfg.shareUsageStatistics = usageStatisticsDefault(cfg)
+      Object.assign(cfg, migrateInvokeConfig(cfg))
 
       // Migration from the single jsFirstMode checkbox to the pair above.
       // Anyone who had explicitly turned JS-first OFF wanted the classic views,
@@ -355,9 +372,26 @@ const restoreConfig = () => {
         delete cfg.jsFirstMode
       }
 
+      // Dev/test browsers get the MCP bridge ON by default (user decision
+      // 2026-08-18), the same detection that waives the pairing token: on a
+      // dev rig the bridge is wanted and the switch is pure friction. Only
+      // when the switch was never touched — ...config merged above, so an
+      // explicit OFF is a stored false and wins; store installs in end-user
+      // browsers are not 'development' and keep the opt-in default.
+      const maybeDefaultBridgeOn = cfg.mcpBridgeEnabled === undefined
+        ? isDevTestBrowser().then(dev => { if (dev) cfg.mcpBridgeEnabled = true })
+        : Promise.resolve()
 
-      store.dispatch(updateConfig(cfg))
-      return cfg
+      return maybeDefaultBridgeOn.then(() => {
+        store.dispatch(updateConfig(cfg))
+        // OPEN-ISSUES 38: shared settings.json / keys.json in the home folder
+        // win over this copy when newer (only once the module answers)
+        import('@/services/xmodules2/routing').then(r => r.probeXModules2()).then(active => {
+          if (!active) return
+          return import('@/services/shared_settings').then(s => s.pullSharedSettings(store.getState().config, patch => store.dispatch(updateConfig(patch))))
+        }).catch(() => {})
+        return cfg
+      })
     })
 }
 
@@ -469,13 +503,32 @@ const genPlayerPlayCallback = ({ options,installed}) => {
     }
 
     // Note: it's better to keep kantu open if it's opened manually before.
-    // closeRPA only ever closes the IDE window — the side panel is a
-    // persistent surface and stays open even for bookmark runs (closeRPA=1)
-    if (!err && reason === Player.C.END_REASON.COMPLETE && closeRPA && !closeBrowser && !isSidePanelWindow()) {
-      // Close kantu panel
-      setTimeout(() => {
-        window.close()
-      }, 1000)
+    // closeRPA closes only what the run opened: the IDE window always (it
+    // exists for the run), the side panel only when the background auto-
+    // opened it for this bookmark run (tryOpenSidePanelForRun sets
+    // sidePanelAutoOpenedForRun) — a panel the user had docked before the
+    // bookmark click stays open. window.close() from inside the Chrome side
+    // panel document closes the panel; on Firefox the sidebar cannot be
+    // closed programmatically outside a user gesture, and the flag is never
+    // set there.
+    if (!err && reason === Player.C.END_REASON.COMPLETE && closeRPA && !closeBrowser) {
+      const closeAfterDebuggerCleanup = () => {
+        setTimeout(() => {
+          withDebugger.detachNow().then(() => window.close()).catch(e => {
+            log.warn('Debugger cleanup failed; keeping the panel open: ', e.message)
+          })
+        }, 1000)
+      }
+      if (!isSidePanelWindow()) {
+        // Close kantu panel
+        closeAfterDebuggerCleanup()
+      } else {
+        getBgState().then(state => {
+          if (state && state.sidePanelAutoOpenedForRun) {
+            closeAfterDebuggerCleanup()
+          }
+        }).catch(() => { /* background state unavailable — keep the panel */ })
+      }
     }
   }
 
@@ -585,6 +638,23 @@ const bindIpcEvent = () => {
     // log(cmd, args)
 
     switch (cmd) {
+      // a line for the panel log from the background (e.g. "content script
+      // re-injected" after an extension reload — ext/common/tab.ts)
+      // Two payload shapes arrive here: {type, text} from the background
+      // and {info | warning | error} from content scripts via CS_ADD_LOG
+      // (the "secondary locator" warning, the aria-expanded hint of 30.5).
+      // A second `case 'ADD_LOG'` further down used to handle the latter,
+      // but a switch takes the FIRST match — every content-script warning
+      // came out as an empty "[info]" line since this case was added.
+      case 'ADD_LOG': {
+        if (!args) return false
+        if (args.info)    store.dispatch(addLog('info', args.info, args.options))
+        if (args.warning) store.dispatch(addLog('warning', args.warning))
+        if (args.error)   store.dispatch(addLog('error', args.error))
+        if (args.text || args.type) store.dispatch(addLog(args.type || 'info', String(args.text || '')))
+        return true
+      }
+
       case 'PROXY_UPDATE': {
         store.dispatch(
           updateProxy(args.proxy)
@@ -850,7 +920,17 @@ const bindIpcEvent = () => {
                 }, 1000, 20 * 1000)
                 .then(() => {
                   const folder = findMacroFolderWithCaseInsensitiveRelativePath(store.getState(), testSuite.macroFolder)
-                  return (folder && folder.children) || []
+                  // FILES only, subfolders included — this branch used to
+                  // return direct children unfiltered (folder entries too),
+                  // while the storage branch below has always used the
+                  // recursive listR + isFile filter
+                  const collectFiles = (node) => (node.children || []).reduce(
+                    (acc, child) => child.isFile
+                      ? (acc.push(child), acc)
+                      : acc.concat(collectFiles(child)),
+                    []
+                  )
+                  return folder ? collectFiles(folder) : []
                 })
               }
 
@@ -1035,15 +1115,6 @@ const bindIpcEvent = () => {
         return true
       }
 
-      case 'ADD_LOG': {
-        if (!args)          return false
-        if (args.info)      store.dispatch(addLog('info', args.info, args.options))
-        if (args.warning)   store.dispatch(addLog('warning', args.warning))
-        if (args.error)     store.dispatch(addLog('error', args.error))
-
-        return true
-      }
-
       case 'SCREEN_AREA_SELECTED': {
         return captureScreenshotService.captureScreenInSelectionSimple(
           args.tabId,
@@ -1176,6 +1247,19 @@ function installFreshMacroSet () {
   .then(() => store.dispatch(restoreDemoMacros('js')))
 }
 
+// Does "Demo and QA Test Scripts" exist in the CURRENT macro storage? A
+// backend that is not usable (hard-drive mode without a root) counts as "no".
+function demoFolderExists () {
+  try {
+    const macroStorage = getStorageManager().getMacroStorage()
+    const p = macroStorage.getPathLib()
+    return Promise.resolve(macroStorage.directoryExists(p.join(globalConfig.preinstall.macroFolder, PREINSTALL_ROOT_FOLDER)))
+    .catch(() => false)
+  } catch (e) {
+    return Promise.resolve(false)
+  }
+}
+
 function tryPreinstall () {
   return storage.get('preinstall_info')
   .then(info => {
@@ -1183,9 +1267,20 @@ function tryPreinstall () {
     const thisVersion = globalConfig.preinstall.version
     if (askedVersions.indexOf(thisVersion) !== -1) return false
 
+    // Fresh install: welcome macros + the JS demo set. Existing install with
+    // a new demo-set version: the JS demo folder is rewritten from the
+    // shipped set (delete + write, like the Settings restore button) - but
+    // ONLY while that folder still exists. A user who deleted it said no to
+    // the demos; they come back only through Settings > Advanced > Replay >
+    // Restore Demo Macros (rule 2026-09-16, replaces the overwrite option).
     const installOnFresh = !info
       ? installFreshMacroSet()
-      : Promise.resolve()
+      : demoFolderExists().then(exists => (
+        exists
+          ? store.dispatch(restoreDemoMacros('js'))
+            .then(() => log('demo macros rewritten for demo-set version ' + thisVersion))
+          : log('demo folder absent - not recreated for demo-set version ' + thisVersion + ' (Restore Demo Macros brings it back)')
+      ))
 
     // The version marker is written ONLY after the install actually
     // succeeded. It used to be written unconditionally, with the failure
@@ -1312,6 +1407,36 @@ function bindStorageModeChanged () {
 
   getStorageManager().on(StorageManagerEvent.ForceReload, (type) => {
     reloadResources()
+  })
+
+  // Follow storage changes made in OTHER extension pages. The settings page
+  // (options.html) has its own StorageManager singleton whose events never
+  // leave that page — so a mode switch or "Reload files" there used to change
+  // nothing here (field report 2026-08-27). Two signals arrive through the
+  // persisted config instead:
+  // - config.storageMode changed: switch the LOCAL manager; that fires the
+  //   StrategyTypeChanged handler above (seed + reload + select macro).
+  // - config.storageReloadNonce bumped (requestCrossPageForceReload): turn it
+  //   into a local ForceReload.
+  storage.addListener((changes) => {
+    const change = (changes || []).find(c => c.key === 'config')
+    if (!change || !change.newValue) return
+    const oldCfg = change.oldValue || {}
+
+    const newMode = change.newValue.storageMode
+    if (newMode && newMode !== oldCfg.storageMode &&
+        newMode !== getStorageManager().getCurrentStrategyType()) {
+      try {
+        getStorageManager().setCurrentStrategyType(newMode)
+      } catch (e) {
+        log.warn('could not follow storage mode change from another page', e)
+      }
+    }
+
+    const nonce = change.newValue.storageReloadNonce
+    if (nonce && nonce !== oldCfg.storageReloadNonce) {
+      getStorageManager().emit(StorageManagerEvent.ForceReload)
+    }
   })
 }
 

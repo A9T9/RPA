@@ -18,7 +18,7 @@ import {
 import { isCVTypeForDesktop } from '@/common/cv_utils'
 import csIpc from '@/common/ipc/ipc_cs'
 import { Player } from '@/common/player'
-import { delay } from '@/common/ts_utils'
+
 import { SelectInput } from '@/components/select_input'
 import getSaveTestCase from '@/components/save_test_case'
 import { selectAreaOnDesktop } from '@/ext/common/desktop_vision'
@@ -262,19 +262,6 @@ class EditForm extends React.Component {
     })
   }
 
-  waitBeforeScreenCapture () {
-    if (!isCVTypeForDesktop(this.props.config.cvScope)) {
-      return Promise.resolve()
-    }
-
-    if (this.props.config.waitBeforeDesktopScreenCapture && this.props.config.secondsBeforeDesktopScreenCapture > 0) {
-      message.info(`About to take desktop screenshot in ${this.props.config.secondsBeforeDesktopScreenCapture} seconds`)
-      return delay(() => {}, this.props.config.secondsBeforeDesktopScreenCapture * 1000)
-    }
-
-    return Promise.resolve()
-  }
-
   onClickFind = () => {
     const { selectedCommand } = this.props
 
@@ -317,7 +304,7 @@ class EditForm extends React.Component {
             return resolve(true)
           }
 
-          return this.waitBeforeScreenCapture().then(run)
+          return run()
         }
 
         default: {
@@ -350,7 +337,7 @@ class EditForm extends React.Component {
       const takeImage = () => {
         const isDesktop = isCVTypeForDesktop(config.cvScope)
 
-        return this.waitBeforeScreenCapture().then(() => {
+        return Promise.resolve().then(() => {
           if (isDesktop) {
             return selectAreaOnDesktop({
               width: screen.availWidth,
@@ -593,13 +580,17 @@ class EditForm extends React.Component {
         <label />
         <div className="target-buttons">
           {/* 👁 marks that Select/Find run a visual (image/text) search
-              instead of the DOM inspector — same cue as in the IDE */}
+              instead of the DOM inspector — same cue as in the IDE. The
+              label says WHAT gets selected: an image crop for vision
+              commands, a page element (locator) otherwise. */}
           <Button
             size="small"
             disabled={!isCmdEditable || !isSelectEnabled}
             onClick={this.onToggleSelect}
           >
-            {(selectedCmd && VISION_IMAGE_COMMANDS.indexOf(selectedCmd.cmd) !== -1 ? '👁' : '') + (isInspecting ? 'Cancel' : 'Select')}
+            {isInspecting
+              ? 'Cancel'
+              : (selectedCmd && VISION_IMAGE_COMMANDS.indexOf(selectedCmd.cmd) !== -1 ? '👁Select image' : 'Select element')}
           </Button>
           <Button
             size="small"

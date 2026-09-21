@@ -1,4 +1,7 @@
+import { usageStatisticsDefault } from '@/services/usage/preferences'
+import { store } from '@/redux'
 import storage from '@/common/storage'
+import { getXModuleVersion } from '@/services/xmodules2/routing'
 import { OPENAI_COMPAT } from '@/common/constant'
 
 // Ui.Vision AI tier (provider id 'uivision'): pseudonymous install ID, the PRO
@@ -12,61 +15,32 @@ import { OPENAI_COMPAT } from '@/common/constant'
 
 // chrome.storage.local on purpose (NOT storage.sync): the free-tier quota is
 // per-machine, so every machine must have its own ID.
-const INSTALL_ID_STORAGE_KEY = 'uivisionAIInstallId'
-
-let cachedInstallId: string | null = null
-
-// 20 chars [A-Za-z0-9] containing the "4499" marker the proxy validates
-const generateInstallId = (): string => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
-  let id = ''
-  for (let i = 0; i < 16; i++) id += chars[Math.floor(Math.random() * chars.length)]
-  return id.slice(0, 8) + '4499' + id.slice(8)
-}
-
-export const getInstallId = async (): Promise<string> => {
-  if (cachedInstallId) return cachedInstallId
-  const stored = await storage.get(INSTALL_ID_STORAGE_KEY)
-  if (typeof stored === 'string' && stored.length > 0) {
-    cachedInstallId = stored
-    return stored
-  }
-  const id = generateInstallId()
-  cachedInstallId = id
-  await storage.set(INSTALL_ID_STORAGE_KEY, id)
-  return id
-}
-
-// getAIProviderConfig() is synchronous, so the ID must be available without
-// awaiting. The module-load warm-up below makes that the normal case; the
-// generate-first fallback only covers AI use before the warm-up finished, and
-// still keeps a previously stored ID once the read returns.
-export const getInstallIdSync = (): string => {
-  if (cachedInstallId) return cachedInstallId
-  const tentative = generateInstallId()
-  cachedInstallId = tentative
-  storage
-    .get(INSTALL_ID_STORAGE_KEY)
-    .then((stored: any) => {
-      if (typeof stored === 'string' && stored.length > 0) {
-        cachedInstallId = stored
-      } else {
-        return storage.set(INSTALL_ID_STORAGE_KEY, tentative)
-      }
-    })
-    .catch(() => {})
-  return tentative
-}
-
-getInstallId().catch(() => {})
+export { getInstallId, getInstallIdSync } from './install_id'
+import { getInstallIdSync } from './install_id'
 
 // A PRO key is the ACCOUNT and now occupies the Bearer header, so the install
 // ID — which identifies the DEVICE — moves to its own header. Sent on both
 // tiers (on free the server ignores it, it equals the bearer token), but ONLY
 // to our own proxy: a stable pseudonymous id has no business being handed to
 // OpenRouter or to whatever is listening on a local endpoint.
-export const uivInstallHeader = (baseURL: string): Record<string, string> =>
-  baseURL === OPENAI_COMPAT.UIVISION_BASE_URL ? { 'X-UIV-Install': getInstallIdSync() } : {}
+// X-UIV-Version rides along under the same gate: it gives the proxy monitor a
+// per-extension-version split (HANDOVER-server-prompt-extension.md), and the
+// version is no secret to our own server while still not being broadcast to
+// third-party endpoints.
+export const uivInstallHeader = (baseURL: string): Record<string, string> => {
+  if (baseURL !== OPENAI_COMPAT.UIVISION_BASE_URL) return {}
+  const config = store.getState().config
+  const headers: Record<string, string> = { 'X-UIV-Install': getInstallIdSync(),
+    'X-UIV-Engine': config.uivisionEngine === 'advanced' ? 'advanced' : 'standard',
+    'X-UIV-Usage': usageStatisticsDefault(config) ? 'on' : 'off' }
+  try {
+    headers['X-UIV-Version'] = chrome.runtime.getManifest().version
+    headers['X-UIV-XModule-Version'] = getXModuleVersion()
+  } catch (e) {
+    // not in an extension context (tests) — the header is optional anyway
+  }
+  return headers
+}
 
 // ---------- PRO tier ----------
 // config.uivisionTier records which of the two Ui.Vision entries in the
@@ -97,8 +71,12 @@ export const isProTier = (config: { [key: string]: any }): boolean =>
 
 // Trimmed because a key pasted out of an order email arrives with a trailing
 // newline often enough that not trimming is a support ticket.
-export const getProKey = (config: { [key: string]: any }): string =>
-  String(config[PRO_KEY_CONFIG_NAME] || '').trim()
+// "ui-vision-ai-free" is the placeholder shipped in the shared keys.json
+// (OPEN-ISSUES 38): it means the free tier, exactly like an empty key.
+export const getProKey = (config: { [key: string]: any }): string => {
+  const k = String(config[PRO_KEY_CONFIG_NAME] || '').trim()
+  return k.toLowerCase() === 'ui-vision-ai-free' ? '' : k
+}
 
 // True when PRO is selected but no key has been entered yet — the requests
 // still go out on free quota, which the settings tab says next to the field.

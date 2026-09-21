@@ -12,6 +12,7 @@ import { isCVTypeForDesktop } from '@/common/cv_utils'
 import Ext from '@/common/web_extension'
 import { getPlayTab } from '@/ext/common/tab'
 import { goUivUrl } from '@/common/uiv_link'
+import { ensureAllUrlsPermission } from '@/common/firefox_permission'
 import getSaveTestCase from '@/components/save_test_case'
 import { isScriptMacroView } from '@/recomputed'
 import { getLicenseService } from '@/services/license'
@@ -43,49 +44,10 @@ class DevToolbar extends React.Component {
     })
   }
 
-  // firefox requires explicit permission to access all urls
-  // ask user to grant permission, return promise (same logic as IDE header)
+  // firefox requires explicit permission to access all urls — shared ask,
+  // same one the Play button and the AI run path use (firefox_permission.js)
   askPermission = () => {
-    return new Promise((resolve) => {
-      if (Ext.isFirefox()) {
-        Ext.permissions.contains({ origins: ['<all_urls>'] }).then(
-          (permissionGranted) => {
-            if (!permissionGranted) {
-              Modal.confirm({
-                title: 'Grant Permission To Replay Macros',
-                content: `Ui.Vision is an open-source tool for automating tasks. To replay macros, it requires permission from Firefox to 'access data in all tabs'. If you click 'OK', Ui.Vision will open the Firefox permission dialog, allowing you to provide this permission. Continue?`,
-                okText: 'Continue',
-                cancelText: 'Cancel',
-                onOk: () => {
-                  Ext.permissions.request({ origins: ['<all_urls>'] }).then((result) => {
-                    if (result) {
-                      resolve(true)
-                    } else {
-                      Ext.tabs.create({
-                        url: goUivUrl('https://go.ui.vision/?help=firefox_access_data_permission'),
-                        active: true
-                      })
-                      resolve(false)
-                    }
-                  })
-                },
-                onCancel: () => {
-                  Ext.tabs.create({
-                    url: goUivUrl('https://go.ui.vision/?help=firefox_access_data_permission'),
-                    active: true
-                  })
-                  resolve(false)
-                }
-              })
-            } else {
-              resolve(true)
-            }
-          }
-        )
-      } else {
-        resolve(true)
-      }
-    })
+    return ensureAllUrlsPermission()
   }
 
   // Starting a macro from scratch is a dev-mode move — everyone else describes

@@ -1,6 +1,7 @@
 import { MethodTypeInvocationNames } from './constants'
-import { KantuFileAccessHost } from './kantu-file-access-host'
 import { KantuFileAccess } from './kantu-file-access'
+import { NativeMessagingHost } from '../native_host'
+import { XMODULE2_HOST_NAME } from '../xmodules2/native'
 import { singletonGetter, snakeToCamel, until } from '@/common/ts_utils'
 import log from '@/common/log'
 import path from '@/common/lib/path'
@@ -97,8 +98,7 @@ export interface NativeFileAPI {
   runProcess:             (params: RunProcessOptions) => Promise<ProcessExitInfo>;
 }
 
-export const getNativeFileSystemAPI = singletonGetter(() => {
-  const nativeHost    = new KantuFileAccessHost()
+const makeFileAPI = (nativeHost: NativeMessagingHost): NativeFileAPI => {
   let pReady          = nativeHost.connectAsync().catch(e => {
     log.warn('pReady - error', e)
     throw e
@@ -291,4 +291,9 @@ export const getNativeFileSystemAPI = singletonGetter(() => {
   })
 
   return <NativeFileAPI>(<any>api)
-})
+}
+
+// ALL file access — hard-drive mode included — goes to the xmodule2 host,
+// the only native backend since 10.0.151. The root/home directory lives in
+// extension storage (XModule config).
+export const getNativeFileSystemAPI = singletonGetter(() => makeFileAPI(new NativeMessagingHost(XMODULE2_HOST_NAME)))

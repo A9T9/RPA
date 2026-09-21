@@ -12,7 +12,7 @@ import { backup } from '../services/backup/backup'
 import log from '../common/log'
 import { fromJSONString } from '../common/convert_utils'
 import config from '../config'
-import { CLASSIC_PREINSTALL, JS_PREINSTALL, MOVED_JS_PREINSTALL_PATHS } from '../config/preinstall_macros'
+import { CLASSIC_PREINSTALL, JS_PREINSTALL, PREINSTALL_CLASSIC_ROOT_FOLDER, PREINSTALL_ROOT_FOLDER } from '../config/preinstall_macros'
 import { WELCOME_SCRIPT, STAR_SCRIPT, CAT_SCRIPT } from '../config/preinstall_js_scripts'
 import Ext from '../common/web_extension'
 import { getMacroExtraKeyValueData } from '../services/kv_data/macro_extra_data'
@@ -100,6 +100,12 @@ const saveConfig = (function () {
 
     storage.set('config', config)
     lastSize = finalSize
+    // OPEN-ISSUES 38: mirror the shareable subset into <home>/settings.json +
+    // keys.json when the Desktop Automation module answers (debounced,
+    // content-checked; the sharedSettingsWrittenAt write-back stops here)
+    // (lazy import: the service reaches the XModule layer, which must not be
+    // pulled into the actions module at load time)
+    import('@/services/shared_settings').then(m => m.scheduleSharedSettingsPush(config, ts => dispatch({ type: T.UPDATE_CONFIG, data: { sharedSettingsWrittenAt: ts } }))).catch(() => {})
   }
 })()
 
@@ -828,7 +834,13 @@ export const increment = () => ({ type: INCREMENT, data: 'anything' });
 export function addLog (type, text, options = {}) {
   return (dispatch, getState) => {
     const state = getState()
-    const callStack = options.noStack ? [] : getMacroCallStack().toArray()
+    // The call stack singleton only exists where a player was initialized
+    // (the side panel). Logs also fire from the SETTINGS page (e.g. the OCR
+    // overlay button's engine notice) — an uninitialized stack must mean
+    // "no stack", not a throw that kills the caller's whole flow.
+    const callStack = options.noStack ? [] : (() => {
+      try { return getMacroCallStack().toArray() } catch (e) { return [] }
+    })()
     const logItem = {
       type,
       text,
@@ -882,8 +894,15 @@ export function clearScreenshots () {
   return {
     type: T.CLEAR_SCREENSHOTS,
     data: null,
-    post: () => {
+    post: ({ dispatch }) => {
+      // a rejected clear() used to vanish here — the list emptied, the files
+      // stayed, and nothing anywhere said why. Surface the failure and always
+      // re-list from storage, so the tab shows what is REALLY stored.
       return getStorageManager().getScreenshotStorage().clear()
+      .catch(e => {
+        dispatch(addLog('error', `Clear screenshots failed: ${e.message}`))
+      })
+      .then(() => dispatch(listScreenshots()))
     }
   }
 }
@@ -902,10 +921,15 @@ export function clearVisions () {
   return {
     type: T.CLEAR_VISIONS,
     data: null,
-    post: () => {
+    post: ({ dispatch }) => {
+      // same contract as clearScreenshots: failures surfaced, list re-synced
       return getStorageManager()
       .getVisionStorage()
       .clear()
+      .catch(e => {
+        dispatch(addLog('error', `Clear visual images failed: ${e.message}`))
+      })
+      .then(() => dispatch(listVisions()))
     }
   }
 }
@@ -1062,14 +1086,13 @@ export function playerPlay (options) {
   }
 
   return (dispatch, getState) => {
-    return getSaveTestCase()
-    .saveOrNot({
+    const savedMacro = opts.skipSave ? Promise.resolve(true) : getSaveTestCase().saveOrNot({
       getContent: (data) => 'You must save macro before replay',
       okText:           'Save',
       cancelText:       'Cancel',
       autoSaveExisting: true
     })
-    .then(saved => {
+    return savedMacro.then(saved => {
       // `false` tells the caller WHY nothing ran — the script runner turns a
       // silent no-start into a 10s stall and a generic E902 otherwise
       if (!saved) return false
@@ -1506,43 +1529,44 @@ export function installWelcomeMacro () {
   }
 }
 
-// Write ONE demo set in its shipped state — deleted demos come back, edited
-// ones are overwritten, the user's own macros are untouched. The csv/vision
-// resources the demos use are (re)installed along with the macros. The 'js'
-// set goes to "Demo and QA Test Scripts" (also written on fresh install, see
-// tryPreinstall in src/index.js); the 'classic' set goes to "Demo and QA
-// Test Scripts (Classic)" and ONLY arrives via its Settings > General >
-// "For Tech Support/QA" restore button.
+// Write ONE demo set in its shipped state — as a FACTORY RESET of the demo
+// folder: the folder is deleted wholesale first, then the shipped set is
+// written fresh. Overwrite-in-place (the old behavior) left every renamed,
+// moved or retired demo behind as a stale copy, chased by a hand-maintained
+// MOVED_JS_PREINSTALL_PATHS list that had to be updated on every layout
+// change — after a delete-first restore the folder matches the build exactly,
+// and that list is gone. Anything the user saved INSIDE the demo folder goes
+// with it (the Settings button warns before calling this); macros anywhere
+// else are untouched. The csv/vision resources the demos use are
+// (re)installed along with the macros. The 'js' set goes to "Demo and QA
+// Test Scripts" (also written on fresh install, see tryPreinstall in
+// src/index.js); the 'classic' set goes to "Demo and QA Test Scripts
+// (Classic)" and ONLY arrives via its Settings > General > "For Tech
+// Support/QA" restore button.
 export function restoreDemoMacros (kind /* 'js' | 'classic' */) {
-  return (dispatch) => {
+  // Promise.resolve().then(...): a SYNCHRONOUS throw anywhere below (seen
+  // live: the storage manager in XFile mode with no rootDir) must reach the
+  // caller's .catch as a rejection — thrown bare, it bypassed the button's
+  // error handler and the restore died with no message at all.
+  return (dispatch) => Promise.resolve().then(() => {
     log('PREINSTALL_CSV_LIST', PREINSTALL_CSV_LIST)
     log('PREINSTALL_VISION_LIST', PREINSTALL_VISION_LIST)
 
-    // demos that moved to another folder leave a stale copy at their OLD path
-    // on already-installed setups — remove it, or the tree shows the demo
-    // twice. Both name variants are tried: file mode stores plain .js,
-    // browser mode appends .json to the resolved path.
-    const removeMovedDemoCopies = () => {
-      if (kind === 'classic') return Promise.resolve()
-
+    const removeDemoFolder = () => {
       const macroStorage = getStorageManager().getMacroStorage()
       const p = macroStorage.getPathLib()
-
-      return Promise.all(MOVED_JS_PREINSTALL_PATHS.map(relativePath => {
-        const base = macroStorage.filePath(p.join(config.preinstall.macroFolder, relativePath))
-        return Promise.all([base, `${base}.json`].map(filePath =>
-          macroStorage.fileExists(filePath)
-          .then(exists => exists ? macroStorage.removeFile(filePath) : undefined)
-          .catch(() => undefined)
-        ))
-      }))
+      const root = p.join(
+        config.preinstall.macroFolder,
+        kind === 'classic' ? PREINSTALL_CLASSIC_ROOT_FOLDER : PREINSTALL_ROOT_FOLDER
+      )
+      // an absent folder (fresh install) is not an error — nothing to delete
+      return macroStorage.removeDirectory(root).catch(() => undefined)
     }
 
-    return Promise.all([
+    return removeDemoFolder().then(() => Promise.all([
       writePreinstallMacroSet(kind === 'classic' ? CLASSIC_PREINSTALL : JS_PREINSTALL),
       installPreinstallCsvs(dispatch),
       installPreinstallVisionImages(dispatch)
-    ])
-    .then(result => removeMovedDemoCopies().then(() => result))
-  }
+    ]))
+  })
 }

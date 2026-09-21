@@ -1,3 +1,4 @@
+import { captureExecutionCloudCall } from '@/common/execution_locality'
 import Anthropic from '@anthropic-ai/sdk'
 import ComputerUse, { ComputerUseActionResult } from './computer_use'
 import { ComputerUseMessageType } from './model'
@@ -207,6 +208,7 @@ class Sampling {
         }
       }
 
+      captureExecutionCloudCall('anthropic')()
       const response = await this.anthropic.beta.messages.create({
         model: this.params.model,
         max_tokens: 1024,

@@ -136,9 +136,12 @@ class Header extends React.Component {
     this.setState({ lastOperation: "record" });
   };
 
-  // (the old "Play loop.." feature was removed 2026-07 — loops in JS macros
-  // are plain for/while; classic loop replays remain available via the
-  // command line / bookmarks with the loop parameter)
+  // (the old "Play loop.." toolbar button was removed 2026-07. Loop replays
+  // live in the Files tab context menu instead: "Play in loop.." on a macro,
+  // "Play all in folder in loop.." on a folder. In-macro alternatives: times..end
+  // (classic) or for/while (JS scripts). There is NO `loop` command line /
+  // bookmark parameter: it is not in INVOKE_URL_PARAMS and RUN_TEST_CASE
+  // always plays MODE.STRAIGHT)
 
   onClickSave = () => {
     return getSaveTestCase().save();

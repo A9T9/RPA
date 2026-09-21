@@ -73,6 +73,16 @@ export const ActionFactories = {
   setOcrInDesktopMode: (name: string) => (ocrInDesktopMode: boolean) => {
     return createAction(name, ocrInDesktopMode)
   },
+  // connection label the MCP bridge assigned this browser ("chrome#1",
+  // "firefox#2", ...); null = not connected. Shown in the panel footer and
+  // Settings > AI so the user can tell instances apart when several
+  // browsers hold bridge connections at once.
+  setMcpBridgeLabel: (name: string) => (mcpBridgeLabel: string | null) => {
+    return createAction(name, mcpBridgeLabel)
+  },
+  setMcpBridgeClient: (name: string) => (mcpBridgeClient: string | null) => {
+    return createAction(name, mcpBridgeClient)
+  },
   setReplaySpeedOverrideToFastMode: (name: string) => (replaySpeedOverrideToFastMode: boolean) => {
     return createAction(name, replaySpeedOverrideToFastMode)
   },
@@ -767,6 +777,40 @@ export const ActionFactories = {
         if (success) {
           return gotoLine()
         }
+      })
+      .catch(e => {
+        log.warn(e)
+      })
+    })
+  },
+  // "Jump to line" for JS script macros — the script twin of gotoLineInMacro:
+  // opens the macro, shows the Macro tab (the log lives in another tab) and
+  // hands the script editor a one-shot reveal request (ScriptView.maybeReveal)
+  gotoScriptLineInMacro: (name: string) => (macroId: string, line: number) => {
+    return createThunkAction((dispatch, getState) => {
+      const state = getState()
+      const currentMacroId = getCurrentMacroId(state)
+
+      const saveMacro = macroId === currentMacroId
+        ? () => Promise.resolve(true)
+        : () => {
+            return getSaveTestCase({ dispatch, getState }).saveOrNot({
+              cancelText: 'Cancel'
+            })
+          }
+
+      saveMacro().then(success => {
+        if (!success) return
+
+        return Promise.resolve(
+          dispatch(editTestCase(macroId))
+        )
+        .then(() => {
+          dispatch(updateUI({
+            sidebarTab: 'Macro',
+            scriptRevealLine: { line, at: Date.now() }
+          }) as any)
+        })
       })
       .catch(e => {
         log.warn(e)

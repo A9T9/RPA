@@ -497,6 +497,7 @@ export function assertLocator (str: string): boolean {
     case 'partiallinktext':
     case 'css':
     case 'xpath':
+    case 'ref':
       return true
 
     default:
@@ -585,6 +586,41 @@ export function getElementByLocator (str: string, shouldWaitForVisible: boolean)
       case 'css':
         el = document.querySelector(value)
         break
+
+      // ref=N — an element that browser_snapshot (or screenshot {marks:'elements'})
+      // numbered earlier in THIS page load. The number -> element table
+      // (window.__uivRefs) lives in the extension's isolated world, so page
+      // scripts never see it and nothing is written into the DOM — the
+      // failure mode that motivated it: marking targets by rewriting their
+      // id broke a Discourse widget that looked itself up by that id
+      // (OPEN-ISSUES 14). The table dies with the document; a stale number
+      // gets a clear "call browser_snapshot again" instead of a locator timeout.
+      case 'ref': {
+        const refStore = (window as any).__uivRefs
+        const refNo = parseInt(value, 10)
+        if (!refStore || !refStore.map) {
+          throw new Error('getElementByLocator: ref=' + value + ' — no element refs exist in this frame yet: refs come from browser_snapshot (or screenshot marks) and die when the page navigates; call browser_snapshot first')
+        }
+        const refEl = refStore.map.get(refNo)
+        if (!refEl) {
+          throw new Error('getElementByLocator: ref=' + value + ' is unknown in this frame — refs are numbered by browser_snapshot and renumbered on navigation; call browser_snapshot again')
+        }
+        if (!refEl.isConnected) {
+          // re-rendered under a new node: adopt it by stable id or unique
+          // identity (OPEN-ISSUES 20.4) — only a real disappearance fails
+          const r = typeof refStore.resolve === 'function' ? refStore.resolve(refNo) : null
+          if (!r || !r.el) {
+            const why = r && r.how === 'ambiguous'
+              ? ' and ' + r.count + ' live elements look alike (' + r.label + ')'
+              : ' and no live element with the same tag, id or label exists'
+            throw new Error('getElementByLocator: ref=' + value + ' is gone — the page re-rendered that element after browser_snapshot' + why + '; call browser_snapshot again')
+          }
+          el = r.el
+          break
+        }
+        el = refEl
+        break
+      }
 
       case 'xpath':
         el = getElementByXPath(value)

@@ -8,7 +8,7 @@ const esc = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/
 export function recordedCommandToJs ({ cmd, target, value }) {
   switch (cmd) {
     case 'open':
-      return `uiv.open('${esc(target)}');`
+      return `uiv.goto('${esc(target)}');`
 
     // the AndWait variants need no explicit wait in JS: uiv calls after a
     // navigating click auto-wait for the new page / their element
@@ -17,14 +17,14 @@ export function recordedCommandToJs ({ cmd, target, value }) {
       return `uiv.page.click('${esc(target)}');`
 
     case 'type':
-      return `uiv.page.type('${esc(target)}', '${esc(value)}');`
+      return `uiv.page.fill('${esc(target)}', '${esc(value)}');`
 
     case 'select':
     case 'selectAndWait': {
       // the recorder emits 'label=Foo'; page.select takes the bare visible
       // label (and understands 'value=..' / 'index=N' prefixes as-is)
       const option = /^label=/.test(value || '') ? value.replace(/^label=/, '') : value
-      return `uiv.page.select('${esc(target)}', '${esc(option)}');`
+      return `uiv.page.selectOption('${esc(target)}', '${esc(option)}');`
     }
 
     // selectFrame, selectWindow, editContent, ...

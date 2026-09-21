@@ -1,3 +1,7 @@
+import { startUsageStatistics } from '../services/usage/background'
+startUsageStatistics()
+import { pageInvokePolicy, pageInvokeOptions } from '../common/invoke_policy'
+import { bindDebuggerLifetimes } from '../common/debugger_lifetime'
 /* global browser */
 
 import Ext from '../common/web_extension'
@@ -5,7 +9,7 @@ import {
   until, delay, setIn, pick, splitIntoTwo, retry, uid, and,
   ensureExtName, withTimeout
 } from '../common/utils'
-import { SIDEPANEL_PORT_NAME, bgInit } from '../common/ipc/ipc_bg_cs'
+import { SIDEPANEL_PORT_NAME, bgInit, initBgMessageHub } from '../common/ipc/ipc_bg_cs'
 import * as C from '../common/constant'
 import log from '../common/log'
 import clipboard from '../common/clipboard'
@@ -18,6 +22,7 @@ import { StorageManager, StorageStrategyType } from '../services/storage'
 import { getXFile } from '../services/xmodules/xfile'
 import { resizeViewportOfTab } from '../common/resize_window'
 import { ensureIpcSessionId, getIpcCache } from '../common/ipc/ipc_cache'
+import { ensureChannelKey } from '../common/ipc/cs_channel_key'
 import { getTab, getCurrentTab, activateTab, updateUrlForTab, getAllTabs } from '../common/tab_utils'
 import { runInDesktopScreenshotEditor } from '../desktop_screenshot_editor/service'
 import { DesktopScreenshot } from '../desktop_screenshot_editor/types'
@@ -26,15 +31,107 @@ import { setProxy, getProxyManager } from '../services/proxy'
 import { LogService } from '../services/log'
 import { getContextMenuService } from '../services/contextMenu'
 import { getState, updateState } from './common/global_state'
-import { genGetTabIpc, getActiveTab, getActiveTabId, getPlayTab, openSettings, showPanelWindow, withPanelIpc } from './common/tab'
+import { genGetTabIpc, getActiveTab, getActiveTabId, getPlayTab, openSettings, reinjectContentScript, showPanelWindow, withPanelIpc } from './common/tab'
 import { DownloadMan } from '../common/download_man'
 import { SIDEPANEL_TAB_ID } from '../common/ipc/ipc_bg_cs'
 import { checkIfSidePanelOpen } from '@/ext/common/sidepanel'
 import interceptLog from '@/common/intercept_log'
 import { getWindowSize } from '../common/resize_window'
 import { markAutomationTab, unmarkAutomationTabs, bindAutomationTabMarkEvents } from './automation_tab_mark'
+import { isDevTestBrowser } from '../services/mcp_bridge/detect'
 
 const downloadMan = new DownloadMan();
+
+// Blob exports (localStorageExport & friends): current Chromium does not
+// reliably apply downloads.download()'s `filename` option to blob: URLs — on
+// Chrome 151/Windows the extension gets rewritten from the blob's MIME type
+// (test.csv lands as test.txt), on Chromium 150/Linux whole names degrade to
+// the blob UUID. The name has to be suggested from onDeterminingFilename
+// instead. The pending map is keyed by blob URL (unique per export) and
+// mirrored in storage.session because this service worker can be evicted
+// between queueing the download and Chrome asking for its name.
+const pendingBlobDownloadNames = {}
+const PENDING_BLOB_NAMES_KEY = 'pending_blob_download_names'
+
+const isOwnBlobUrl = (url) => /^blob:(chrome|moz)-extension:/.test(url || '')
+
+const rememberBlobDownloadName = (url, filename) => {
+  pendingBlobDownloadNames[url] = filename
+  if (!(chrome.storage && chrome.storage.session)) return Promise.resolve()
+  return chrome.storage.session.get(PENDING_BLOB_NAMES_KEY)
+    .then((data) => {
+      const map = (data && data[PENDING_BLOB_NAMES_KEY]) || {}
+      map[url] = filename
+      return chrome.storage.session.set({ [PENDING_BLOB_NAMES_KEY]: map })
+    })
+    .catch(() => {})
+}
+
+const forgetBlobDownloadName = (url) => {
+  delete pendingBlobDownloadNames[url]
+  if (!(chrome.storage && chrome.storage.session)) return
+  chrome.storage.session.get(PENDING_BLOB_NAMES_KEY)
+    .then((data) => {
+      const map = (data && data[PENDING_BLOB_NAMES_KEY]) || {}
+      if (!(url in map)) return
+      delete map[url]
+      return chrome.storage.session.set({ [PENDING_BLOB_NAMES_KEY]: map })
+    })
+    .catch(() => {})
+}
+
+// Registered at module top level so it survives service-worker restarts.
+// Firefox has no onDeterminingFilename — there the `filename` option itself
+// still applies, so the guard is the whole Firefox story.
+if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
+  chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    // THE one onDeterminingFilename listener for the whole extension:
+    // Chrome refuses a second one ("Too many listeners."), which is why
+    // DownloadMan does not register its own — downloads it owns (armed by
+    // onDownload / uiv.download) are dispatched to its rename logic here.
+    const man = getDownloadMan()
+    if (man.findById(item.id)) {
+      return man.determineFileNameListener(item, suggest)
+    }
+    // everything else: only downloads whose blob URL this extension minted
+    if (!isOwnBlobUrl(item.url)) return
+    const hit = pendingBlobDownloadNames[item.url]
+    if (hit) {
+      suggest({ filename: hit, conflictAction: 'uniquify' })
+      return
+    }
+    if (!(chrome.storage && chrome.storage.session)) return
+    // worker restarted since the export was queued — the map survives in
+    // session storage; async suggest requires returning true
+    chrome.storage.session.get(PENDING_BLOB_NAMES_KEY)
+      .then((data) => {
+        const name = data && data[PENDING_BLOB_NAMES_KEY] && data[PENDING_BLOB_NAMES_KEY][item.url]
+        suggest(name ? { filename: name, conflictAction: 'uniquify' } : undefined)
+      })
+      .catch(() => suggest())
+    return true
+  })
+}
+
+// HEAL Chrome's download UI on every service-worker start. Older builds hid
+// the download shelf during X-command runs (the pre-116 bottom shelf resized
+// the viewport and shifted click coordinates), and a run interrupted the
+// wrong way left it OFF — Chrome keeps it off BROWSER-WIDE, persistently,
+// until this extension re-enables it or is uninstalled (reported live
+// 2026-08-16: "downloads work but the indicator is gone; uninstalling
+// Ui.Vision brings it back"). The hide itself is gone (the ≥116 toolbar
+// bubble resizes nothing), but this heal must STAY: it is what un-sticks
+// users updating from a build that disabled the UI, and it costs nothing
+// when the UI is already on. Requires the "downloads.ui" permission, which
+// stays in the manifest (also reserved for future download features).
+if (chrome.downloads && chrome.downloads.setUiOptions) {
+  try {
+    chrome.downloads.setUiOptions({ enabled: true }, () => {
+      // swallow "permission missing" & co — healing is best-effort
+      void chrome.runtime.lastError
+    })
+  } catch (e) { /* API present but refused: nothing to heal with */ }
+}
 
 interceptLog()
 
@@ -403,11 +500,22 @@ const tryOpenSidePanelForRun = (tabId) => {
       return Promise.resolve(false)
     }
 
+    // Whether this call is what OPENS the panel (vs. finding it already
+    // open). A closeRPA=1 run closes only what it opened — the panel a user
+    // had docked before the bookmark click stays open (see the closeRPA
+    // block in index.js). The check is STARTED synchronously (before open,
+    // so it sees the pre-open state) but only awaited after — any await
+    // ahead of chrome.sidePanel.open() would void the user gesture.
+    const pWasOpen = checkIfSidePanelOpen().catch(() => false)
+
     // fire-and-forget on purpose: awaiting setOptions would lose the gesture
     chrome.sidePanel.setOptions({ enabled: true })
 
     return chrome.sidePanel.open({ tabId }).then(
-      () => true,
+      () => pWasOpen.then(wasOpen => {
+        updateState(setIn(['sidePanelAutoOpenedForRun'], !wasOpen))
+        return true
+      }),
       (e) => {
         log.warn(`could not open side panel for run, falling back to IDE window: ${e && e.message}`)
         return false
@@ -417,6 +525,220 @@ const tryOpenSidePanelForRun = (tabId) => {
     return Promise.resolve(false)
   }
 }
+
+// --- MCP bridge: background helpers (service-worker side) ------------------
+// Deliberately self-contained: importing the panel's bridge client into the
+// service worker would drag the whole panel bundle in.
+//
+// DESIGN (user decision 2026-08-20): the extension NEVER opens its panel on
+// its own — "Chrome popping up stuff by itself is crap". The MCP client is
+// the master: it reopens the panel explicitly via the bridge's open_panel
+// tool, carried by the wake channel below. The only exception is the
+// mcp_reopen_panel_after_reload flag above, which executes a reopen the
+// AGENT itself requested with reload_extension.
+
+// Same family rules as uaFamily() in mcp/uivision-mcp-bridge.js — both sides
+// read the same user agent string, so the computed family matches the
+// family#n labels the bridge hands out.
+const bridgeUaFamily = () => {
+  const s = String((typeof navigator !== 'undefined' && navigator.userAgent) || '').toLowerCase()
+  if (s.includes('firefox')) return 'firefox'
+  if (s.includes('edg/')) return 'edge'
+  if (s.includes('opr/') || s.includes('opera')) return 'opera'
+  if (s.includes('vivaldi')) return 'vivaldi'
+  if (s.includes('brave')) return 'brave'
+  if (s.includes('chrome')) return 'chrome'
+  return 'browser'
+}
+
+// One probe hello (the same probe:true the Settings "Test" button uses — the
+// bridge answers and closes without touching real connections). Resolves
+// { reachable, version, thisBrowserConnected } and never rejects; version is
+// the bridge's semver string ('' when unreachable). thisBrowserConnected
+// checks for a connection of THIS browser's family — Chrome and Firefox rigs
+// run side by side, so firefox#1 being connected must not stop Chrome from
+// coming back.
+const probeBridge = (port, token, devBrowser) => new Promise((resolve) => {
+  let ws
+  let settled = false
+  const finish = (r) => {
+    if (settled) return
+    settled = true
+    try { if (ws) ws.close() } catch (e) { /* already closed */ }
+    resolve(r)
+  }
+  const unreachable = { reachable: false, version: '', thisBrowserConnected: false }
+  try {
+    ws = new WebSocket(`ws://127.0.0.1:${port}/`)
+  } catch (e) {
+    return finish(unreachable)
+  }
+  setTimeout(() => finish(unreachable), 3000)
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: 'hello', token, probe: true, devBrowser, client: 'uivision-extension' }))
+  }
+  ws.onmessage = (event) => {
+    let msg
+    try { msg = JSON.parse(String(event.data)) } catch (e) { return }
+    if (msg.type !== 'hello_ok') return
+    const family = bridgeUaFamily()
+    const thisBrowserConnected = Array.isArray(msg.connections)
+      ? msg.connections.some((label) => String(label).indexOf(family + '#') === 0)
+      : !!msg.extensionConnected // pre-1.4 bridge: single connection, no labels
+    finish({ reachable: true, version: String(msg.bridgeVersion || ''), thisBrowserConnected })
+  }
+  // unreachable, or token rejected (close 4003) — either way stay quiet
+  ws.onclose = () => finish(unreachable)
+  ws.onerror = () => { /* onclose follows */ }
+})
+
+// stored config + dev detection resolved to what the bridge features need;
+// same enabled-semantics as the panel's restoreConfig (an untouched switch is
+// ON in dev/test browsers, an explicit stored false wins)
+const resolveBridgeConfig = () => {
+  return Promise.all([storage.get('config'), isDevTestBrowser()])
+  .then(([cfg, devBrowser]) => ({
+    enabled: cfg && cfg.mcpBridgeEnabled !== undefined ? !!cfg.mcpBridgeEnabled : devBrowser,
+    storedEnabled: cfg ? String(cfg.mcpBridgeEnabled) : 'no config',
+    port: parseInt(cfg && cfg.mcpBridgePort, 10) || C.MCP_BRIDGE.DEFAULT_PORT,
+    token: '', // bridge 1.7+ pairs by origin; no user-facing token any more
+    devBrowser
+  }))
+}
+
+// belt to the probe's braces: never open a SECOND panel-app tab (covers the
+// race where the flag path's tab exists but has not connected yet)
+const panelAppTabExists = () => {
+  return Ext.tabs.query({ url: Ext.runtime.getURL('sidepanel.html') + '*' })
+    .then((tabs) => !!(tabs && tabs.length), () => false)
+}
+
+// Trail of the last panel-reopen actions (open_panel calls), persisted so
+// the panel can show it in the Logs tab on its next open — the actions run
+// when nobody is watching, so without this trail a "panel did not reopen"
+// report is undebuggable: there is no console anyone reads.
+const bridgeReopenTrace = (step) => {
+  const line = `${new Date().toISOString()} ${step}`
+  return Ext.storage.local.get('mcp_reopen_trace').then((o) => {
+    const arr = ((o && o.mcp_reopen_trace) || []).concat(line).slice(-20)
+    return Ext.storage.local.set({ mcp_reopen_trace: arr })
+  }).catch(() => {})
+}
+
+// --- MCP bridge: wake channel ----------------------------------------------
+// A THIN presence socket from this worker to the bridge (role:'wake', bridge
+// 1.5+, no tools). It exists so the MCP client can reopen the panel app ON
+// REQUEST via the bridge's open_panel tool — the ONLY way the panel ever
+// opens without a human click. Closing the panel still means pause: nothing
+// automatic brings it back, an agent asking for it does, visibly (banner,
+// Logs trace). The bridge pings every 20s; answering keeps this worker alive
+// while the browser sits in the tray — exactly when the channel matters.
+
+const WAKE_RECONNECT_MIN_MS = 5000
+const WAKE_RECONNECT_MAX_MS = 60000
+// a pre-1.5 bridge would register a wake hello as a TOOL connection and
+// route calls into this worker, where nothing executes them — never connect
+// to one; re-check rarely in case the user upgrades the bridge
+const WAKE_OLD_BRIDGE_RETRY_MS = 10 * 60 * 1000
+
+let wakeWs = null
+let wakeRetryTimer = null
+let wakeRetryMs = WAKE_RECONNECT_MIN_MS
+
+const scheduleWakeRetry = (fixedMs) => {
+  if (wakeRetryTimer) return
+  wakeRetryTimer = setTimeout(() => {
+    wakeRetryTimer = null
+    connectWakeChannel()
+  }, fixedMs || wakeRetryMs)
+  if (!fixedMs) wakeRetryMs = Math.min(wakeRetryMs * 2, WAKE_RECONNECT_MAX_MS)
+}
+
+const openPanelForWake = (ws) => {
+  const ack = (status) => {
+    bridgeReopenTrace(`open_panel: ${status}`)
+    try { ws.send(JSON.stringify({ type: 'wake_ack', status })) } catch (e) { /* bridge gone */ }
+  }
+  Promise.all([panelAppTabExists(), checkIfSidePanelOpen()])
+  .then(([tabOpen, panelOpen]) => {
+    if (tabOpen || panelOpen) return ack('already open')
+    return Ext.windows.getAll().then((wins) => {
+      const normal = (wins || []).filter((w) => !w.type || w.type === 'normal')
+      const url = Ext.runtime.getURL('sidepanel.html')
+      // zero windows = tray-resident browser: a tab needs a window to live in
+      return (normal.length ? Ext.tabs.create({ url }) : Ext.windows.create({ url }))
+      .then(() => ack('opening panel app'))
+    })
+  })
+  .catch((e) => ack(`error: ${(e && e.message) || e}`))
+}
+
+const connectWakeChannel = () => {
+  if (wakeWs) return
+  resolveBridgeConfig()
+  .then(({ enabled, port, token, devBrowser }) => {
+    if (!enabled) return // the config listener below re-arms on enable
+    return probeBridge(port, token, devBrowser).then((p) => {
+      if (!p.reachable) return scheduleWakeRetry()
+      const parts = String(p.version).split('.').map(Number)
+      if (!(parts[0] > 1 || (parts[0] === 1 && parts[1] >= 5))) return scheduleWakeRetry(WAKE_OLD_BRIDGE_RETRY_MS)
+
+      let ws
+      try {
+        ws = new WebSocket(`ws://127.0.0.1:${port}/`)
+      } catch (e) {
+        return scheduleWakeRetry()
+      }
+      wakeWs = ws
+      ws.onopen = () => {
+        ws.send(JSON.stringify({
+          type: 'hello',
+          role: 'wake',
+          token,
+          devBrowser,
+          client: 'uivision-extension',
+          version: (chrome.runtime.getManifest && chrome.runtime.getManifest().version) || ''
+        }))
+      }
+      ws.onmessage = (event) => {
+        let msg
+        try { msg = JSON.parse(String(event.data)) } catch (e) { return }
+        if (msg.type === 'hello_ok') {
+          wakeRetryMs = WAKE_RECONNECT_MIN_MS
+        } else if (msg.type === 'ping') {
+          // this traffic is what keeps the worker (and the channel) alive
+          try { ws.send(JSON.stringify({ type: 'pong' })) } catch (e) { /* onclose follows */ }
+        } else if (msg.type === 'open_panel') {
+          openPanelForWake(ws)
+        }
+      }
+      ws.onclose = () => {
+        if (wakeWs === ws) wakeWs = null
+        scheduleWakeRetry()
+      }
+      ws.onerror = () => { /* onclose follows */ }
+    })
+  })
+  .catch(() => scheduleWakeRetry())
+}
+
+// No timer tricks for a SLEEPING worker (an idle tray browser): if the wake
+// channel is down because the worker died, the MCP client — the master —
+// starts or touches the browser itself; the worker boots with it, this
+// module's top-level connect runs, and open_panel works seconds later.
+
+// react to Settings > AI changes: reconnect with fresh port/token, or drop
+// the channel when the bridge gets switched off
+Ext.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local' || !changes || !changes.config) return
+  if (wakeWs) {
+    const ws = wakeWs
+    wakeWs = null // its onclose sees null -> no auto-retry with stale config
+    try { ws.close() } catch (e) { /* already closed */ }
+  }
+  wakeRetryMs = WAKE_RECONNECT_MIN_MS
+  connectWakeChannel()
+})
 
 const bindEvents = () => {
   Ext.action.onClicked.addListener((tab) => {
@@ -453,8 +775,23 @@ const bindEvents = () => {
           // a click that closes the panel should not pop a tab.
           showUpgradePageIfNeeded()
         } else {
-          closeSidePanel(tab.id).then(() => {
-            isSidePanelOpen = false
+          // Self-preservation: the side panel IS the runtime for macro runs,
+          // JS scripts and AI-agent turns — closing it kills them mid-flight,
+          // and a live run can CAUSE this click: desktop-scope automation
+          // aiming at the toolbar hit the Ui.Vision icon itself and shut down
+          // its own runner (authenticator task, 2026-08-11). While anything
+          // runs, the toggle-close is a no-op; a human who wants to stop has
+          // the panel's own stop button. (This cannot protect against a click
+          // on ANOTHER extension's icon — Chrome allows one side panel, so a
+          // foreign panel opening evicts ours with no event to veto.)
+          getState().then(state => {
+            if (state.status === C.APP_STATUS.PLAYER || scriptRunActive || aiTabMarkActive) {
+              log('icon click ignored: a run is in progress and closing the side panel would kill it')
+              return
+            }
+            closeSidePanel(tab.id).then(() => {
+              isSidePanelOpen = false
+            })
           })
         }
       } else {
@@ -611,6 +948,27 @@ const bindEvents = () => {
   // also run once at service worker start, so a fresh install answers the very
   // first icon click correctly (onStartup does not fire on install)
   manageKeepSWAlive()
+
+  // After a bridge-triggered self-reload (runtime.reload), reopen the panel
+  // app as a normal TAB: the side panel cannot reopen itself (sidePanel.open
+  // demands a user gesture), a tab needs none, and the MCP bridge reconnects
+  // from the tab so an automated build-reload-verify loop closes without a
+  // human click. Top-level on purpose — runtime.reload restarts the worker
+  // WITHOUT firing onStartup (that is browser-launch only).
+  Ext.storage.local.get('mcp_reopen_panel_after_reload').then((flags) => {
+    if (!flags || !flags.mcp_reopen_panel_after_reload) return
+    // clear BEFORE opening: if the order were reversed, a failing clear would
+    // open one more tab on every worker start, forever
+    return Ext.storage.local.remove('mcp_reopen_panel_after_reload').then(() =>
+      Ext.tabs.create({ url: Ext.runtime.getURL('sidepanel.html') })
+    )
+  }).catch((e) => {
+    // LOUD on purpose. The first version of this hook died silently on a
+    // wrapper method that did not exist (storage.local had no 'remove' in
+    // web_extension.js), and the silent catch turned a one-line fix into a
+    // debugging session across two reload cycles.
+    console.error('mcp reopen-after-reload failed:', e && e.message)
+  })
 
   // Note: set the activated tab as the one to play
   Ext.tabs.onActivated.addListener(async (activeInfo) => {
@@ -773,6 +1131,8 @@ const bindEvents = () => {
       port.onDisconnect.addListener(async () => {
         console.log('side panel disconnected')
         isSidePanelOpen = false
+        // the auto-opened-for-run marker describes THIS panel session only
+        updateState(setIn(['sidePanelAutoOpenedForRun'], false))
 
         // Note: sidebar-first design — side panel and editor window can be open
         // at the same time. If the side panel closes while it holds panel
@@ -945,16 +1305,22 @@ const pacListener = (data) => {
   }
 }
 
-// Synchronous pre-dispatch: work that must happen while the user gesture of
-// the triggering click is still valid — i.e. before the FIRST await (the async
-// processor below starts with one). chrome.sidePanel.open() rejects without a
-// gesture, so for macro runs coming from a page (bookmark / autostart html)
-// the side panel open must be kicked off right here.
-const onRequest = (cmd, args) => {
-  if (cmd === 'CS_INVOKE' || cmd === 'CS_IMPORT_AND_INVOKE') {
-    args._pSidePanelOpening = tryOpenSidePanelForRun(args && args.sender && args.sender.tab && args.sender.tab.id)
+// Authorize page requests before opening UI. The IDE-window fallback handles
+// browsers that no longer retain a user gesture after the asynchronous check.
+const authorizePageInvoke = async (args, config, from) => {
+  const policy = pageInvokePolicy(config, args.sender.url, from)
+  args.options = pageInvokeOptions(args.options, policy.commandVars)
+  if (policy.confirm) {
+    const ipc = await getIpcCache().get(args.sender.tab.id)
+    const accepted = await ipc.ask('CONFIRM_PAGE_INVOKE', { url: args.sender.url })
+    if (accepted !== true) throw new Error('Website macro run was not approved. Reload the page to try again.')
   }
+  // Ignore any page-provided opening hint. Consent comes before UI side effects.
+  args._pSidePanelOpening = tryOpenSidePanelForRun(args.sender.tab.id)
+}
 
+const onRequest = (cmd, args) => {
+  // A page must be authorized before it can open the panel or alter run state.
   return onRequestAsync(cmd, args)
 }
 
@@ -1011,6 +1377,18 @@ const onRequestAsync = async (cmd, args) => {
     //   window.showSidePanel = args.showSidePanel
     //   return true
     // }
+
+    case 'PANEL_PRECISE_DELAY': {
+      // Throttle-immune timer for the script runner: a panel that runs as a
+      // HIDDEN TAB gets Chrome's background-tab timer throttling — its
+      // setTimeout(180) silently becomes ~1s, which wrecks every
+      // timing-sensitive macro (measured live: scheduled key presses landed
+      // ~1s late). The service worker's timers are not tab-throttled, so
+      // the panel delegates short waits here. Capped: SW timers beyond a
+      // few seconds risk the worker's idle shutdown — the caller slices.
+      const ms = Math.max(0, Math.min(5000, Number(args.ms) || 0))
+      return new Promise(resolve => setTimeout(() => resolve(true), ms))
+    }
 
     case 'PANEL_CAPTURE_VISIBLE_TAB': {
       // Chrome caps captureVisibleTab at ~2 calls/sec per extension. The panel
@@ -1621,17 +1999,12 @@ const onRequestAsync = async (cmd, args) => {
       .then(ipc => ipc.ask('TOGGLE_HIGHLIGHT_VIEWPORT', args, C.CS_IPC_TIMEOUT))
     }
 
-    case 'PANEL_DISABLE_DOWNLOAD_BAR': {
-      // Ext.downloads.setShelfEnabled(false)
-      Ext.downloads.setUiOptions({enabled: false})
-      return delay(() => true, 1000)
-    }
-
-    case 'PANEL_ENABLE_DOWNLOAD_BAR': {
-      // Ext.downloads.setShelfEnabled(true)
-      Ext.downloads.setUiOptions({enabled: true})
-      return delay(() => true, 1000)
-    }
+    // PANEL_DISABLE_DOWNLOAD_BAR / PANEL_ENABLE_DOWNLOAD_BAR were REMOVED
+    // (2026-08-16): they hid Chrome's download UI during X-command runs for
+    // the old bottom shelf's sake (it resized the viewport; the ≥116 toolbar
+    // bubble does not), and an abnormally-ended run left the UI off
+    // browser-wide. The startup heal above keeps rescuing users coming from
+    // builds that still disabled it.
 
     case 'PANEL_GET_VIEWPORT_RECT_IN_SCREEN': {
       return Promise.all([
@@ -2028,6 +2401,13 @@ const onRequestAsync = async (cmd, args) => {
 
         case 'tab': {
           if (/^\s*open\s*$/i.test(locator)) {
+            // tab=open CREATES a tab on the Value url. Without one it used to
+            // open the extension's root page (a stray "chrome-extension://…/"
+            // tab, OPEN-ISSUES 21.2/21.4) — refuse instead and say what the
+            // caller probably wanted
+            if (!args.value || !String(args.value).trim()) {
+              throw new Error('E211: selectWindow | tab=open needs a URL in the Value column — it CREATES a new tab there. To switch to a tab that a click just opened, use selectWindow | tab=N (N counted from the start tab) or, in a script, uiv.tabs.select({newest: true})')
+            }
             pGetTabs = Ext.tabs.get(state.tabIds.toPlay)
               .then(tab => Ext.tabs.create({ url: args.value, windowId: tab.windowId }))
               .then(tab => [tab])
@@ -2060,17 +2440,74 @@ const onRequestAsync = async (cmd, args) => {
         return tabs[0]
       })
       .then(tab => {
+        // Popup pattern: the site does window.open('about:blank') and sets the
+        // popup's location a moment later. At this point the tab still says
+        // about:blank, which the uninjectable check below took for a
+        // browser-internal page — no DOM-ready wait, and the next command ran
+        // against the vanishing blank document (OPEN-ISSUES 17.9, Stripe
+        // invoice popups). Give such a tab a few seconds to start its real
+        // navigation before deciding what it is.
+        const blankPopup = /^about:blank$/i.test(tab.url || '') && !tab.pendingUrl && !/tab\s*=\s*open/i.test(String(args.target))
+        if (!blankPopup) return tab
+        const deadline = Date.now() + 5000
+        const poll = () => Ext.tabs.get(tab.id).then(t => {
+          if (!t) return tab
+          if ((t.url && !/^about:blank$/i.test(t.url)) || t.pendingUrl) return t
+          if (Date.now() >= deadline) return t
+          return new Promise(resolve => setTimeout(resolve, 150)).then(poll)
+        }).catch(() => tab)
+        return poll()
+      })
+      .then(tab => {
         log('selectWindow, got tab', tab)
 
-        return getIpcCache().domReadyGet(tab.id, 30000)
+        // Browser-internal pages (chrome://, edge://, about:) never load a
+        // content script, so the DOM-ready wait below can only burn its full
+        // 30s and throw E225 — even though the tab opened and selected fine.
+        // Resolve immediately instead: the tab is usable for real-input
+        // automation (XClick/XType/desktop vision), just not for page
+        // commands, which fail with their own targeted errors when tried.
+        // a JUST-created tab can report empty url AND pendingUrl — the
+        // REQUESTED url (tab=open's value) is the reliable signal there
+        const requestedUrl = /tab\s*=\s*open/i.test(String(args.target)) ? String(args.value || '') : ''
+        // a popup that is navigating away from about:blank reports url
+        // 'about:blank' AND a pendingUrl — the pending one is the page the
+        // tab is about to be, so it decides
+        const effectiveUrl = (tab.url && !/^about:blank$/i.test(tab.url)) ? tab.url : (tab.pendingUrl || requestedUrl || tab.url || '')
+        const uninjectable = /^(chrome|edge|about|chrome-extension|moz-extension|view-source):/i.test(effectiveUrl)
+        if (uninjectable) {
+          log('selectWindow: browser-internal page, no content script to wait for', tab.url || tab.pendingUrl)
+          // register + activate INLINE: the shared chain below was observed
+          // not updating toPlay for this branch, and a stale toPlay makes
+          // the next play-tab activation bury the tab just selected
+          return updateState(state => ({
+            ...state,
+            tabIds: {
+              ...state.tabIds,
+              lastPlay: state.tabIds.toPlay,
+              toPlay: tab.id
+            }
+          }))
+          .then(() => activateTab(tab.id))
+          .then(() => true)
+        }
+
+        // a tab that was open BEFORE an extension update/reload has no content
+        // script any more: the DOM-ready wait below burned its full 30 s and
+        // threw E225 although the tab was fine (OPEN-ISSUES 21.5, seen after
+        // reload_extension on the claude.ai tab). Re-inject first, like the
+        // script runner does (17.1); a healthy tab is a cheap probe.
+        return (uninjectable ? Promise.resolve(null) : reinjectContentScript(tab).catch(() => false).then(() => getIpcCache().domReadyGet(tab.id, 30000))
         .catch(e => {
           // args.target = 'tab=open' is a valid value, so this is commented out.
           // if (/tab=\s*open\s*/i.test(args.target)) {
           //   throw new Error('E211: To open a new tab, a valid URL is needed')
           // }
-          throw new Error(`E225: DOM failed to be ready in 30sec.`) 
-        })
+          throw new Error(`E225: DOM failed to be ready in 30sec.`)
+        }))
         .then(ipc => {
+          if (!ipc) return true // browser-internal page: selected, no page IPC
+          return Promise.resolve(ipc).then(ipc => {
           log('selectWindow, got ipc', ipc)
           const domReadyTimeout = 20000
           return ipc.ask('DOM_READY', {}, domReadyTimeout)
@@ -2085,9 +2522,10 @@ const onRequestAsync = async (cmd, args) => {
             })
             return true
           })
+          })
         })
         .catch(e => {
-          console.error("DOM_READY Error ==:>> ", e) 
+          console.error("DOM_READY Error ==:>> ", e)
           throw e
         })
         .then(() => {
@@ -2201,7 +2639,16 @@ const onRequestAsync = async (cmd, args) => {
         timeout:          args.timeout,
         timeoutForStart:  args.timeoutForStart
       })
+      // the outcome is read through PANEL_WAIT_FOR_ANY_DOWNLOAD; an
+      // interrupted download rejecting here would only be "unhandled" noise
+      p.catch(() => {})
       return true
+    }
+
+    // uiv.download's trigger threw before any download could start: free the
+    // arm so the script's next uiv.download can arm again (see DownloadMan)
+    case 'PANEL_CANCEL_PENDING_DOWNLOAD': {
+      return getDownloadMan().cancelPendingDownload(args.reason)
     }
 
     // saveItem: start a real download of any URL from the background — the
@@ -2210,13 +2657,46 @@ const onRequestAsync = async (cmd, args) => {
     case 'PANEL_DOWNLOAD_URL':
     case 'CS_DOWNLOAD_URL': {
       const label = cmd === 'PANEL_DOWNLOAD_URL' ? 'uiv.download' : 'saveItem'
-      return new Promise((resolve, reject) => {
+      // A named extension-blob download is a panel export (localStorageExport
+      // & friends): its name must go through the pending map (see the
+      // onDeterminingFilename listener at the top of this file) BEFORE the
+      // download starts — the naming event can fire before the id callback.
+      // Exports are also waited to completion so the caller gets the ACTUAL
+      // on-disk name back instead of trusting the requested one; they are
+      // small in-memory blobs, so completion is immediate.
+      const isBlobExport = !!args.filename && isOwnBlobUrl(args.url)
+
+      // poll instead of onChanged bookkeeping — search() also works when the
+      // completion happened while this worker was evicted
+      const waitForDownloadEnd = (id, timeout) => {
+        const startTime = Date.now()
+        let last = null
+        const check = () => new Promise((res) => chrome.downloads.search({ id }, (items) => res(items && items[0])))
+          .then((item) => {
+            // the record is GONE: the erase-completed-downloads timer (the
+            // onChanged listener above, browser scope while playing) removed
+            // it between two polls. An erased record had finished — waiting
+            // on turned every such export into a 30 s stall (OPEN-ISSUES 25.2:
+            // "slowest uiv.screenshot 30220ms")
+            if (!item) return last || { id, state: 'complete', erased: true }
+            last = item
+            if (item.state !== 'in_progress') return item
+            if (Date.now() - startTime > timeout) return item
+            return delay(check, 200)
+          })
+        return check()
+      }
+
+      const prepare = isBlobExport ? rememberBlobDownloadName(args.url, args.filename) : Promise.resolve()
+
+      return prepare.then(() => new Promise((resolve, reject) => {
         const options = { url: args.url }
         if (args.filename) options.filename = args.filename
 
         chrome.downloads.download(options, (downloadId) => {
           if (chrome.runtime.lastError || downloadId === undefined) {
             const reason = chrome.runtime.lastError ? chrome.runtime.lastError.message : 'unknown error'
+            if (isBlobExport) forgetBlobDownloadName(args.url)
             // e.g. the derived filename is rejected — retry letting Chrome name it
             if (args.filename) {
               return chrome.downloads.download({ url: args.url }, (retryId) => {
@@ -2229,14 +2709,28 @@ const onRequestAsync = async (cmd, args) => {
             }
             return reject(new Error(`${label}: download failed - ${reason}`))
           }
-          resolve(true)
+
+          if (!isBlobExport) return resolve(true)
+
+          waitForDownloadEnd(downloadId, 30000)
+            .then((item) => {
+              forgetBlobDownloadName(args.url)
+              if (item && item.state === 'interrupted') {
+                return reject(new Error(`${label}: download interrupted (${item.error || 'unknown reason'})`))
+              }
+              const path = (item && item.filename) || ''
+              const base = path.split(/[\\/]/).pop()
+              resolve({ fileName: base || args.filename })
+            })
         })
-      })
+      }))
     }
 
     case 'CS_INVOKE': {
       return storage.get('config')
       .then(async(config = {}) => {
+        const from = (args.testCase && args.testCase.from) || (args.testSuite && args.testSuite.from)
+        await authorizePageInvoke(args, config, from)
         const state = await getState()
         const tabId = state.tabIds.toPlay
         const wTab = tabId !="" ? await checkWindowisOpen(tabId) : '';
@@ -2252,37 +2746,8 @@ const onRequestAsync = async (cmd, args) => {
         }))
         
 
-        const from        = (args.testCase && args.testCase.from) || (args.testSuite && args.testSuite.from)
-
-        switch (from) {
-          case 'bookmark': {
-            if (!config.allowRunFromBookmark) {
-              throw new Error('[Message from RPA] Error E103: To run a macro or a test suite from bookmarks, you need to allow it in the Ui.Vision settings first')
-            }
-            break
-          }
-
-          case 'html': {
-            const isFileSchema = /^file:\/\//.test(args.sender.url)
-            const isHttpSchema = /^https?:\/\//.test(args.sender.url)
-
-            if (isFileSchema && !config.allowRunFromFileSchema) {
-              throw new Error('Error #103: To run test suite from local file, enable it in Ui.Vision settings first')
-            }
-
-            if (isHttpSchema && !config.allowRunFromHttpSchema) {
-              throw new Error('Error #104: To run test suite from public website, enable it in Ui.Vision settings first')
-            }
-
-            break
-          }
-
-          default:
-            throw new Error('E212: unknown source not allowed')
-        }
-
-        // side panel open (if any) was triggered synchronously in onRequest;
-        // here we only need to know whether it worked
+        // Authorization has completed. Open the panel now; without a browser
+        // user gesture, withPanelIpc uses its IDE-window fallback.
         const sidePanelOpening = await (args._pSidePanelOpening || Promise.resolve(false))
 
         return withPanelIpc({
@@ -2316,17 +2781,8 @@ const onRequestAsync = async (cmd, args) => {
       const from = args.from
 
       return storage.get('config')
-      .then((config = {}) => {
-        const isFileSchema = /^file:\/\//.test(args.sender.url)
-        const isHttpSchema = /^https?:\/\//.test(args.sender.url)
-
-        if (isFileSchema && !config.allowRunFromFileSchema) {
-          throw new Error('Error #105: To run macro from local file, enable it in RPA settings first')
-        }
-
-        if (isHttpSchema && !config.allowRunFromHttpSchema) {
-          throw new Error('Error #105: To run macro from public website, enable it in the RPA settings first')
-        }
+      .then(async (config = {}) => {
+        await authorizePageInvoke(args, config, from)
 
         return (args._pSidePanelOpening || Promise.resolve(false))
         .then(sidePanelOpening => withPanelIpc({
@@ -2373,13 +2829,28 @@ const onRequestAsync = async (cmd, args) => {
   }
 }
 
+// The hub replays messages queued during init at markReady() — in finally, so
+// a throwing init can never leave the panel's (or a content script's) message
+// parked until the hub's 10 s failsafe.
 const initIPC = async () => {
+  try {
+    await restoreIPC()
+  } finally {
+    initBgMessageHub().markReady()
+  }
+}
+
+const restoreIPC = async () => {
   // First: every cache entry is stamped with the session it was created in, and
   // reads ignore the rest. Must happen before cleanup (which drops entries from
   // earlier sessions) and before bgInit accepts the first CONNECT (whose entry
   // has to carry the current session). A woken service worker finds the same id
   // and keeps its live entries — see ipc_cache.ts.
   await ensureIpcSessionId()
+
+  // Same lifetime as the session id: the key content scripts sign their
+  // window messages with, answered to CS_CHANNEL_KEY (ipc_bg_cs.js).
+  await ensureChannelKey()
 
   const tabs = await getAllTabs()
   const tabIdDict = tabs.reduce((prev, cur) => {
@@ -2389,14 +2860,21 @@ const initIPC = async () => {
 
   const remainingTabIdDict = await getIpcCache().cleanup(tabIdDict)
 
-  // Restore connection with existing pages, it's for cases when background turns inactive and then active again
-  Object.keys(remainingTabIdDict).forEach(tabIdStr => {
+  // Restore connection with existing pages, it's for cases when background turns inactive and then active again.
+  // Awaited for the enabled entries: the message hub replays whatever arrived
+  // during this init once markReady() runs (see initBgMessageHub in
+  // ipc_bg_cs.js), and the replay is only useful after these listeners exist.
+  // A disabled entry (status Off) is polled by get() for up to 2 s and must not
+  // delay everyone else — it is restored in the background as before.
+  const restore = (tabIdStr) => {
     const tabId = parseInt(tabIdStr)
-
-    getIpcCache().get(tabId).then(ipc => {
+    return getIpcCache().get(tabId).then(ipc => {
       ipc.onAsk(onRequest)
-    })
-  })
+    }, () => {})
+  }
+  const entries = Object.keys(remainingTabIdDict)
+  await Promise.all(entries.filter(id => remainingTabIdDict[id].status === 1).map(restore))
+  entries.filter(id => remainingTabIdDict[id].status !== 1).forEach(restore)
 
   bgInit(async (tabId, cuid, ipc) => {
     if (!await getIpcCache().has(tabId, cuid)) {
@@ -2613,6 +3091,10 @@ const initDownloadMan = () => {
       panelIpc.ask('DOWNLOAD_COMPLETE', downloadItem)
     })
   })
+  // a late arrival from an expired uiv.download arm (OPEN-ISSUES 30.8)
+  getDownloadMan().onNote(note => {
+    getPanelTabIpc().then(panelIpc => panelIpc.ask('ADD_LOG', note)).catch(() => {})
+  })
 }
 
 const initProxyMan = () => {
@@ -2633,7 +3115,14 @@ const initProxyMan = () => {
   getProxyManager().onChange(onProxyChange)
 }
 
+// FIRST, and synchronously: the one runtime.onMessage listener Firefox persists
+// across event-page termination (initBgMessageHub in ipc_bg_cs.js) — everything
+// the panel and the content scripts send goes through it, queued until initIPC
+// has restored the cached connections
+initBgMessageHub()
+bindDebuggerLifetimes(chrome.runtime, Ext.debugger, message => log.warn(message))
 bindEvents()
+connectWakeChannel() // MCP wake channel — no-op unless the bridge is enabled
 initIPC()
 initOnInstalled()
 initUpgradeDetectionByVersion()

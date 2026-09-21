@@ -137,6 +137,11 @@
         color: orange;
     }
 
+    // MCP bridge lines (Claude Code) — the strip's purple, same source
+    &.mcp {
+        color: #5b4bc4;
+    }
+
     pre {
         margin-bottom: 0;
     }

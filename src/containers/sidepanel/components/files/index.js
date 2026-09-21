@@ -18,12 +18,15 @@ import M from '@/common/messages';
 import { getPlayer } from '@/common/player';
 import { waitForRenderComplete } from '@/common/utils';
 import { MenuItemType, showContextMenu } from '@/components/context_menu';
-import { prompt } from '@/components/prompt';
+import { promptLoopRange } from '@/components/loop_prompt';
 import getSaveTestCase from '@/components/save_test_case';
-import { FileNodeType, FileTree } from '@/components/tree_file';
+import { FileNodeType, FileTree, collectMacroFileNodes } from '@/components/tree_file';
+import { ensureAllUrlsPermission } from '@/common/firefox_permission';
 import config from '@/config';
 import { getActiveTabId, showPanelWindow } from '@/ext/common/tab';
 import { isScriptRunning, runScript } from '@/modules/script_runner';
+import { getDesktopAppClient, ensureDesktopApp, macroRunTarget } from '@/services/desktop_app';
+import { xmodules2Active } from '@/services/xmodules2/routing';
 import {
   getFilteredMacroFileNodeData,
   getMacroFileNodeData,
@@ -115,17 +118,49 @@ class Files extends React.Component {
     })
   }
 
-  playTestCase = (id) => {
+  // `loops` is a plain count (n rounds) or a {from, to} range from the loop
+  // dialog — from > 1 resumes an interrupted job (!LOOP = the absolute round)
+  playTestCase = async (id, loops = 1) => {
     if (this.props.status !== C.APP_STATUS.NORMAL)  return
+    const { from, to } = (typeof loops === 'object' && loops) ? loops : { from: 1, to: loops }
+
+    // Firefox MV3: same host-permission ask as the panel Play button
+    // (10.0.162) — without it an ungranted profile dies with Error #170
+    if (!(await ensureAllUrlsPermission())) return
 
     this.changeTestCase(id)
     .then(shouldPlay => {
       if (!shouldPlay)  return
 
       setTimeout(() => {
-        // JS script macro: run it through the interpreter, not the player
+        // JS script macro: run it through the interpreter, not the player.
+        // The player's LOOP mode doesn't apply here, so a loop replay is the
+        // script run to completion for rounds from..to, stopping on the first
+        // round that fails or is stopped manually (same as the classic
+        // player default).
         if (typeof this.props.editing.script === 'string') {
-          runScript(this.props.editing.script).catch(e => {
+          const script   = this.props.editing.script
+          // "use desktop-app" on top of the macro, or a "<name>.d.js" macro: run
+          // it in the helper app when that is possible (the app runs, or the
+          // Desktop Automation module can start it); otherwise say so
+          {
+            const name = ((this.props.editing.meta && this.props.editing.meta.src && this.props.editing.meta.src.name) || 'macro').replace(/\.js$/i, '') + '.js'
+            if (macroRunTarget(name, script) === 'desktop-app') {
+              this.runScriptInDesktopApp(name, script).catch(e => message.error(`Desktop app run failed: ${(e && e.message) || e}`, 6))
+              return
+            }
+          }
+          const runRound = (round) => {
+            if (to > 1 || from > 1) {
+              this.props.addLog('status', `Loop round ${round} of ${to}`)
+            }
+
+            return runScript(script).then(({ ok }) => {
+              if (ok && round < to)  return runRound(round + 1)
+            })
+          }
+
+          runRound(from).catch(e => {
             message.error(`Script failed to start: ${(e && e.message) || e}`, 3)
           })
           return
@@ -145,13 +180,25 @@ class Files extends React.Component {
           macroId:    getMacroId(),
           title:      getMacroName(),
           extra:      { id: getMacroId() },
-          mode:       getPlayer().C.MODE.STRAIGHT,
+          // LOOP even for a single round when from > 1: !LOOP must carry the
+          // absolute round number for the resume-from-row workflow
+          mode:       (to > 1 || from > 1) ? getPlayer().C.MODE.LOOP : getPlayer().C.MODE.STRAIGHT,
+          loopsStart: from,
+          loopsEnd:   to,
           startIndex: 0,
           startUrl:   openTc ? openTc.target : null,
           resources:  commands,
           postDelay:  this.props.player.playInterval * 1000
         })
       }, 500)
+    })
+  }
+
+  // Shared loop dialog — used by the macro and folder context menus. Calls
+  // onPlay({from, to}); the classic start/max pair (see components/loop_prompt).
+  promptLoopCount = (onPlay) => {
+    return promptLoopRange().then(range => {
+      if (range) return onPlay(range)
     })
   }
 
@@ -372,12 +419,20 @@ class Files extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Testsuite: Play all in folder',
-            onClick: () => {
+            content: 'Play all in folder',
+            onClick: async () => {
+              if (!(await ensureAllUrlsPermission())) return
+
               const folderName = folderEntry.name
-              const macros = folderEntry.children.filter(item => {
-                return item.type === FileNodeType.File
-              })
+              // subfolders included — a folder of only subfolders (like the
+              // demo root) used to start an empty suite that "completed"
+              // instantly having played nothing
+              const macros = collectMacroFileNodes(folderEntry)
+
+              if (macros.length === 0) {
+                message.error(`No macros in folder '${folderName}'`, 2)
+                return
+              }
 
               getPlayer({ name: 'testSuite' }).play({
                 title:      folderName,
@@ -398,25 +453,24 @@ class Files extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Testsuite: Play in loop',
-            onClick: () => {
-              const playInLoops = (loopsStr) => {
-                const loops = parseInt(loopsStr)
+            content: 'Play all in folder in loop..',
+            onClick: async () => {
+              if (!(await ensureAllUrlsPermission())) return
 
-                if (isNaN(loops) || loops < 1) {
-                  throw new Error(`Invalid loops: ${loopsStr}`)
-                }
+              const folderName = folderEntry.name
+              const macros = collectMacroFileNodes(folderEntry)
 
-                const folderName = folderEntry.name
-                const macros = folderEntry.children.filter(item => {
-                  return item.type === FileNodeType.File
-                })
+              if (macros.length === 0) {
+                message.error(`No macros in folder '${folderName}'`, 2)
+                return
+              }
 
+              return this.promptLoopCount(({ from, to }) => {
                 getPlayer({ name: 'testSuite' }).play({
                   title:      folderName,
-                  mode:       loops === 1 ? getPlayer().C.MODE.STRAIGHT : getPlayer().C.MODE.LOOP,
-                  loopsStart: 1,
-                  loopsEnd:   loops,
+                  mode:       (to > 1 || from > 1) ? getPlayer().C.MODE.LOOP : getPlayer().C.MODE.STRAIGHT,
+                  loopsStart: from,
+                  loopsEnd:   to,
                   startIndex: 0,
                   resources:  macros.map(item => ({
                     id:       item.id,
@@ -427,30 +481,7 @@ class Files extends React.Component {
                     name: folderName
                   }
                 })
-              }
-
-              const run = () => {
-                return prompt({
-                  width: 400,
-                  title: 'How many loops?',
-                  message: '',
-                  value: '2',
-                  placeholder: 'Loops',
-                  inputType: 'number',
-                  selectionStart: 0,
-                  selectionEnd: 1,
-                  okText: 'Play',
-                  cancelText: 'Cancel',
-                  onCancel: () => Promise.resolve(true),
-                  onOk: playInLoops
-                })
-                .catch(e => {
-                  message.error(e.message)
-                  setTimeout(run, 0)
-                })
-              }
-
-              return run()
+              })
             }
           }
         },
@@ -482,6 +513,43 @@ class Files extends React.Component {
       if (tabId) {
           showPanelWindow()
       }
+    })
+  }
+
+  playInDesktopApp (macroNode) {
+    const addLog = (type, text) => this.props.addLog(type, text)
+    return getStorageManager().getMacroStorage().read(macroNode.fullPath, 'Text')
+    .then(macro => {
+      const data = (macro && macro.data) || {}
+      const script = typeof data.script === 'string' ? data.script : (typeof data.Script === 'string' ? data.Script : null)
+      if (!script || !script.trim()) {
+        message.warning('Only JavaScript macros run in the desktop app (this one is a command table)')
+        return
+      }
+      const name = (macro.name || macroNode.name || 'macro').replace(/\.js$/i, '') + '.js'
+      return this.runScriptInDesktopApp(name, script)
+    })
+    .catch(e => { addLog('error', `[app] ${e.message}`); message.error(e.message, 8) })
+  }
+
+  // Send a JS macro to Ui.Vision for Desktop (the helper app) and stream its
+  // log into the panel. Used by the context menu and by the Play button when
+  // the macro carries the "use desktop-app" directive or a .d.js name (see
+  // macroRunTarget).
+  runScriptInDesktopApp (name, script) {
+    const addLog = (type, text) => this.props.addLog(type, text)
+    addLog('status', `[app] sending "${name}" to the desktop app…`)
+    this.props.updateUI({ sidebarTab: 'Logs' })
+    return ensureDesktopApp(this.props.config, (t) => addLog('info', `[app] ${t}`)).then((r) => {
+      if (!r.ok) { addLog('error', `[app] ${r.text}`); message.error(r.text, 8); return { ok: false, error: r.text } }
+      return getDesktopAppClient().runScript(name, script, (l) => {
+        if (l.kind === 'info') return
+        addLog(l.kind === 'echo' ? 'echo' : l.kind === 'error' ? 'error' : 'status', `[app] ${l.text}`)
+      }).then((res) => {
+        if (res.ok) message.success(`"${name}" completed in the desktop app`, 4)
+        else message.error(`"${name}" failed in the desktop app: ${res.error}`, 8)
+        return res
+      })
     })
   }
 
@@ -520,8 +588,32 @@ class Files extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Testsuite: Play from here',
+            content: 'Play in loop..',
             onClick: () => {
+              return this.promptLoopCount(loops => {
+                this.playTestCase(macroNode.fullPath, loops)
+              })
+            }
+          }
+        },
+        // JS macros can run in the standalone desktop app (Settings > Desktop
+        // App): no browser tab involved, native speed, the app's own log
+        // streams back into this panel's log. Shown only when the user has
+        // enabled the app — web-automation users never see it.
+        true ? {
+          type: MenuItemType.Button,
+          data: {
+            content: 'Play in Desktop App',
+            onClick: () => this.playInDesktopApp(macroNode)
+          }
+        } : null,
+        {
+          type: MenuItemType.Button,
+          data: {
+            content: 'Play folder from here',
+            onClick: async () => {
+              if (!(await ensureAllUrlsPermission())) return
+
               const macroStorage = getStorageManager().getMacroStorage()
               const path      = macroStorage.getPathLib()
               const dirPath   = path.dirname(macroEntry.entryPath)

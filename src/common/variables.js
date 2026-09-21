@@ -6,9 +6,15 @@ import { ComputerVisionType } from './cv_utils'
 
 const standardKeyConstants = [
   'KEY_LEFT', 'KEY_UP', 'KEY_RIGHT', 'KEY_DOWN',
+  // KEY_ARROW_* aliases: the names the AI keeps writing (OPEN-ISSUES 35.7)
+  'KEY_ARROW_LEFT', 'KEY_ARROW_UP', 'KEY_ARROW_RIGHT', 'KEY_ARROW_DOWN',
   'KEY_PGUP', 'KEY_PAGE_UP', 'KEY_PGDN', 'KEY_PAGE_DOWN',
   'KEY_BKSP', 'KEY_BACKSPACE', 'KEY_DEL', 'KEY_DELETE',
-  'KEY_ENTER', 'KEY_TAB', 'KEY_ESC', 'KEY_SPACE', 'KEY_HOME', 'KEY_END'
+  'KEY_ENTER', 'KEY_TAB', 'KEY_ESC', 'KEY_SPACE', 'KEY_HOME', 'KEY_END',
+  // punctuation keys — Chrome's zoom (Ctrl+'-', Ctrl+'+'/'=') had no spelling
+  // at all (OPEN-ISSUES 24.5); the host knows these names from 2.0.15
+  'KEY_MINUS', 'KEY_PLUS', 'KEY_EQUALS', 'KEY_EQUAL', 'KEY_COMMA', 'KEY_PERIOD', 'KEY_SEMICOLON', 'KEY_SLASH',
+  'KEY_NUMPAD_ADD', 'KEY_NUMPAD_SUBTRACT', 'KEY_NUM_ADD', 'KEY_NUM_SUBTRACT'
 ]
 
 const metaKeyConstants = [
@@ -48,8 +54,12 @@ const isValidKeyConstant = (pattern) => {
   const str = pattern && pattern.toUpperCase()
 
   if (keyConstants.indexOf(str) !== -1) return true
-  if (/^KEY_\w+(\+KEY_\w+)*$/.test(str)) {
-    const keys = str.split('+')
+  // a combo: KEY_ names joined by '+'; the LAST member may also be one
+  // literal printable character — ${KEY_CTRL+-}, ${KEY_CTRL+=}, even
+  // ${KEY_CTRL++} — so no name is needed for a key with a face (24.5)
+  const m = /^(KEY_\w+(?:\+KEY_\w+)*)(\+[^\s])?$/i.exec(String(pattern || ''))
+  if (m) {
+    const keys = m[1].toUpperCase().split('+')
     return and(...keys.map(s => keyConstants.indexOf(s) !== -1))
   }
   return false
@@ -73,7 +83,7 @@ export const DEPRECATED_VARIABLES = [
       "'!URL' is a table-macro variable and cannot be trusted in a JS script: it is only refreshed by commands that go through the classic player, " +
       'so after uiv.page.click(match), uiv.desktop.* or an OCR call it still holds the PREVIOUS page — and even on the paths that do refresh it, ' +
       'the URL is captured before the click\'s navigation finishes, leaving it one command behind. ' +
-      'Read the page instead: uiv.eval(\'return location.href\'). ' +
+      'Read the page instead: uiv.evaluate(\'return location.href\'). ' +
       'On a page that cannot run scripts (chrome://, the PDF viewer, an error page) use uiv.tabs.list() — every entry carries its url.'
   },
   {
@@ -156,7 +166,7 @@ export const DEPRECATED_VARIABLES = [
     jsError:
       "'!OCRX', '!OCRY', '!OCRWIDTH' and '!OCRHEIGHT' are how a table macro reads its last OCR match — uiv.ocr.findText(text) RETURNS the match: " +
       'm.x / m.y is the click point, m.rect the box. For a fixed offset use uiv.offset(m, dx, dy) — the JS form of the *TextRelative targets ' +
-      "(desktop scope composes the same way: uiv.desktop.click(uiv.offset(uiv.ocr.findText('mc', {scope: 'desktop'}), 8, -14)))."
+      "(desktop scope composes the same way: uiv.desktop.mouse.click(uiv.offset(uiv.ocr.findText('mc', {scope: 'desktop'}), 8, -14)))."
   },
   {
     name: '!AI1',
@@ -321,18 +331,21 @@ export default function varsFactory (name = DEFAULT_KEY, options = {}, initial =
       '!TIMEOUT_DOWNLOAD_START': (val) => parseInt(val, 10) >= 0,
       '!CSVREADLINENUMBER': (val) => parseInt(val, 10) >= 0,
       '!OCRLANGUAGE':       (val,store) => isValidOCRLanguage(val,window['store']),
-      '!OCRENGINE':         (val) => [1, 2, 3, 4, 5, 6, 7, 8, 98, 99].indexOf(parseInt(val, 10)) !== -1,
+      '!OCRENGINE':         (val) => [1, 2, 3, 4, 5, 6, 7, 8, 90, 98, 99].indexOf(parseInt(val, 10)) !== -1,
       '!OCRSCALE':          isBoolean,
-      '!OCRX':              (val) => parseInt(val, 10) >= 0,
-      '!OCRY':              (val) => parseInt(val, 10) >= 0,
+      // Coordinate variables accept any finite integer: on a multi-monitor
+      // mac, a display arranged left of (or above) the primary has
+      // legitimately NEGATIVE global coordinates. Sizes stay non-negative.
+      '!OCRX':              (val) => Number.isFinite(parseInt(val, 10)),
+      '!OCRY':              (val) => Number.isFinite(parseInt(val, 10)),
       '!OCRHEIGHT':              (val) => parseInt(val, 10) >= 0,
       '!OCRWIDTH':              (val) => parseInt(val, 10) >= 0,
-      '!OCR_LEFT_X':        (val) => parseInt(val, 10) >= 0,
-      '!OCR_RIGHT_X':        (val) => parseInt(val, 10) >= 0,
-      '!AI1':               (val) => parseInt(val, 10) >= 0,
-      '!AI2':               (val) => parseInt(val, 10) >= 0,
-      '!AI3':               (val) => parseInt(val, 10) >= 0,
-      '!AI4':               (val) => parseInt(val, 10) >= 0,
+      '!OCR_LEFT_X':        (val) => Number.isFinite(parseInt(val, 10)),
+      '!OCR_RIGHT_X':        (val) => Number.isFinite(parseInt(val, 10)),
+      '!AI1':               (val) => Number.isFinite(parseInt(val, 10)),
+      '!AI2':               (val) => Number.isFinite(parseInt(val, 10)),
+      '!AI3':               (val) => Number.isFinite(parseInt(val, 10)),
+      '!AI4':               (val) => Number.isFinite(parseInt(val, 10)),
       '!ERRORIGNORE':       isBoolean,
       '!STATUSOK':          isBoolean,
       '!WAITFORVISIBLE':    isBoolean,

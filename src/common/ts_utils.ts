@@ -1154,6 +1154,11 @@ export function isWindows (): boolean {
   return !!/windows/i.test(userAgent)
 }
 
+export function isLinux (): boolean {
+  const userAgent = window.navigator.userAgent
+  return /linux/i.test(userAgent) && !/android/i.test(userAgent)
+}
+
 export function resolvePath (path: any, basePath: string, relativePath: string): string {
   const dirPath = path.dirname(basePath)
 

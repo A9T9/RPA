@@ -3,6 +3,7 @@ import { getIpcCache } from './ipc_cache'
 import Ext from '../web_extension'
 import log from '../log'
 import { retry, withTimeout, mockAPIWith } from '../utils'
+import { ensureChannelKey } from './cs_channel_key'
 
 const TIMEOUT = -1;
 // this is a constant number to identify sidePanel
@@ -11,6 +12,105 @@ export const SIDEPANEL_TAB_ID = 999999999
 export const SIDEPANEL_PORT_NAME = 'uiv_sidepanel'
 // this is a constant string to identify sidePanel
 const SIDEPANEL_CUID = 'uiv-sidepanel'
+
+// --- background message hub -------------------------------------------------
+//
+// ONE runtime.onMessage listener for the whole background, registered
+// synchronously at startup (bg.js calls initBgMessageHub() at top level);
+// every ipcBg / bgInit listener hangs off it. Two reasons, both measured with
+// a probe extension on Firefox 155.0.1 (2026-09-09, OPEN-ISSUES 46):
+//
+// 1. Firefox terminates the event page after 30 s without extension events.
+//    An open panel tab does NOT keep it alive — only traffic does — so a
+//    paused macro (Pause button, or `pause` with a long delay: nothing crosses
+//    to the background meanwhile) loses the background 30 s in. And only
+//    listeners registered during the first synchronous evaluation are
+//    "persisted", i.e. can wake the page again: every listener here used to
+//    be added inside initIPC after real awaits (storage.session, tabs.query,
+//    cache cleanup), so the panel's next message found no receiver at all.
+// 2. Even with a persisted listener the page wakes, but the message is
+//    delivered BEFORE the async init has re-created the per-cuid listeners
+//    from the cache: the probe saw runtime.sendMessage resolve `undefined`
+//    12 ms after the wake, with the async listener registered right after.
+//    web_extension.js turns that missing receiver into a resolved undefined,
+//    and the ipc ask (timeout -1 for PANEL_CALL_PLAY_TAB) then waits forever
+//    — the "macro stalls after a pause" of forum 2026-09.
+//
+// So: a message that no listener claims before markReady() is queued (the
+// channel stays open) and replayed once initIPC has restored the cached ipcs.
+// A listener claims a message by responding, or by returning true (it will
+// respond asynchronously). Chrome's service worker has the same rules, it just
+// went idle far less often — the same hub serves both.
+//
+// "Synchronously at startup" includes the LOADER: the Firefox manifest lists
+// the bg chunk itself in background.scripts (webpack.prod.config.js). Through
+// the old background.js stub — `import('./bg.js')`, asynchronous — the probe
+// saw Firefox restart the page and hand the waking message over ~10 ms before
+// the imported bg.js had registered this hub: "Receiving end does not exist".
+let bgMessageHub = null
+
+const createBgMessageHub = () => {
+  const listeners = []
+  const pending   = []
+  let ready       = false
+  let failsafe    = null
+
+  const dispatch = (req, sender, sendResponse) => {
+    let claimed = false
+    const respond = (value) => {
+      claimed = true
+      try { sendResponse(value) } catch (e) { /* channel already closed */ }
+    }
+
+    listeners.forEach(listener => {
+      try {
+        if (listener(req, sender, respond) === true) claimed = true
+      } catch (e) {
+        log.error('bg message listener threw', e)
+      }
+    })
+
+    return claimed
+  }
+
+  const flush = () => {
+    ready = true
+    if (failsafe) {
+      clearTimeout(failsafe)
+      failsafe = null
+    }
+
+    pending.splice(0).forEach(({ req, sender, sendResponse }) => {
+      if (dispatch(req, sender, sendResponse)) return
+      // nobody listens for it even now — release the channel, the sender sees
+      // `undefined` exactly as it would from a message with no listener
+      try { sendResponse(undefined) } catch (e) { /* channel already closed */ }
+    })
+  }
+
+  Ext.runtime.onMessage.addListener((req, sender, sendResponse) => {
+    if (dispatch(req, sender, sendResponse)) return true
+    if (ready) return false
+    pending.push({ req, sender, sendResponse })
+    return true
+  })
+
+  // never hold messages forever if init throws before markReady()
+  failsafe = setTimeout(flush, 10000)
+
+  return {
+    addListener: (fn) => { listeners.push(fn) },
+    markReady:   flush
+  }
+}
+
+// Idempotent. Must run during the background's first synchronous evaluation.
+export const initBgMessageHub = () => {
+  if (!bgMessageHub) bgMessageHub = createBgMessageHub()
+  return bgMessageHub
+}
+
+const bgOnMessage = (fn) => initBgMessageHub().addListener(fn)
 
 // Note: `cuid` is a kind of unique id so that you can create multiple
 // ipc promise instances between the same two end points
@@ -57,11 +157,13 @@ export const openBgWithCs = (cuid) => {
       return obj
     }
 
-    Ext.runtime.onMessage.addListener((req, sender, sendResponse) => {
-      if (req.type === wrap('CS_ANSWER_BG') || req.type === wrap('CS_ASK_BG')) {
-        sendResponse(true)
-      }
+    // through the hub (see top of file): registered here, possibly long after
+    // the background started, yet reachable by the message that woke it
+    bgOnMessage((req, sender, sendResponse) => {
+      const mine = req.type === wrap('CS_ANSWER_BG') || req.type === wrap('CS_ASK_BG')
+      if (!mine) return false
 
+      sendResponse(true)
       bgListeners.forEach(listener => listener(req, sender))
       return true
     })
@@ -405,11 +507,14 @@ export const spInit = () => {
 // Helper function to init ipc promise instance for background
 // it accepts a `fn` function to handle CONNECT message from content scripts
 export const bgInit = (fn, getLogServiceForBg) => {
-  Ext.runtime.onMessage.addListener((req, sender, sendResponse) => {
+  // through the hub: bgInit runs after initIPC's awaits, and the message that
+  // woke the background must not be lost meanwhile (queued, replayed at ready)
+  bgOnMessage((req, sender, sendResponse) => {
 
-    // this is handled here to prevent memory leak from 'PANEL_LOG'  
+    // this is handled here to prevent memory leak from 'PANEL_LOG'
     if(req.cmd == 'PANEL_LOG'){
-      return getLogServiceForBg().log(req.args.log)
+      getLogServiceForBg().log(req.args.log)
+      return true
     }
 
     switch (req.type) {
@@ -423,7 +528,18 @@ export const bgInit = (fn, getLogServiceForBg) => {
             sendResponse(true)
           }
         }
-        break
+        return true
+      }
+      // The key content scripts sign their frame-to-frame window messages
+      // with (cs_postmessage.js). Only a content script — a sender with a tab
+      // — gets it; extension pages have no use for it.
+      case 'CS_CHANNEL_KEY': {
+        if (!sender.tab) {
+          sendResponse(null)
+          return true
+        }
+        ensureChannelKey().then(key => sendResponse(key), () => sendResponse(null))
+        return true
       }
       case 'RECONNECT': {
         getIpcCache().getCuid(sender.tab.id).then(async (cuid) => {
@@ -434,17 +550,17 @@ export const bgInit = (fn, getLogServiceForBg) => {
           sendResponse(cuid || null)
         })
 
-        break
+        return true
       }
       case 'BringIDEToFront':{
-        let delay = req.delay || 0        
+        let delay = req.delay || 0
         setTimeout(() => {
           Ext.windows.update(req.windowId, { focused: true })
-        }, delay) 
-        break
+        }, delay)
+        return true
       }
     }
 
-    return true
+    return false
   })
 }

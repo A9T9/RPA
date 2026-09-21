@@ -16,10 +16,6 @@ export type VersionInfo = {
 export interface IXModule {
   getVersion: () => Promise<VersionInfo>;
   sanityCheck: () => Promise<boolean>;
-  checkUpdate?: () => Promise<string>;
-  downloadLink: () => string;
-  infoLink: () => string;
-  checkUpdateLink: (modVersion: string, extVersion: string) => string;
   setConfig: (config: Record<string, any>) => Promise<boolean>;
   getConfig: () => Promise<Record<string, any>>;
   getCachedConfig: () => Record<string, any>;
@@ -41,10 +37,6 @@ export abstract class XModule<T extends IXModuleBasicAPI> implements IXModule, I
 
   abstract getName (): string
   abstract getAPI (): T
-  abstract checkUpdate (): Promise<string>
-  abstract downloadLink (): string
-  abstract infoLink (): string
-  abstract checkUpdateLink (modVersion: string, extVersion: string): string
   abstract sanityCheck (): Promise<boolean>
   abstract initConfig (): Promise<any>
 

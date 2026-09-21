@@ -19,7 +19,7 @@ import { fromJSONString } from '@/common/convert_utils'
 //   fillContactForm('Tom', 'tom@example.com');
 //
 // The path is the one shown in the macro tree, folders included — e.g.
-// "Demo and QA Test Scripts/Core/Sub/Sub_DemoCsvRead_FillForm.js".
+// "Demo and QA Test Scripts/Browser Core/Sub/Sub_DemoCsvRead_FillForm.js".
 //
 // An included file can still be opened and run on its own: `uiv.main` is true
 // only for the macro the user actually started, so a self-test block guarded
@@ -122,6 +122,36 @@ export async function resolveIncludes (mainSource, mainPath = null) {
   })
 
   return { source: lines.join('\n'), segments }
+}
+
+/**
+ * Babel-style code frame for a merged-source position, numbered in the lines
+ * of the file the position maps back to — Babel's own frame counts merged
+ * lines, which match no file the user can open. The frame is clamped to the
+ * segment, so neighbouring files and the injected `uiv.main` lines never
+ * bleed into it. Returns '' when the position maps to no user file.
+ */
+export function frameMergedPosition (mergedSource, segments, mergedLine, column) {
+  if (!segments || !segments.length) return ''
+  const seg = segments.find(s => mergedLine >= s.startLine && mergedLine < s.startLine + s.lineCount)
+  if (!seg) return ''
+
+  const all = String(mergedSource).split('\n')
+  const local = mergedLine - seg.startLine + 1
+  const from = Math.max(1, local - 2)
+  const to = Math.min(seg.lineCount, local + 1)
+  const width = String(to).length
+  const out = []
+
+  for (let n = from; n <= to; n++) {
+    const text = all[seg.startLine - 1 + (n - 1)] || ''
+    const gutter = String(n).padStart(width)
+    out.push(`${n === local ? '>' : ' '} ${gutter} | ${text}`)
+    if (n === local && typeof column === 'number') {
+      out.push(`  ${' '.repeat(width)} | ${' '.repeat(Math.max(0, column))}^`)
+    }
+  }
+  return out.join('\n')
 }
 
 /**

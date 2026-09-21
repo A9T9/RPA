@@ -1,3 +1,5 @@
+import AIEnginePicker from '@/components/ai_engine_picker'
+import { isXModuleOcrAvailable } from '@/modules/ocr'
 import React from 'react'
 import { connect } from 'react-redux'
 import { bindActionCreators, Dispatch } from 'redux'
@@ -6,7 +8,8 @@ import * as actions from '@/actions'
 import { Actions as simpleActions } from '@/actions/simple_actions'
 import { State } from '@/reducers/state'
 import './ai-chat.scss'
-import { ConversationItem, Sender } from './ai_conversation'
+import { ConversationImage, ConversationItem, Sender } from './ai_conversation'
+import { registerChatForBridge } from './bridge_hook'
 
 import { getVarsInstance } from '@/common/variables'
 import { captureScreenShot } from '@/modules/helper'
@@ -15,14 +18,13 @@ import { isFreeTierConsentPending } from '@/services/ai/uivision_free_tier'
 import { MacroAgentService } from '@/services/ai/macro_agent/service'
 import { ComputerUseMessageType } from '@/services/ai/computer_use/model'
 import { MacroResultStatus } from '@/services/kv_data/macro_extra_data'
-import { Button, Tooltip } from 'antd'
+import { Button, Dropdown, Input, Tooltip } from 'antd'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 // Deep-path imports keep webpack from bundling the whole icon set (tree-shaking
 // is disabled by the CommonJS babel transform in webpack.prod.config.js)
 import { faArrowUp } from '@fortawesome/free-solid-svg-icons/faArrowUp'
 import { faStop } from '@fortawesome/free-solid-svg-icons/faStop'
 import { faPlus } from '@fortawesome/free-solid-svg-icons/faPlus'
-import { faBroom } from '@fortawesome/free-solid-svg-icons/faBroom'
 import { openSettings } from '@/ext/common/tab'
 
 interface AiChatState {
@@ -34,11 +36,12 @@ interface AiChatState {
   statusText: string
   // true right after the free-tier opt-in — greets once in the welcome screen
   freeTierJustChosen: boolean
+  debugProviderChoice: boolean
 }
 
 interface AiChatStateProps {
   config: { [key: string]: any }
-  editing: { commands: any[]; meta: { src: null | { id: string; name: string } } }
+  editing: { script?: string; commands: any[]; meta: { src: null | { id: string; name: string } } }
   ui?: { [key: string]: any }
   logs?: any[]
   macrosExtra?: { [id: string]: any }
@@ -63,6 +66,57 @@ const renderInlineMarkdown = (text: string): React.ReactNode => {
   })
 }
 
+// On-screen size for an inline vision image. Crops arrive in raw device
+// pixels, so a toolbar icon is ~30px — too small to judge — while a button
+// crop from a HiDPI shot can be wider than the panel. Scale tiny ones UP to
+// MIN_SIDE and large ones down to fit, aspect ratio preserved; an upscaled
+// crop renders pixelated so icon edges stay readable instead of smearing.
+const VISION_IMAGE_MIN_SIDE = 64
+const VISION_IMAGE_MAX_WIDTH = 260
+const VISION_IMAGE_MAX_HEIGHT = 220
+
+const visionImageStyle = ({ width, height }: ConversationImage): React.CSSProperties => {
+  const w = Math.max(1, width)
+  const h = Math.max(1, height)
+  const up = Math.max(1, VISION_IMAGE_MIN_SIDE / Math.max(w, h))
+  const scale = up * Math.min(1, VISION_IMAGE_MAX_WIDTH / (w * up), VISION_IMAGE_MAX_HEIGHT / (h * up))
+  const rendering: 'pixelated' | 'auto' = scale > 1 ? 'pixelated' : 'auto'
+  // WIDTH ONLY, height comes from the CSS (height: auto). The panel can be
+  // dragged to its 260px minimum, narrower than this width plus the 56px of
+  // container insets, and the stylesheet's max-width: 100% is what stops the
+  // crop from putting a horizontal scrollbar across the whole transcript.
+  // An inline height would beat that rule's height: auto and squash the
+  // aspect ratio the moment max-width clamped the width — so the height is
+  // left to the intrinsic ratio, which yields the same box when nothing
+  // clamps (the scale below already honours both caps) and the right one when
+  // something does. Floor at 1px: a crop clamped against the capture edge can
+  // come back 600x1, and rounding its short side to 0 would render nothing.
+  return {
+    width: Math.max(1, Math.round(w * scale)),
+    imageRendering: rendering
+  }
+}
+
+// Open a chat image full-size in its own tab. The inline rendering is a few
+// hundred px wide — fine for "is the red box on the right icon", useless for
+// reading a full-desktop run screenshot. A data: URL cannot be a top-level
+// page in Chrome, so it goes out as a blob URL; not revoked, because the tab
+// may live (and be reloaded) long after any timer we could pick, and the
+// backing bytes are already held in chat state anyway.
+const openImageFullSize = (dataUrl: string) => {
+  try {
+    const [meta, b64] = dataUrl.split(',')
+    const mime = (meta.match(/^data:([^;]+)/) || [])[1] || 'image/png'
+    const bytes = atob(b64)
+    const arr = new Uint8Array(bytes.length)
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+    const url = URL.createObjectURL(new Blob([arr], { type: mime }))
+    window.open(url, '_blank')
+  } catch (e) {
+    // a broken image is not worth an error dialog
+  }
+}
+
 // AI chat = macro assistant. The agent reads/edits the macro in the editor,
 // runs it through the player, inspects the page and iterates — it does not
 // click around via computer use (that mode was removed from the chat; the
@@ -73,6 +127,10 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
   // instance flag, not state: setState is batched, and the agent loop checks
   // this synchronously right after Send is clicked
   running = false
+  // which run the promise handlers in send() belong to — "new chat" bumps it
+  // so an abandoned run resolving late cannot flip processRunning or drop an
+  // error message into the fresh conversation
+  runSeq = 0
   // fixed per mount so the randomly picked creation chip in the welcome
   // screen doesn't change on every re-render
   welcomeChipSeed = Math.random()
@@ -91,6 +149,7 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
     conversation: [],
     aiPromptText: ``,
     statusText: '',
+    debugProviderChoice: window.location.hash === '#debugbluebutton',
     freeTierJustChosen: false
   }
 
@@ -105,13 +164,43 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
     this.setState({ aiPromptText: prefill })
   }
 
+  onDebugHashChange = () => {
+    this.setState({ debugProviderChoice: window.location.hash === '#debugbluebutton' })
+  }
+
+  dismissDebugProviderChoice = () => {
+    this.setState({ debugProviderChoice: false })
+    if (window.location.hash === '#debugbluebutton') {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    }
+  }
+
   componentDidMount() {
+    window.addEventListener('hashchange', this.onDebugHashChange)
     this.maybeConsumePrefill()
+    // the bridge drives THIS instance — the closures read live state, so the
+    // handle never goes stale while the pane stays mounted (antd keeps
+    // inactive panes mounted once activated)
+    registerChatForBridge({
+      send: (p: string) => {
+        void this.send(p)
+      },
+      newChat: this.newChat,
+      transcript: () => this.state.conversation,
+      running: () => this.state.processRunning,
+      stop: this.stop
+    })
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener('hashchange', this.onDebugHashChange)
+    registerChatForBridge(null)
   }
 
   // "Open AI settings" links: settings live on the options page — one
   // surface for sidebar and IDE alike
   openAiSettings = () => {
+    this.dismissDebugProviderChoice()
     openSettings('ai')
   }
 
@@ -153,7 +242,8 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
   appendMessage = (
     message: string,
     type: ComputerUseMessageType | null = null,
-    isActionOrResult: 'action' | 'result' | null = null
+    isActionOrResult: 'action' | 'result' | null = null,
+    image?: ConversationImage
   ) => {
     // keep the status bar current: API waits are the long silent stretches,
     // everything else (actions, tool results) shows as "what runs right now"
@@ -174,7 +264,7 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
       }
     } else if (type === 'user') {
       if (isActionOrResult === 'result') {
-        this.addConversation('Action', message)
+        this.addConversation('Action', message, false, image)
       } else if (isActionOrResult !== 'action') {
         this.addConversation('You', message)
       }
@@ -187,9 +277,11 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
     if (!this.macroAgentService) {
       const captureScreenShotFunction = async (opts?: { desktop?: boolean }) => {
         const vars = getVarsInstance()
-        // the screenshot tool's scope: "desktop" wins; otherwise follow the
-        // CV scope setting like the classic commands do
-        const isDesktop = !!(opts && opts.desktop) || this.props.config.cvScope === 'desktop'
+        // an explicit scope from the tool wins in BOTH directions (the MCP
+        // screenshot tool promises "the browser tab unless scope: desktop");
+        // only a call without one follows the CV scope setting like the
+        // classic commands do (OPEN-ISSUES 20.3)
+        const isDesktop = (opts && typeof opts.desktop === 'boolean') ? opts.desktop : this.props.config.cvScope === 'desktop'
         const shot = await captureScreenShot({
           vars,
           isDesktop
@@ -207,7 +299,7 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
     return this.macroAgentService
   }
 
-  addConversation = (sender: Sender, message: string, isError?: boolean) => {
+  addConversation = (sender: Sender, message: string, isError?: boolean, image?: ConversationImage) => {
     // functional update — several log calls can land before a re-render, and
     // spreading this.state.conversation would drop all but the last of them
     this.setState((prev) => ({
@@ -215,7 +307,8 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
         ...prev.conversation,
         {
           sender,
-          message
+          message,
+          image
         }
       ]
     }))
@@ -227,6 +320,13 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
     if (this.state.processRunning || prompt === '') {
       return
     }
+
+    // Reopen onboarding for review without resetting the saved provider or transcript.
+    if (prompt.trim().toLowerCase() === '#debugbluebutton') {
+      this.setState({ debugProviderChoice: true, aiPromptText: '' })
+      return
+    }
+    if (this.state.debugProviderChoice) return
 
     // QA hook: type debugshowaiprobanner to render the daily-limit error with
     // its AI PRO banner — the SAME error text and match path a real E703
@@ -246,6 +346,7 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
 
     this.addConversation('You', prompt)
     this.running = true
+    const runSeq = ++this.runSeq
     this.setState({
       processRunning: true,
       aiPromptText: '',
@@ -255,10 +356,12 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
     return this.getMacroAgentService()
       .run(prompt)
       .then(() => {
+        if (runSeq !== this.runSeq) return
         this.running = false
         this.setState({ processRunning: false, statusText: '' })
       })
       .catch((error) => {
+        if (runSeq !== this.runSeq) return
         console.log('error:>> ', error)
         this.running = false
         this.setState({ processRunning: false, statusText: '' })
@@ -271,14 +374,17 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
     this.setState({ processRunning: false, statusText: '' })
   }
 
+  // works during a run too: the click means "abandon this run and start
+  // fresh" — the service's generation bump silences whatever is still in
+  // flight (API response, remaining tool calls)
   newChat = () => {
-    if (this.state.processRunning) {
-      return
-    }
-
+    this.running = false
+    this.runSeq++
     this.getMacroAgentService().createNewChat()
     this.setState({
-      conversation: []
+      conversation: [],
+      processRunning: false,
+      statusText: ''
     })
   }
 
@@ -291,10 +397,11 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
   }
 
   chooseFreeTier = () => {
+    this.dismissDebugProviderChoice()
     if (this.props.updateConfig) {
       // the tier is explicit: "free" here must not inherit a PRO tier left
       // over in config from a previous selection
-      this.props.updateConfig({ aiProvider: 'uivision', uivisionTier: 'free' })
+      this.props.updateConfig({ aiProvider: 'uivision', uivisionTier: 'free', shareUsageStatistics: true })
     }
     this.setState({ freeTierJustChosen: true })
   }
@@ -305,23 +412,25 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
   renderProviderChoice = () => (
     <div className="ai-welcome">
       <div className="ai-setup-card">
+        {this.state.debugProviderChoice && <Button size="small" onClick={this.dismissDebugProviderChoice}>Close preview</Button>}
         <p>
           <strong>One-time setup: choose your AI</strong>
         </p>
         <p>
-          Ui.Vision is built for 100% local operation — you can connect your own AI (local, or with your API key) in
-          the settings at any time. Because local AI takes some setup and a fast machine, we offer a free Ui.Vision AI
-          service during the beta.
+          Ui.Vision is built for 100% local operation - you can connect your own AI (local, or with your API key)
+          in the settings at any time. Because local AI takes some setup and a fast machine, we offer a free
+          Ui.Vision AI service.
         </p>
         <p>
           If you use it, your chat content (including screenshots) is sent to our server only to compute the AI
-          answer. It is not stored.
+          answer. We do not store this content on our server. Selecting the Free Plan turns on basic extension
+          usage statistics. You can review them or turn them off anytime in Settings &gt; Advanced &gt; Privacy.
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', margin: '10px 0' }}>
-          <Button type="primary" onClick={this.chooseFreeTier}>
-            Use Ui.Vision AI — free, no setup needed
+          <Button type="primary" onClick={this.chooseFreeTier} style={{ height: 'auto', whiteSpace: 'normal', padding: '8px 15px' }}>
+            Use Ui.Vision AI - free, no setup needed
           </Button>
-          <Button onClick={this.openAiSettings}>I use my own AI — open settings</Button>
+          <Button onClick={this.openAiSettings} style={{ height: 'auto', whiteSpace: 'normal', padding: '8px 15px' }}>I use my own AI - open settings</Button>
         </div>
         <p>Either way, the created macros run 100% locally in this browser extension.</p>
       </div>
@@ -392,16 +501,12 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
                 prompt: `My macro "${macroName}" failed${lastErrorText ? ` with this error:\n${lastErrorText}` : ''}.\n\nPlease fix the current macro.`
               }
             : {
-                label: `Improve the current macro (${macroName})`,
-                prompt: 'Review the current macro and improve it — make it more robust and easier to read.'
+                label: `Run again (${macroName})`,
+                runAgain: true
               },
           {
             label: 'Explain the current macro',
             prompt: 'Explain what the current macro does, step by step, in simple terms.'
-          },
-          {
-            label: 'Add error handling',
-            prompt: 'Add error handling to the current macro, so it reports a clear message when a step fails.'
           },
           // keep one creation example so "build something new" stays visible —
           // randomly drawn from the pool (minus the informational last entry)
@@ -421,12 +526,12 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
           example:
         </p>
         <div className="ai-example-prompts">
-          {examplePrompts.map((p: { label: string; prompt?: string; disabled?: boolean }) => (
+          {examplePrompts.map((p: { label: string; prompt?: string; disabled?: boolean; runAgain?: boolean }) => (
             <button
               key={p.label}
               className="ai-example-prompt"
               disabled={!!p.disabled}
-              onClick={() => this.send(p.prompt || p.label)}
+              onClick={() => p.runAgain ? window.dispatchEvent(new Event('uiv-play-current-macro')) : this.send(p.prompt || p.label)}
             >
               {p.label}
             </button>
@@ -456,12 +561,12 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
       <>
         <div className="ai-chat">
           <div ref={this.conversationRef} className="ai-conversation" onScroll={this.onConversationScroll}>
-            {isFreeTierConsentPending(this.props.config)
+            {(this.state.debugProviderChoice || isFreeTierConsentPending(this.props.config))
               ? this.renderProviderChoice()
               : this.state.conversation.length === 0
                 ? this.renderWelcome()
                 : null}
-            {this.state.conversation.map((item, i) => {
+            {!this.state.debugProviderChoice && this.state.conversation.map((item, i) => {
               return (
                 <div className="ai-conversation-item" key={i}>
                   <div
@@ -490,7 +595,7 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
                         keeps the plain error; the clickable pitch lives here. */}
                     {item.sender === 'Error' && /Daily free AI limit|E703/i.test(item.message) ? (
                       <div className="ai-pro-banner">
-                        Increase your AI limit 10 times with our new AI PRO plan — more details at{' '}
+                        Increase your AI limit 10 times with our new AI PRO plan - more details at{' '}
                         <a href="https://go.ui.vision/?help=aipro" target="_blank" rel="noreferrer">
                           AI PRO
                         </a>
@@ -498,6 +603,24 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
                       </div>
                     ) : null}
                   </div>
+                  {item.sender === 'Error' && /XModule|native.*host|local OCR/i.test(item.message) && <div>
+                    <Button onClick={() => openSettings('desktop-automation')}>Install XModule</Button>
+                    <Button onClick={async () => { const available = await isXModuleOcrAvailable(true); this.addConversation('AI', available ? 'Local OCR is available. Your next message will use the updated capabilities.' : 'Local OCR is still unavailable. Check XModule installation and connection in Desktop Automation settings.'); }}>Check again</Button>
+                  </div>}
+                  {/* the vision image a save_element_image / save_relative_image
+                      step just created — the file name alone hides a wrong
+                      crop, and this is the moment the user can catch it */}
+                  {item.image ? (
+                    <div className="ai-vision-image">
+                      <img
+                        src={item.image.dataUrl}
+                        style={visionImageStyle(item.image)}
+                        alt={item.message}
+                        title="Click to open full size in a new tab"
+                        onClick={() => openImageFullSize(item.image!.dataUrl)}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               )
             })}
@@ -510,45 +633,47 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
           ) : null}
         </div>
         <div className="chat-footer">
-          <textarea
+          <Input.TextArea
             className="chat-input"
-            placeholder='e.g. "Fix the current macro" or "Create a macro that fills out this form"'
+            aria-label="Message AI"
+            placeholder="Ask anything or describe a task…"
+            autoSize={{ minRows: 1, maxRows: 6 }}
             value={this.state.aiPromptText}
             onChange={(e) => this.setState({ aiPromptText: e.target.value })}
             onKeyDown={(e) => {
               // Enter sends, Shift+Enter inserts a newline
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 this.send()
               }
             }}
           />
           <div className="chat-actions">
-            <Tooltip title="New chat">
+            <Dropdown trigger={['click']} placement="topLeft" menu={{
+              items: [
+                { key: 'new', label: this.state.processRunning ? 'New chat (stops the current run)' : 'New chat' },
+                { key: 'clear', label: 'Clear chat', disabled: this.state.conversation.length === 0 }
+              ],
+              onClick: ({ key }) => {
+                if (key === 'new') this.newChat()
+                if (key === 'clear') this.clearChat()
+              }
+            }}>
               <Button
                 className="new-chat-button"
                 shape="circle"
-                disabled={this.state.processRunning}
-                onClick={() => {
-                  this.newChat()
-                }}
+                type="text"
+                aria-label="Chat actions"
               >
                 <FontAwesomeIcon icon={faPlus} />
               </Button>
-            </Tooltip>
-            <Tooltip title="Clear chat (keeps the session)">
-              <Button
-                className="clear-chat-button"
-                shape="circle"
-                disabled={this.state.conversation.length === 0}
-                onClick={this.clearChat}
-              >
-                <FontAwesomeIcon icon={faBroom} />
-              </Button>
-            </Tooltip>
+            </Dropdown>
+            <div className="chat-model-control">
+              {!this.state.debugProviderChoice && !isFreeTierConsentPending(this.props.config) && <AIEnginePicker config={this.props.config} updateConfig={this.props.updateConfig} disabled={this.state.processRunning} />}
+            </div>
             {this.state.processRunning ? (
               <Tooltip title="Stop">
-                <Button className="send-button stop" shape="circle" type="primary" danger onClick={this.stop}>
+                <Button aria-label="Stop" className="send-button stop" shape="circle" type="primary" danger onClick={this.stop}>
                   <FontAwesomeIcon icon={faStop} />
                 </Button>
               </Tooltip>
@@ -556,6 +681,7 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
               <Tooltip title="Send (Enter)">
                 <Button
                   className="send-button"
+                  aria-label="Send message"
                   shape="circle"
                   type="primary"
                   disabled={this.state.aiPromptText.trim() === ''}

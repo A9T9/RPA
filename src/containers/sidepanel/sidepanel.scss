@@ -678,33 +678,62 @@ html[data-theme='dark'] .sidepanel {
 // full-panel overlay while the pop-out IDE window is open: the IDE owns macro
 // editing then, so the sidebar greys out to prevent concurrent edits that
 // would clobber each other (see checkIdeWindowOpen in index.js)
-// external-control indicator: shown while the MCP bridge executes tool calls.
-// In normal flow (not an overlay) so it pushes the tabs down instead of
-// covering them — the panel stays fully usable and visibly "shared".
+// external-control strip: shown the whole time the MCP bridge is connected;
+// .active while a tool call is executing (pulsing dot, tool name). In normal
+// flow (not an overlay) so it pushes the tabs down instead of covering them —
+// the panel stays fully usable and visibly "shared".
 .mcp-control-banner {
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 4px 10px;
+  padding: 3px 8px 3px 10px;
   font-size: 12px;
   font-weight: 500;
   color: #fff;
-  background: #5b4bc4;
+  background: #7a6fd0; // quieter while idle ...
+
+  &.active {
+    background: #5b4bc4; // ... full colour while Claude is acting
+
+    .mcp-dot {
+      animation: mcp-pulse 1.2s ease-in-out infinite;
+    }
+  }
 
   .mcp-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background: #8aff5e;
-    animation: mcp-pulse 1.2s ease-in-out infinite;
     flex: none;
+  }
+
+  .mcp-label {
+    flex: none;
+    font-weight: 700;
+    white-space: nowrap;
   }
 
   .mcp-tool {
     margin-left: auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-family: monospace;
     font-weight: 400;
     opacity: 0.85;
+  }
+
+  // the emergency stop: always reachable, never truncated away
+  .mcp-stop.ant-btn {
+    flex: none;
+    height: 20px;
+    padding: 0 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    line-height: 18px;
   }
 }
 

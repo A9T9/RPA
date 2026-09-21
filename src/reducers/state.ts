@@ -88,6 +88,10 @@ export type State = {
   noDisplayInPlay: boolean;
   ocrInDesktopMode: boolean;
   replaySpeedOverrideToFastMode: boolean;
+  // MCP bridge connection label ("chrome#1", "firefox#2"); null = not connected
+  mcpBridgeLabel: string | null;
+  // name of the MCP client behind the bridge ("Claude", "LM Studio", ...); null = unknown
+  mcpBridgeClient: string | null;
 
   editor: {
     testCases:                 MacroInState[];
@@ -180,6 +184,8 @@ export const initialState: State = {
   noDisplayInPlay: false,
   ocrInDesktopMode: false,
   replaySpeedOverrideToFastMode: false,
+  mcpBridgeLabel: null,
+  mcpBridgeClient: null,
   editor: {
     testCases: [],
     currentMacro: null,

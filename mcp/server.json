@@ -1,0 +1,33 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.A9T9/uivision-mcp",
+  "title": "Ui.Vision MCP",
+  "description": "MCP server for browser and desktop automation: OCR, image recognition, real mouse and keyboard input",
+  "websiteUrl": "https://ui.vision/mcp",
+  "repository": {
+    "url": "https://github.com/A9T9/RPA",
+    "source": "github",
+    "subfolder": "mcp"
+  },
+  "version": "1.7.18",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "uivision-mcp-bridge",
+      "version": "1.7.18",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "UIVISION_MCP_PORT",
+          "description": "Local WebSocket port the Ui.Vision extension connects to (default 50888; must match Settings > AI in the extension)",
+          "isRequired": false,
+          "format": "number"
+        }
+      ]
+    }
+  ]
+}

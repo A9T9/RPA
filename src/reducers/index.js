@@ -708,6 +708,14 @@ export default function reducer (state = initialState, action) {
       return setIn(['ocrInDesktopMode'], action.data, state)
     }
 
+    case ActionTypes.setMcpBridgeLabel: {
+      return setIn(['mcpBridgeLabel'], action.data, state)
+    }
+
+    case ActionTypes.setMcpBridgeClient: {
+      return setIn(['mcpBridgeClient'], action.data, state)
+    }
+
     case ActionTypes.setReplaySpeedOverrideToFastMode: {
       return setIn(['replaySpeedOverrideToFastMode'], action.data, state)
     }
