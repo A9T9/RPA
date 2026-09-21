@@ -1,4 +1,4 @@
-# Ui.Vision — Browser and Desktop Automation
+# Ui.Vision - Browser and Desktop Automation
 
 **Automate websites and desktop applications with macros, JavaScript, or an AI assistant.** Ui.Vision combines browser automation, OCR and image recognition, with an MCP server that lets AI agents create, edit and run reusable macros in your browser.
 
