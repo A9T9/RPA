@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import React from 'react'
 import ReactDOM from 'react-dom'
 import { Modal, message, Input } from 'antd'
@@ -24,9 +25,9 @@ class SaveAsModal extends React.Component {
   render () {
     return (
       <Modal
-        title="Save macro as.."
-        okText="Save"
-        cancelText="Cancel"
+        title={t("Save macro as..")}
+        okText={t("Save")}
+        cancelText={t("Cancel")}
         open={true}
         onOk={() => this.props.onOk(this.state.name)}
         onCancel={this.props.onCancel}
@@ -37,7 +38,7 @@ class SaveAsModal extends React.Component {
           onKeyDown={e => { e.keyCode === 13 && this.props.onOk(this.state.name) }}
           onChange={e => this.setState({ name: e.target.value })}
           value={this.state.name || ''}
-          placeholder="macro name"
+          placeholder={t("macro name")}
           ref={el => { this.inputSaveTestCase = el }}
         />
       </Modal>
@@ -77,7 +78,7 @@ const tryToSave = (store, testCaseName) => {
       return store.dispatch(saveEditingAsNew(name))
       .then(
         () => {
-          message.success('successfully saved!', 1.5)
+          message.success(t('successfully saved!'), 1.5)
           resolve(true)
         },
         e  => {
@@ -125,10 +126,10 @@ const factory = (store) => {
       const hasUnsaved  = hasUnsavedMacro(state)
       const isExisting  = !!state.editor.editing.meta.src
       const opts        = {
-        getTitle:   (data) => `Unsaved changes in macro "${data.macroName}"`,
-        getContent: (data) => 'Do you want to discard or save these changes?',
-        okText:     'Save',
-        cancelText: 'Discard',
+        getTitle:   (data) => t('Unsaved changes in macro "{macroName}"', { macroName: data.macroName }),
+        getContent: (data) => t('Do you want to discard or save these changes?'),
+        okText:     t('Save'),
+        cancelText: t('Discard'),
         ...(options || {})
       }
 

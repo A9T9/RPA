@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 // Settings page shell: sticky left nav + one section at a time, driven by
 // the location hash (#ai, #ocr, ...) so every section is deep-linkable and
 // openSettings('ai') from any extension page lands on the right section.
@@ -36,11 +37,11 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: null,
     sections: [
-      { key: 'general', label: 'General', hint: 'Side panel, storage mode, color theme', component: GeneralTab },
-      { key: 'ai', label: 'AI ✨', hint: 'AI provider, API keys, MCP bridge', component: AITab },
-      { key: 'ocr', label: 'OCR', hint: 'Text recognition engines and languages', component: OcrTab },
-      { key: 'vision', label: 'Vision', hint: 'Browser vs. desktop automation scope', component: VisionTab },
-      { key: 'backup', label: 'Backup', hint: 'Automatic backup reminder, restore from ZIP', component: BackupTab }
+      { key: 'general', label: t('General'), hint: t('Side panel, storage mode, color theme'), component: GeneralTab },
+      { key: 'ai', label: 'AI ✨', hint: t('AI provider, API keys, MCP bridge'), component: AITab },
+      { key: 'ocr', label: 'OCR', hint: t('Text recognition engines and languages'), component: OcrTab },
+      { key: 'vision', label: t('Vision'), hint: t('Browser vs. desktop automation scope'), component: VisionTab },
+      { key: 'backup', label: t('Backup'), hint: t('Automatic backup reminder, restore from ZIP'), component: BackupTab }
     ]
   },
   {
@@ -48,17 +49,17 @@ const NAV_GROUPS: NavGroup[] = [
     // (setup, permissions, self-tests) and the helper app (Ui.Vision for
     // Desktop) that runs macros without a browser. Same keys as before, so
     // openSettings('desktop-automation') / ('desktop-app') and old links work.
-    title: 'Desktop Automation',
+    title: t('Desktop Automation'),
     icon: 'logo.png',
     sections: [
-      { key: 'desktop-automation', label: 'Setup (XModules2)', hint: 'The native Desktop Automation module: install, home folder, permissions, self-tests', component: XModules2Tab },
+      { key: 'desktop-automation', label: t('Setup (XModules2)'), hint: t('The native Desktop Automation module: install, home folder, permissions, self-tests'), component: XModules2Tab },
       {
         key: 'desktop-app',
-        label: 'Settings (App)',
+        label: t('Settings (App)'),
         hint: (
           <>
             <a href="https://go.ui.vision/?help=extension-settings-desktop-app" target="_blank" rel="noopener noreferrer">Ui.Vision for Desktop</a>
-            {' — the helper app for desktop automation: connection, shared settings files, test run'}
+            {t(' — the helper app for desktop automation: connection, shared settings files, test run')}
           </>
         ),
         component: DesktopAppTab
@@ -66,13 +67,13 @@ const NAV_GROUPS: NavGroup[] = [
     ]
   },
   {
-    title: 'Advanced',
+    title: t('Advanced'),
     sections: [
-      { key: 'replay', label: 'Replay', hint: 'Timeouts, command interval, replay helpers', component: ReplayTab },
-      { key: 'proxy', label: 'Proxy', hint: 'Default proxy for the setProxy command', component: ProxyTab },
-      { key: 'security', label: 'Security', hint: 'Master password, text encryption', component: SecurityTab },
-      { key: 'api', label: 'API', hint: 'Command line and embedded macro access', component: ApiTab },
-      { key: 'privacy', label: 'Privacy', hint: 'Basic usage statistics and your choices', component: PrivacyTab }
+      { key: 'replay', label: t('Replay'), hint: t('Timeouts, command interval, replay helpers'), component: ReplayTab },
+      { key: 'proxy', label: t('Proxy'), hint: t('Default proxy for the setProxy command'), component: ProxyTab },
+      { key: 'security', label: t('Security'), hint: t('Master password, text encryption'), component: SecurityTab },
+      { key: 'api', label: 'API', hint: t('Command line and embedded macro access'), component: ApiTab },
+      { key: 'privacy', label: t('Privacy'), hint: t('Basic usage statistics and your choices'), component: PrivacyTab }
     ]
   }
 ]
@@ -143,7 +144,7 @@ export default class SettingsApp extends React.Component<{}, SettingsAppState> {
             <img src="logo.png" alt="" onError={(e: any) => { e.target.style.display = 'none' }} />
             <div className="settings-brand-text">
               <div className="settings-brand-title">Ui.Vision</div>
-              <div className="settings-brand-sub">Settings{version ? ` · v${version}` : ''}</div>
+              <div className="settings-brand-sub">{t('Settings')}{version ? ` · v${version}` : ''}</div>
             </div>
           </div>
 

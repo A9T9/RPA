@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import React from 'react'
 import { connect } from 'react-redux'
 import { bindActionCreators }  from 'redux'
@@ -345,10 +346,10 @@ class DashboardEditor extends React.Component {
 
         case 'setWindowSize': {
           return Modal.confirm({
-            title:  'Confirm',
+            title:  t('Confirm'),
             content: 'Do you want to use the current browser dimensions?',
-            okText: 'Yes',
-            cancelText: 'No',
+            okText: t('Yes'),
+            cancelText: t('No'),
             onOk: () => {
               return csIpc.ask('PANEL_GET_WINDOW_SIZE_OF_PLAY_TAB').then((size) => {
                 console.log('window size:>>', size)
@@ -1016,7 +1017,7 @@ class DashboardEditor extends React.Component {
               key: "cut",
               label: (
                 <>
-                  <span>Cut</span>
+                  <span>{t('Cut')}</span>
                   <span className="shortcut">{ctrlKey}X</span>
                 </>
               ),
@@ -1026,7 +1027,7 @@ class DashboardEditor extends React.Component {
               key: "copy",
               label: (
                 <>
-                  <span>Copy</span>
+                  <span>{t('Copy')}</span>
                   <span className="shortcut">{ctrlKey}C</span>
                 </>
               ),
@@ -1036,7 +1037,7 @@ class DashboardEditor extends React.Component {
                 key: "paste",
                 label: (
                   <>
-                    <span>Paste</span>
+                    <span>{t('Paste')}</span>
                     <span className="shortcut">{ctrlKey}V</span>
                   </>
                 ),
@@ -1046,7 +1047,7 @@ class DashboardEditor extends React.Component {
                 key: "delete",
                 label: (
                   <>
-                    <span>Delete</span>
+                    <span>{t('Delete')}</span>
                   </>
                 ),
                 disabled: !getLicenseService().canPerform(Feature.Edit)
@@ -1058,7 +1059,7 @@ class DashboardEditor extends React.Component {
                 key: "insert",
                 label: (
                   <>
-                    <span>Insert new line</span>
+                    <span>{t('Insert new line')}</span>
                   </>
                 ),
                 disabled: !getLicenseService().canPerform(Feature.Edit)
@@ -1070,7 +1071,7 @@ class DashboardEditor extends React.Component {
                 key: "jump_to_source_code",
                 label: (
                   <>
-                    <span>Jump to source code</span>
+                    <span>{t('Jump to source code')}</span>
                   </>
                 )
               },
@@ -1078,7 +1079,7 @@ class DashboardEditor extends React.Component {
                 key: isBreakpoint ? 'remove_breakpoint' : 'add_breakpoint',
                 label: (
                   <>
-                    <span>{isBreakpoint ? 'Remove breakpoint' : 'Add breakpoint'}</span>
+                    <span>{isBreakpoint ? t('Remove breakpoint') : t('Add breakpoint')}</span>
                   </>
                 )
               },
@@ -1089,7 +1090,7 @@ class DashboardEditor extends React.Component {
                 key: "run_line",
                 label: (
                   <>
-                    <span>Execute this command</span>
+                    <span>{t('Execute this command')}</span>
                   </>
                 )
               },
@@ -1097,7 +1098,7 @@ class DashboardEditor extends React.Component {
                 key: "play_from_here_keep_variables",
                 label: (
                   <>
-                    <span>Play from here and keep variables</span>
+                    <span>{t('Play from here and keep variables')}</span>
                   </>
                 )
               },
@@ -1105,7 +1106,7 @@ class DashboardEditor extends React.Component {
                 key: "play_to_here",
                 label: (
                   <>
-                    <span>Play to this point</span>
+                    <span>{t('Play to this point')}</span>
                   </>
                 )
               },
@@ -1113,7 +1114,7 @@ class DashboardEditor extends React.Component {
                 key: "record_from_here",
                 label: (
                   <>
-                    <span>Record from here</span>
+                    <span>{t('Record from here')}</span>
                   </>
                 ),
                 disabled: !getLicenseService().canPerform(Feature.Record)
@@ -1122,7 +1123,7 @@ class DashboardEditor extends React.Component {
                 key: "jump_to_image",
                 label: (
                   <>
-                    <span>Jump to image</span>
+                    <span>{t('Jump to image')}</span>
                   </>
                 ),
                 disabled: target_item.indexOf('.png') === -1
@@ -1418,23 +1419,23 @@ class DashboardEditor extends React.Component {
             <Column
               headerRenderer={this.headerRenderer}
               dataKey="cmd"
-              label="Command"
+              label={t("Command")}
               width={columnWidths.cmd * tableWidth * headerWidthPatchFactor}
             />  
             <Column
               headerRenderer={this.headerRenderer}
               dataKey="target"
-              label="Target"
+              label={t("Target")}
               width={columnWidths.target * tableWidth * headerWidthPatchFactor}
             />  
             <Column
               dataKey="value"
-              label="Value"
+              label={t("Value")}
               width={columnWidths.value * tableWidth * headerWidthPatchFactor}
             />
             <Column
               dataKey="ops"
-              label="Ops"
+              label={t("Ops")}
               width={columnWidths.opsFixed + 20}
             /> 
           </RcvTable>
@@ -1452,11 +1453,11 @@ class DashboardEditor extends React.Component {
 
     const columns = [
       { title: '',         dataIndex: 'serial',   key: 'serial',  width: 40 },
-      { title: 'Command',  dataIndex: 'cmd',      key: 'cmd',     width: 130 },
-      { title: 'Target',   dataIndex: 'target',   key: 'target',  width: 250, ellipsis: true },
-      { title: 'Value',    dataIndex: 'value',    key: 'value',   ellipsis: true },
+      { title: t('Command'),  dataIndex: 'cmd',      key: 'cmd',     width: 130 },
+      { title: t('Target'),   dataIndex: 'target',   key: 'target',  width: 250, ellipsis: true },
+      { title: t('Value'),    dataIndex: 'value',    key: 'value',   ellipsis: true },
       {
-        title: 'Ops',
+        title: t('Ops'),
         key: 'ops',
         width: 80,
         render: (text, record, index) => {
@@ -1547,7 +1548,7 @@ class DashboardEditor extends React.Component {
     const aiRunning = !!(ui && ui.aiRunningMacro)
     const tabLabel = (label, disabled, isAiTab) => {
       if (disabled)             return <Tooltip title={otherKindNote}><span>{label}</span></Tooltip>
-      if (aiRunning && isAiTab) return <Tooltip title="The AI is running this macro"><span>{label} ✨</span></Tooltip>
+      if (aiRunning && isAiTab) return <Tooltip title={t("The AI is running this macro")}><span>{label} ✨</span></Tooltip>
       return label
     }
 
@@ -1562,7 +1563,7 @@ class DashboardEditor extends React.Component {
             // defaultActiveKey="1"
             items={[
               {
-                label: tabLabel('Table View', isScriptMacro, !isScriptMacro),
+                label: tabLabel(t('Table View'), isScriptMacro, !isScriptMacro),
                 disabled: isScriptMacro,
                 key: 'table_view',
                 children: (
@@ -1573,13 +1574,13 @@ class DashboardEditor extends React.Component {
 
                     <div className="form-group fields-wrapper" style={{ marginBottom: 0 }}>
                       <Form>
-                        <Form.Item label="Command" labelCol={{ span: 4 }} wrapperCol={{ span: 20 }}>
+                        <Form.Item label={t("Command")} labelCol={{ span: 4 }} wrapperCol={{ span: 20 }}>
                           <div className="flex-row" ref={this.cmdInputRef}>
                             <Select
                               
                               showSearch
                               optionFilterProp="children"
-                              placeholder="command"
+                              placeholder={t("command")}
                               disabled={!isCmdEditable}
                               value={selectedCmd && selectedCmd.cmd}
                               onChange={(value) => this.onDetailChange('cmd', value)}
@@ -1625,7 +1626,7 @@ class DashboardEditor extends React.Component {
                               ) : <span></span>}
                               <Button
                                 style={{ padding: '0 10px' }}
-                                title="Toggle comment"
+                                title={t("Toggle comment")}
                                 disabled={!isCmdEditable}
                                 onClick={() => {
                                   this.props.toggleCommentOnSelectedCommand()
@@ -1636,12 +1637,12 @@ class DashboardEditor extends React.Component {
                             </div>
                           </div>
                         </Form.Item>
-                        <Form.Item label="Target" className="target-row" labelCol={{ span: 4 }} wrapperCol={{ span: 20 }}>
+                        <Form.Item label={t("Target")} className="target-row" labelCol={{ span: 4 }} wrapperCol={{ span: 20 }}>
                           <div className="flex-row">
                             {shouldUseNormalInputForTarget ? (
                               <Input
                                 style={{ flex: 1, maxWidth: '60%', marginRight: '10px' }}
-                                placeholder="target"
+                                placeholder={t("target")}
                                 disabled={!isCmdEditable}
                                 value={selectedCmd && selectedCmd.target}
                                 onChange={(e) => this.onDetailChange('target', e.target.value)}
@@ -1664,7 +1665,7 @@ class DashboardEditor extends React.Component {
                               <div className="textarea-wrapper">
                                 <Input.TextArea
                                   rows={2}
-                                  placeholder="target"
+                                  placeholder={t("target")}
                                   disabled={!isCmdEditable}
                                   value={selectedCmd && selectedCmd.target}
                                   onChange={(e) => this.onDetailChange('target', e.target.value)}
@@ -1674,7 +1675,7 @@ class DashboardEditor extends React.Component {
                                 <DoubleRightOutlined
                                   type="arrows-alt"
                                   className="open-full-editor"
-                                  title="Open full editor"
+                                  title={t("Open full editor")}
                                   onClick={() => {
                                     this.setState({
                                       targetEditor: {
@@ -1692,7 +1693,7 @@ class DashboardEditor extends React.Component {
                               onClick={this.onToggleSelect}
                             >
                               {isInspecting
-                                ? (<span>{(selectedCmdIsVisualSearch ? '👁' : '') + 'Cancel'}</span>)
+                                ? (<span>{(selectedCmdIsVisualSearch ? '👁' : '') + t('Cancel')}</span>)
                                 : (<span>{selectedCmdIsVisualSearch ? '👁Select image' : 'Select element'}</span>)
                               }
                             </Button>
@@ -1704,23 +1705,23 @@ class DashboardEditor extends React.Component {
                             </Button>
                           </div>
                         </Form.Item>
-                        <Form.Item label="Value" labelCol={{ span: 4 }} wrapperCol={{ span: 20 }}>
+                        <Form.Item label={t("Value")} labelCol={{ span: 4 }} wrapperCol={{ span: 20 }}>
                           <Input
                             disabled={!isCmdEditable}
                             value={selectedCmd && selectedCmd.value}
                             onChange={(e) => this.onDetailChange('value', e.target.value)}
                             style={{ width: '100%' }}
-                            placeholder="value"
+                            placeholder={t("value")}
                             size="default"
                           />
                         </Form.Item>
-                        <Form.Item label="Description" labelCol={{ span: 4 }} wrapperCol={{ span: 20 }} style={{ marginBottom: 0 }}>
+                        <Form.Item label={t("Description")} labelCol={{ span: 4 }} wrapperCol={{ span: 20 }} style={{ marginBottom: 0 }}>
                           <Input
                             disabled={!isCmdEditable}
                             value={selectedCmd && selectedCmd.description}
                             onChange={(e) => this.onDetailChange('description', e.target.value)}
                             style={{ width: '100%' }}
-                            placeholder="description"
+                            placeholder={t("description")}
                             size="default"
                           />
                         </Form.Item>
@@ -1730,7 +1731,7 @@ class DashboardEditor extends React.Component {
                 )
               },
               {
-                label: tabLabel('Source View (JSON)', isScriptMacro),
+                label: tabLabel(t('Source View (JSON)'), isScriptMacro),
                 disabled: isScriptMacro,
                 key: 'source_view',
                 className: "source-view",
@@ -1773,7 +1774,7 @@ class DashboardEditor extends React.Component {
               },
 
               {
-                label: tabLabel('JS View', !isScriptMacro, isScriptMacro),
+                label: tabLabel(t('JS View'), !isScriptMacro, isScriptMacro),
                 disabled: !isScriptMacro,
                 key: 'script_view',
                 // Mount the editor ONLY for an actual script macro. As a
@@ -1802,7 +1803,7 @@ class DashboardEditor extends React.Component {
               }}
             >
               <ComputerSvg />
-              <span>Desktop mode</span>
+              <span>{t('Desktop mode')}</span>
             </div>
           ) : <div
               className="vision-type"
@@ -1811,7 +1812,7 @@ class DashboardEditor extends React.Component {
               }}
             >
               <BrowserSvg />
-            <span>Browser mode</span>
+            <span>{t('Browser mode')}</span>
         </div>}
         </div>
  

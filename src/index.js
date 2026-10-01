@@ -8,6 +8,8 @@ import ReactDOM from 'react-dom'
 import { HashRouter } from 'react-router-dom'
 import { ConfigProvider, message } from 'antd'
 import en_US from "antd/lib/locale/en_US"
+import zh_CN from 'antd/lib/locale/zh_CN'
+import { isSimplifiedChinese } from './common/ui_locale'
 import HTML5Backend from 'react-dnd-html5-backend'
 import { DndProvider } from 'react-dnd'
 import FuzzySet from 'fuzzyset.js'
@@ -150,9 +152,11 @@ const sidePanelTheme = {
   }
 }
 
+document.documentElement.lang = isSimplifiedChinese() ? 'zh-CN' : 'en'
+
 const render = () => root.render(
   <DndProvider backend={HTML5Backend}>
-    <ConfigProvider locale={en_US} theme={isSidePanelWindow() ? sidePanelTheme : undefined}>
+    <ConfigProvider locale={isSimplifiedChinese() ? zh_CN : en_US} theme={isSidePanelWindow() ? sidePanelTheme : undefined}>
       <Provider store={store}>
         <HashRouter>
           { isSidePanelWindow() ? <SidepanelApp/> : <App /> }

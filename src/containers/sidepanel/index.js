@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import { Button, Modal, Tabs, Tooltip, message } from 'antd'
 import 'antd/dist/reset.css'
 import React from 'react'
@@ -188,7 +189,7 @@ class Sidepanel extends React.Component {
           type="primary"
           danger
           className="mcp-stop"
-          title="Emergency stop: stops the running macro and switches the MCP bridge off (re-enable it in Settings > AI)"
+          title={t("Emergency stop: stops the running macro and switches the MCP bridge off (re-enable it in Settings > AI)")}
           onClick={emergencyStopMcp}
         >
           STOP
@@ -375,7 +376,7 @@ class Sidepanel extends React.Component {
         {!isPlaying ? (
           <span
             className="open-log"
-            title="Show the full log (Data > Logs)"
+            title={t("Show the full log (Data > Logs)")}
             onClick={this.onClickOpenLog}
           >
             Log
@@ -384,7 +385,7 @@ class Sidepanel extends React.Component {
         {tone === 'error' && !isPlaying ? (
           <span
             className="fix-with-ai"
-            title="Open AI Chat with this error — the AI fixes the macro"
+            title={t("Open AI Chat with this error — the AI fixes the macro")}
             onClick={this.onClickFixWithAI}
           >
             Fix with AI ✨
@@ -636,12 +637,12 @@ class Sidepanel extends React.Component {
           if (scriptRun && status !== C.APP_STATUS.RECORDER) {
             this._lastMacroLog = null // after the run, re-read the fresh result line
             const scriptLine = this.props.ui && this.props.ui.scriptLine
-            return scriptLine ? `Line ${scriptLine}` : 'Running'
+            return scriptLine ? t('Line {line}', { line: scriptLine }) : t('Running')
           }
 
           switch (status) {
             case C.APP_STATUS.RECORDER:
-              return 'Recording'
+              return t('Recording')
             case C.APP_STATUS.PLAYER: {
               this._lastMacroLog = null
               switch (player.status) {
@@ -664,10 +665,10 @@ class Sidepanel extends React.Component {
                   // "Round x/y" only when it's an actual loop replay ("Play in
                   // loop.." on a macro or folder) — a plain play has loops = 1
                   const parts = scriptRun
-                    ? [scriptLine ? `Line ${scriptLine}` : 'Running']
+                    ? [scriptLine ? t('Line {line}', { line: scriptLine }) : t('Running')]
                     : [
-                        `Line ${nextCommandIndex + 1}`,
-                        ...(loops > 1 ? [`Round ${currentLoop}/${loops}`] : [])
+                        t('Line {line}', { line: nextCommandIndex + 1 }),
+                        ...(loops > 1 ? [t('Round {current}/{total}', { current: currentLoop, total: loops })] : [])
                       ]
 
                   if (timeoutStatus && timeoutStatus.type && timeoutStatus.total) {
@@ -679,7 +680,7 @@ class Sidepanel extends React.Component {
                 }
 
                 case C.PLAYER_STATUS.PAUSED:
-                  return 'Player paused'
+                  return t('Player paused')
 
                 default:
                   return ''
@@ -780,7 +781,7 @@ class Sidepanel extends React.Component {
     return (
       <div
         className="vision-type"
-        title={doShowDesktopIcon ? 'Desktop automation mode — click for Vision settings' : 'Browser automation mode — click for Vision settings'}
+        title={doShowDesktopIcon ? t('Desktop automation mode — click for Vision settings') : t('Browser automation mode — click for Vision settings')}
         onClick={() => openSettings('vision')}
       >
         {doShowDesktopIcon ? <ComputerSvg /> : <BrowserSvg />}
@@ -813,7 +814,7 @@ class Sidepanel extends React.Component {
             items={[
               {
                 key: 'Files',
-                label: 'Files',
+                label: t('Files'),
                 children: <Files />
               },
               {
@@ -821,17 +822,17 @@ class Sidepanel extends React.Component {
                 // sparkle while the AI chat agent drives a run — tells the
                 // user why the tab switched and the macro plays "by itself"
                 label: this.props.ui.aiRunningMacro ? (
-                  <Tooltip title="The AI is running this macro">
+                  <Tooltip title={t("The AI is running this macro")}>
                     <span>Macro ✨</span>
                   </Tooltip>
                 ) : (
-                  'Macro'
+                  t('Macro')
                 ),
                 children: <Macro />
               },
               {
                 key: 'AiChat',
-                label: 'AI Chat ✨',
+                label: t('AI Chat ✨'),
                 // fills the whole tab area: conversation scrolls, composer pinned
                 className: 'full-height-pane',
                 children: <AiChat renderStatus={this.renderStatus} />
@@ -841,7 +842,7 @@ class Sidepanel extends React.Component {
                 // existing tab-switch logic keep working — only the label
                 // changed when the tab grew the Screenshots/CSV/Visual lists
                 key: 'Logs',
-                label: 'Data',
+                label: t('Data'),
                 children: <Logs />
               }
             ]}

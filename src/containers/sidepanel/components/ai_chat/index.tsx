@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import AIEnginePicker from '@/components/ai_engine_picker'
 import { isXModuleOcrAvailable } from '@/modules/ocr'
 import React from 'react'
@@ -412,27 +413,23 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
   renderProviderChoice = () => (
     <div className="ai-welcome">
       <div className="ai-setup-card">
-        {this.state.debugProviderChoice && <Button size="small" onClick={this.dismissDebugProviderChoice}>Close preview</Button>}
+        {this.state.debugProviderChoice && <Button size="small" onClick={this.dismissDebugProviderChoice}>{t('Close preview')}</Button>}
         <p>
-          <strong>One-time setup: choose your AI</strong>
+          <strong>{t('One-time setup: choose your AI')}</strong>
         </p>
         <p>
-          Ui.Vision is built for 100% local operation - you can connect your own AI (local, or with your API key)
-          in the settings at any time. Because local AI takes some setup and a fast machine, we offer a free
-          Ui.Vision AI service.
+          {t('Ui.Vision is built for 100% local operation - you can connect your own AI (local, or with your API key) in the settings at any time. Because local AI takes some setup and a fast machine, we offer a free Ui.Vision AI service.')}
         </p>
         <p>
-          If you use it, your chat content (including screenshots) is sent to our server only to compute the AI
-          answer. We do not store this content on our server. Selecting the Free Plan turns on basic extension
-          usage statistics. You can review them or turn them off anytime in Settings &gt; Advanced &gt; Privacy.
+          {t('If you use it, your chat content (including screenshots) is sent to our server only to compute the AI answer. We do not store this content on our server. Selecting the Free Plan turns on basic extension usage statistics. You can review them or turn them off anytime in Settings > Advanced > Privacy.')}
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', margin: '10px 0' }}>
           <Button type="primary" onClick={this.chooseFreeTier} style={{ height: 'auto', whiteSpace: 'normal', padding: '8px 15px' }}>
-            Use Ui.Vision AI - free, no setup needed
+            {t('Use Ui.Vision AI - free, no setup needed')}
           </Button>
-          <Button onClick={this.openAiSettings} style={{ height: 'auto', whiteSpace: 'normal', padding: '8px 15px' }}>I use my own AI - open settings</Button>
+          <Button onClick={this.openAiSettings} style={{ height: 'auto', whiteSpace: 'normal', padding: '8px 15px' }}>{t('I use my own AI - open settings')}</Button>
         </div>
-        <p>Either way, the created macros run 100% locally in this browser extension.</p>
+        <p>{t('Either way, the created macros run 100% locally in this browser extension.')}</p>
       </div>
     </div>
   )
@@ -466,29 +463,29 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
 
     const creationPrompts = [
       {
-        label: 'Search Wikipedia for "Solar cell"',
+        label: t('Search Wikipedia for "Solar cell"'),
         prompt: 'Search Wikipedia for "Solar cell".'
       },
       {
-        label: 'Extract GitHub stars to CSV',
+        label: t('Extract GitHub stars to CSV'),
         prompt:
           'Extract the star count from https://github.com/A9T9/RPA and save it to a csv file with a date/time stamp.'
       },
       {
-        label: 'Fill the Ui.Vision contact form with test data',
+        label: t('Fill the Ui.Vision contact form with test data'),
         prompt:
           'Fill out the Ui.Vision contact form with funny test data and submit it. Use subject [AI Test] so the team can filter these out.'
       },
       {
-        label: 'Download the 3 XModules (Win, Mac, Linux)',
+        label: t('Download the 3 XModules (Win, Mac, Linux)'),
         prompt: 'Download the 3 Ui.Vision XModules (Win, Mac, Linux) from https://ui.vision/rpa/x/download'
       },
       {
-        label: 'Run OCR on the Ui.Vision logo at ocr.space',
+        label: t('Run OCR on the Ui.Vision logo at ocr.space'),
         prompt: 'Go to ocr.space and run OCR on https://ui.vision/content/images/ui.vision.logo2.webp'
       },
       {
-        label: 'What can you automate?',
+        label: t('What can you automate?'),
         prompt: 'What kinds of tasks can you automate for me? Give a few concrete examples.'
       }
     ]
@@ -497,15 +494,15 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
       ? [
           lastRunFailed
             ? {
-                label: `Fix the last error (${macroName})`,
+                label: t('Fix the last error ({macroName})', { macroName }),
                 prompt: `My macro "${macroName}" failed${lastErrorText ? ` with this error:\n${lastErrorText}` : ''}.\n\nPlease fix the current macro.`
               }
             : {
-                label: `Run again (${macroName})`,
+                label: t('Run again ({macroName})', { macroName }),
                 runAgain: true
               },
           {
-            label: 'Explain the current macro',
+            label: t('Explain the current macro'),
             prompt: 'Explain what the current macro does, step by step, in simple terms.'
           },
           // keep one creation example so "build something new" stays visible —
@@ -518,12 +515,11 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
       <div className="ai-welcome">
         {this.state.freeTierJustChosen ? (
           <p>
-            <strong>Great — you are all set!</strong> What macro should we create?
+            <strong>{t('Great — you are all set!')}</strong> {t('What macro should we create?')}
           </p>
         ) : null}
         <p>
-          Tell the AI what to automate. It builds the macro in the editor, runs it and fixes it until it works. Try an
-          example:
+          {t('Tell the AI what to automate. It builds the macro in the editor, runs it and fixes it until it works. Try an example:')}
         </p>
         <div className="ai-example-prompts">
           {examplePrompts.map((p: { label: string; prompt?: string; disabled?: boolean; runAgain?: boolean }) => (
@@ -539,7 +535,7 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
         </div>
         {needsApiKey ? (
           <p className="ai-key-hint">
-            One-time setup: add a {providerConfig.label} API key first —{' '}
+            {t('One-time setup: add a {provider} API key first —', { provider: providerConfig.label })}{' '}
             <a
               href="#"
               onClick={(e) => {
@@ -547,7 +543,7 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
                 this.openAiSettings()
               }}
             >
-              open AI settings
+              {t('open AI settings')}
             </a>
             .
           </p>
@@ -587,7 +583,7 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
                           this.openAiSettings()
                         }}
                       >
-                        Open AI settings
+                        {t('Open AI settings')}
                       </a>
                     ) : null}
                     {/* AI PRO upsell under the daily-limit error — the one
@@ -604,8 +600,8 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
                     ) : null}
                   </div>
                   {item.sender === 'Error' && /XModule|native.*host|local OCR/i.test(item.message) && <div>
-                    <Button onClick={() => openSettings('desktop-automation')}>Install XModule</Button>
-                    <Button onClick={async () => { const available = await isXModuleOcrAvailable(true); this.addConversation('AI', available ? 'Local OCR is available. Your next message will use the updated capabilities.' : 'Local OCR is still unavailable. Check XModule installation and connection in Desktop Automation settings.'); }}>Check again</Button>
+                    <Button onClick={() => openSettings('desktop-automation')}>{t('Install XModule')}</Button>
+                    <Button onClick={async () => { const available = await isXModuleOcrAvailable(true); this.addConversation('AI', available ? 'Local OCR is available. Your next message will use the updated capabilities.' : 'Local OCR is still unavailable. Check XModule installation and connection in Desktop Automation settings.'); }}>{t('Check again')}</Button>
                   </div>}
                   {/* the vision image a save_element_image / save_relative_image
                       step just created — the file name alone hides a wrong
@@ -616,7 +612,7 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
                         src={item.image.dataUrl}
                         style={visionImageStyle(item.image)}
                         alt={item.message}
-                        title="Click to open full size in a new tab"
+                        title={t("Click to open full size in a new tab")}
                         onClick={() => openImageFullSize(item.image!.dataUrl)}
                       />
                     </div>
@@ -628,15 +624,15 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
           {this.state.processRunning ? (
             <div className="ai-status-bar">
               <span className="ai-status-spinner" />
-              <span className="ai-status-text">{this.state.statusText || 'Working'}</span>
+              <span className="ai-status-text">{t(this.state.statusText || 'Working')}</span>
             </div>
           ) : null}
         </div>
         <div className="chat-footer">
           <Input.TextArea
             className="chat-input"
-            aria-label="Message AI"
-            placeholder="Ask anything or describe a task…"
+            aria-label={t("Message AI")}
+            placeholder={t("Ask anything or describe a task…")}
             autoSize={{ minRows: 1, maxRows: 6 }}
             value={this.state.aiPromptText}
             onChange={(e) => this.setState({ aiPromptText: e.target.value })}
@@ -651,8 +647,8 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
           <div className="chat-actions">
             <Dropdown trigger={['click']} placement="topLeft" menu={{
               items: [
-                { key: 'new', label: this.state.processRunning ? 'New chat (stops the current run)' : 'New chat' },
-                { key: 'clear', label: 'Clear chat', disabled: this.state.conversation.length === 0 }
+                { key: 'new', label: this.state.processRunning ? t('New chat (stops the current run)') : t('New chat') },
+                { key: 'clear', label: t('Clear chat'), disabled: this.state.conversation.length === 0 }
               ],
               onClick: ({ key }) => {
                 if (key === 'new') this.newChat()
@@ -663,7 +659,7 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
                 className="new-chat-button"
                 shape="circle"
                 type="text"
-                aria-label="Chat actions"
+                aria-label={t("Chat actions")}
               >
                 <FontAwesomeIcon icon={faPlus} />
               </Button>
@@ -672,16 +668,16 @@ class AiChat extends React.Component<AiChatStateProps, AiChatState> {
               {!this.state.debugProviderChoice && !isFreeTierConsentPending(this.props.config) && <AIEnginePicker config={this.props.config} updateConfig={this.props.updateConfig} disabled={this.state.processRunning} />}
             </div>
             {this.state.processRunning ? (
-              <Tooltip title="Stop">
-                <Button aria-label="Stop" className="send-button stop" shape="circle" type="primary" danger onClick={this.stop}>
+              <Tooltip title={t("Stop")}>
+                <Button aria-label={t("Stop")} className="send-button stop" shape="circle" type="primary" danger onClick={this.stop}>
                   <FontAwesomeIcon icon={faStop} />
                 </Button>
               </Tooltip>
             ) : (
-              <Tooltip title="Send (Enter)">
+              <Tooltip title={t("Send (Enter)")}>
                 <Button
                   className="send-button"
-                  aria-label="Send message"
+                  aria-label={t("Send message")}
                   shape="circle"
                   type="primary"
                   disabled={this.state.aiPromptText.trim() === ''}

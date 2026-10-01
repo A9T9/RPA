@@ -10,6 +10,8 @@ import { createRoot } from 'react-dom/client'
 import { Provider } from 'react-redux'
 import { ConfigProvider } from 'antd'
 import en_US from 'antd/lib/locale/en_US'
+import zh_CN from 'antd/lib/locale/zh_CN'
+import { isSimplifiedChinese, t } from '@/common/ui_locale'
 import 'antd/dist/reset.css'
 
 import { store } from '@/redux'
@@ -98,11 +100,12 @@ Promise.all([
     }
   })
 
-  document.title = 'Ui.Vision Settings'
+  document.title = t('Ui.Vision Settings')
+  document.documentElement.lang = isSimplifiedChinese() ? 'zh-CN' : 'en'
 
   root.render(
     <ConfigProvider
-      locale={en_US}
+      locale={isSimplifiedChinese() ? zh_CN : en_US}
       theme={{
         token: {
           borderRadius: 8,

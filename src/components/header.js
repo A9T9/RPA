@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import React from "react";
 import { connect } from "react-redux";
 import { bindActionCreators } from "redux";
@@ -206,7 +207,7 @@ class Header extends React.Component {
                 title: "Grant Permission To Replay Macros",
                 content: `Ui.Vision is an open-source tool for automating tasks. To replay macros, it requires permission from Firefox to 'access data in all tabs'. If you click 'OK', Ui.Vision will open the Firefox permission dialog, allowing you to provide this permission. Continue?`,
                 okText: "Continue",
-                cancelText: "Cancel",
+                cancelText: t("Cancel"),
                 onOk: () => { 
                   Ext.permissions.request({origins: ['<all_urls>']}).then((result) => {
                     console.log('permission result:>>', result)  
@@ -390,7 +391,7 @@ class Header extends React.Component {
     const renderInner = () => {
       switch (status) {
         case C.APP_STATUS.RECORDER:
-          return "Recording";
+          return t("Recording");
 
         case C.APP_STATUS.PLAYER: {
           switch (player.status) {
@@ -417,10 +418,10 @@ class Header extends React.Component {
                 isScriptRunning() ||
                 typeof (this.props.editing && this.props.editing.script) === 'string';
               const parts = scriptRun
-                ? [scriptLine ? `Line ${scriptLine}` : "Running"]
+                ? [scriptLine ? t('Line {line}', { line: scriptLine }) : t("Running")]
                 : [
-                    `Line ${nextCommandIndex + 1}`,
-                    `Round ${currentLoop}/${loops}`,
+                    t('Line {line}', { line: nextCommandIndex + 1 }),
+                    t('Round {current}/{total}', { current: currentLoop, total: loops }),
                   ];
 
               if (timeoutStatus && timeoutStatus.type && timeoutStatus.total) {
@@ -432,7 +433,7 @@ class Header extends React.Component {
             }
 
             case C.PLAYER_STATUS.PAUSED:
-              return "Player paused";
+              return t("Player paused");
 
             default:
               return "";
@@ -455,7 +456,7 @@ class Header extends React.Component {
         <div className="actions">
           <Button onClick={this.onToggleRecord} style={{ color: "#ff0000" }}>
             <FontAwesomeIcon icon={faCircleDot} />
-            <span> Stop Record</span>
+            <span> {t('Stop Record')}</span>
           </Button>
         </div>
       );
@@ -469,23 +470,23 @@ class Header extends React.Component {
           <Button.Group>
             {this.state.scriptStatus === "paused" ? (
               // icon-only: keep it visually lighter than Stop/Resume
-              <Button title="Step: run the next script line, stay paused" onClick={() => stepScript()}>
+              <Button title={t("Step: run the next script line, stay paused")} onClick={() => stepScript()}>
                 <FontAwesomeIcon icon={faForwardStep} />
               </Button>
             ) : null}
-            <Button title="Stop" onClick={() => stopScript()}>
+            <Button title={t("Stop")} onClick={() => stopScript()}>
               <FontAwesomeIcon icon={faCircleStop} />
-              <span> Stop</span>
+              <span> {t('Stop')}</span>
             </Button>
             {this.state.scriptStatus === "paused" ? (
-              <Button type="primary" title="Resume" onClick={() => resumeScript()}>
+              <Button type="primary" title={t("Resume")} onClick={() => resumeScript()}>
                 <FontAwesomeIcon icon={faCirclePlay} />
-                <span> Resume</span>
+                <span> {t('Resume')}</span>
               </Button>
             ) : (
-              <Button title="Pause at the next script line" onClick={() => pauseScript()}>
+              <Button title={t("Pause at the next script line")} onClick={() => pauseScript()}>
                 <FontAwesomeIcon icon={faCirclePause} />
-                <span> Pause</span>
+                <span> {t('Pause')}</span>
               </Button>
             )}
           </Button.Group>
@@ -498,13 +499,13 @@ class Header extends React.Component {
         return (
           <div className="actions">
             <Button.Group>
-              <Button title="Stop" onClick={() => this.getPlayer().stop()}>
+              <Button title={t("Stop")} onClick={() => this.getPlayer().stop()}>
                 <FontAwesomeIcon icon={faCircleStop} />
-                <span> Stop</span>
+                <span> {t('Stop')}</span>
               </Button>
-              <Button title="Pause" onClick={() => this.getPlayer("testCase").pause()}>
+              <Button title={t("Pause")} onClick={() => this.getPlayer("testCase").pause()}>
                 <FontAwesomeIcon icon={faCirclePause} />
-                <span> Pause</span>
+                <span> {t('Pause')}</span>
               </Button>
             </Button.Group>
           </div>
@@ -516,17 +517,17 @@ class Header extends React.Component {
           <div className="actions">
             <Button.Group>
               {this.props.player.mode === C.PLAYER_MODE.TEST_CASE ? (
-                <Button title="Step: run the next command, stay paused" onClick={() => this.getPlayer("testCase").resume(true)}>
+                <Button title={t("Step: run the next command, stay paused")} onClick={() => this.getPlayer("testCase").resume(true)}>
                   <FontAwesomeIcon icon={faForwardStep} />
                 </Button>
               ) : null}
-              <Button title="Stop" onClick={() => this.getPlayer().stop()}>
+              <Button title={t("Stop")} onClick={() => this.getPlayer().stop()}>
                 <FontAwesomeIcon icon={faCircleStop} />
-                <span> Stop</span>
+                <span> {t('Stop')}</span>
               </Button>
-              <Button type="primary" title="Resume" onClick={() => this.getPlayer("testCase").resume()}>
+              <Button type="primary" title={t("Resume")} onClick={() => this.getPlayer("testCase").resume()}>
                 <FontAwesomeIcon icon={faCirclePlay} />
-                <span> Resume</span>
+                <span> {t('Resume')}</span>
               </Button>
             </Button.Group>
           </div>
@@ -542,33 +543,33 @@ class Header extends React.Component {
             <Button
               disabled={!getLicenseService().canPerform(Feature.Record)}
               title={this.props.isScriptView
-                ? "Record — browser actions are appended to the script as uiv.* lines"
-                : "Record"}
+                ? t("Record — browser actions are appended to the script as uiv.* lines")
+                : t("Record")}
               onClick={this.onToggleRecord}
             >
               <FontAwesomeIcon icon={faCircleDot} />
-              <span> Record</span>
+              <span> {t('Record')}</span>
             </Button>
 
             <Button.Group className="play-actions">
-              <Button type="primary" title="Play the macro" onClick={() => this.playCurrentMacro(false)}>
+              <Button type="primary" title={t("Play the macro")} onClick={() => this.playCurrentMacro(false)}>
                 <FontAwesomeIcon icon={faCirclePlay} />
-                <span> Play</span>
+                <span> {t('Play')}</span>
               </Button>
               <Button
                 title={this.isScriptMacro()
-                  ? "Step: start the script paused at the first line — then step through it line by line"
-                  : "Step: play one command at a time"}
+                  ? t("Step: start the script paused at the first line — then step through it line by line")
+                  : t("Step: play one command at a time")}
                 onClick={() => this.playCurrentMacro(true)}
               >
                 <FontAwesomeIcon icon={faForwardStep} />
               </Button>
               {/* constant row like the sidebar: Pause/Stop always visible,
                   disabled while nothing runs */}
-              <Button title="Pause" disabled>
+              <Button title={t("Pause")} disabled>
                 <FontAwesomeIcon icon={faCirclePause} />
               </Button>
-              <Button title="Stop" disabled>
+              <Button title={t("Stop")} disabled>
                 <FontAwesomeIcon icon={faCircleStop} />
               </Button>
             </Button.Group>
@@ -590,12 +591,12 @@ class Header extends React.Component {
               content={
                 <div className="ai-chat-hint">
                   <p>
-                    <strong>AI Chat</strong> — tell the AI what to automate.
+                    <strong>{t('AI Chat')}</strong> — tell the AI what to automate.
                     It builds the macro, runs it and fixes it until it works.
                     This button shows/hides the chat.
                   </p>
                   <Button size="small" type="primary" onClick={this.dismissAiChatHint}>
-                    Got it
+                    {t('Got it')}
                   </Button>
                 </div>
               }
@@ -608,13 +609,13 @@ class Header extends React.Component {
                   attention: this.state.aiIconAttention && !this.isAiChatOpen(),
                 })}
                 type={this.isAiChatOpen() ? "primary" : "default"}
-                title={this.isAiChatOpen() ? "Hide AI Chat" : "Show AI Chat"}
+                title={this.isAiChatOpen() ? t("Hide AI Chat") : t("Show AI Chat")}
                 onClick={this.onToggleAiChat}
               >
                 ✨
               </Button>
             </Popover>
-            <Button shape="circle" title="Settings" onClick={() => openSettings()}>
+            <Button shape="circle" title={t("Settings")} onClick={() => openSettings()}>
               <SettingOutlined />
             </Button>
           </div>
@@ -654,7 +655,7 @@ class Header extends React.Component {
     const klass = hasUnsaved ? "unsaved" : "";
 
     const saveBtnState = {
-      text: src ? "Save" : "Save..",
+      text: src ? t("Save") : t("Save.."),
       disabled: !hasUnsaved,
     };
 

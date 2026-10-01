@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import {
     Input, Modal, Tabs, message
 } from 'antd'
@@ -134,8 +135,8 @@ class DataTab extends React.Component {
 
   deleteVision = (name) => {
     return Modal.confirm({
-      title: 'Sure to delete?',
-      okText: 'Delete',
+      title: t('Sure to delete?'),
+      okText: t('Delete'),
       onOk: () => {
         return getStorageManager()
         .getVisionStorage()
@@ -290,11 +291,11 @@ class DataTab extends React.Component {
       <div className="vision-content">
         <div className="vision-search-row">
           <Input.Search
-            placeholder="Search image"
+            placeholder={t("Search image")}
             size="small"
             onChange={e => this.setState({ searchImageText: e.target.value })}
           />
-          <a className="more-info" target="_blank" href="https://go.ui.vision/?help=visual">Info</a>
+          <a className="more-info" target="_blank" href="https://go.ui.vision/?help=visual">{t('Info')}</a>
         </div>
         <VisionList
           visions={this.props.visions}
@@ -322,7 +323,7 @@ class DataTab extends React.Component {
           items={[
             {
               key: 'Logs',
-              label: 'Logs',
+              label: t('Logs'),
               children: <LogList />
             },
             {
@@ -338,7 +339,7 @@ class DataTab extends React.Component {
             },
             {
               key: 'Vision',
-              label: this.prefixHardDisk('👁Visual'),
+              label: this.prefixHardDisk(t('👁Visual')),
               children: this.renderVision()
             }
           ]}

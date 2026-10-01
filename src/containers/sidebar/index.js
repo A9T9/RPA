@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import { Button, Modal, Select, message } from 'antd'
 import React from 'react'
 import { connect } from 'react-redux'
@@ -185,7 +186,7 @@ class Sidebar extends React.Component {
               openSettings('desktop-automation')
             }}
           >
-            Open Settings
+            {t('Open Settings')}
           </Button>
         </div>
       </Modal>
@@ -214,34 +215,34 @@ class Sidebar extends React.Component {
         <div className="sidebar-storage-mode">
 
           <div className="storage-mode-header">
-            <h3>Storage Mode</h3>
+            <h3>{t('Storage Mode')}</h3>
             {getStorageManager().isXFileMode() ? (
               <img
                 src="./img/reload.svg"
-                title="Reload all resources on hard drive"
+                title={t("Reload all resources on hard drive")}
                 style={{
                   height: '15px',
                   cursor: 'pointer'
                 }}
                 onClick={() => {
                   getStorageManager().emit(StorageManagerEvent.ForceReload)
-                  message.info('reloaded from hard drive')
+                  message.info(t('reloaded from hard drive'))
                 }}
               />
             ) : null}
-            <a href="https://go.ui.vision/?help=storage_mode" target="_blank">More Info</a>
+            <a href="https://go.ui.vision/?help=storage_mode" target="_blank">{t('More Info')}</a>
           </div>
           <Select
             style={{ width: '100%' }}
-            placeholder="Storage Mode"
+            placeholder={t("Storage Mode")}
             value={this.props.config.storageMode}
             onChange={this.onTryToChangeStorageMode}
           >
             <Select.Option value={StorageStrategyType.Browser}>
-              Local Storage (in browser)
+              {t('Local Storage (in browser)')}
             </Select.Option>
             <Select.Option value={StorageStrategyType.XFile}>
-              File system (on hard drive)
+              {t('File system (on hard drive)')}
             </Select.Option>
           </Select>
         </div>

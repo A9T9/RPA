@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import React, { Component } from 'react'
 import { connect } from 'react-redux'
 import { bindActionCreators }  from 'redux'
@@ -97,8 +98,8 @@ class App extends Component {
           onDragEnd={this.onAiResizeDragEnd}
         />
         <div className="ide-ai-chat-title">
-          <span>AI Chat ✨</span>
-          <Button type="text" size="small" title="Hide AI Chat" onClick={this.onCloseAiChat}>✕</Button>
+          <span>{t('AI Chat ✨')}</span>
+          <Button type="text" size="small" title={t("Hide AI Chat")} onClick={this.onCloseAiChat}>✕</Button>
         </div>
         <AiChat renderStatus={this.renderAiChatStatus} />
       </aside>
@@ -182,16 +183,16 @@ class App extends Component {
       return (
         <div className="app no-display">
           <div className="content">
-            <div className="status">Ui.Vision is in "No Display" mode now</div>
+            <div className="status">{t('Ui.Vision is in "No Display" mode now')}</div>
             <Button.Group className="simple-actions">
               <Button size="large" onClick={() => this.getPlayer().stop()}>
-                <span>Stop</span>
+                <span>{t('Stop')}</span>
               </Button>
                 <Button
                   size="large"
                   onClick={this.showGUI}
                 >
-                  <span>Show GUI</span>
+                  <span>{t('Show GUI')}</span>
                 </Button>
             </Button.Group>
           </div>
@@ -202,10 +203,10 @@ class App extends Component {
     return (
       <div className={cn('app', 'with-sidebar')} ref={el => { this.$app = el }}>
         <div className="backup-alert">
-          <span>Do you want to run the automated backup?</span>
+          <span>{t('Do you want to run the automated backup?')}</span>
           <span className="backup-actions">
-            <Button type="primary" onClick={this.onClickBackup}>Yes</Button>
-            <Button onClick={this.onClickNoBackup}>No</Button>
+            <Button type="primary" onClick={this.onClickBackup}>{t('Yes')}</Button>
+            <Button onClick={this.onClickNoBackup}>{t('No')}</Button>
           </span>
         </div>
         <div className="app-inner">
@@ -228,13 +229,13 @@ class App extends Component {
               <div className="status">Desktop OCR in progress</div>
               <Button.Group className="simple-actions">
                 <Button size="large" onClick={() => this.getPlayer().stop()}>
-                  <span>Stop</span>
+                  <span>{t('Stop')}</span>
                 </Button>
                 <Button
                   size="large"
                   onClick={() => this.showGUIForOCR()}
                 >
-                  <span>Show GUI</span>
+                  <span>{t('Show GUI')}</span>
                 </Button>
               </Button.Group>
             </div>

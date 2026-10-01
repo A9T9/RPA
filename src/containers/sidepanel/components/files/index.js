@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import { FolderAddOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Button, Dropdown, Input, Modal, message } from 'antd';
 import keycode from 'keycode';
@@ -308,7 +309,7 @@ class Files extends React.Component {
     const { filteredMacroFileNodeData } = this.props
 
     if (this.props.isLoadingMacros && this.props.isMacroFolderNodeListEmpty) {
-      return <div className="no-data">Loading macros...</div>
+      return <div className="no-data">{t('Loading macros...')}</div>
     }
 
     // brand-new install (no macros at all, no filter): point to the AI-first
@@ -316,12 +317,12 @@ class Files extends React.Component {
     if (this.props.isMacroFolderNodeListEmpty && filteredMacroFileNodeData.length === 0) {
       return (
         <div className="files-empty-cta">
-          <p className="cta-title">No macros yet</p>
+          <p className="cta-title">{t('No macros yet')}</p>
           <p className="cta-text">
-            Describe what you want in AI Chat — the AI builds the macro for you and saves it here.
+            {t('Describe what you want in AI Chat — the AI builds the macro for you and saves it here.')}
           </p>
           <Button type="primary" onClick={() => this.props.updateUI({ sidebarTab: 'AiChat' })}>
-            Open AI Chat ✨
+            {t('Open AI Chat ✨')}
           </Button>
         </div>
       )
@@ -330,7 +331,7 @@ class Files extends React.Component {
     return (
       <div className="sidebar-macros">
         {filteredMacroFileNodeData.length === 0 ? (
-          <div className="no-data">No macro found</div>
+          <div className="no-data">{t('No macro found')}</div>
         ) : null}
         <FileTree
           nodes={filteredMacroFileNodeData}
@@ -404,7 +405,7 @@ class Files extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Delete',
+            content: t('Delete'),
             onClick: () => {
               this.props.macroDeleteFolder({
                 dir:  folderEntry.entryPath
@@ -492,7 +493,7 @@ class Files extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Import JSON or ZIP',
+            content: t('Import JSON or ZIP'),
             onClick: () => {
               const $selectFile = document.getElementById('select_json_files_for_macros')
 
@@ -579,7 +580,7 @@ class Files extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Play',
+            content: t('Play'),
             onClick: () => {
               this.playTestCase(macroNode.fullPath)
             }
@@ -653,7 +654,7 @@ class Files extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Edit (in sidebar)',
+            content: t('Edit (in sidebar)'),
             onClick: () => {
               // open the macro in the side panel Macro tab
               this.changeTestCase(macroNode.fullPath).then(() => {
@@ -665,7 +666,7 @@ class Files extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Edit (in IDE)',
+            content: t('Edit (in IDE)'),
             onClick: () => {
               this.onClickEditInIDE(macroNode.fullPath)
             }
@@ -796,7 +797,7 @@ class Files extends React.Component {
           type: MenuItemType.Button,
           disabled: !getLicenseService().canPerform(Feature.Edit),
           data: {
-            content: 'Delete',
+            content: t('Delete'),
             onClick: () => {
               const go = () => {
                 return this.props.removeTestCase(macroNode.fullPath)
@@ -805,17 +806,17 @@ class Files extends React.Component {
                   })
                   .catch(e => {
                     Modal.warning({
-                      title: 'Failed to delete',
+                      title: t('Failed to delete'),
                       content: e.message
                     })
                   })
               }
 
               Modal.confirm({
-                title: 'Sure to delete?',
+                title: t('Sure to delete?'),
                 content: `Do you really want to delete "${macroNode.name}"?`,
-                okText: 'Delete',
-                cancelText: 'Cancel',
+                okText: t('Delete'),
+                cancelText: t('Cancel'),
                 onOk: go,
                 onCancel: () => {}
               })
@@ -879,21 +880,21 @@ class Files extends React.Component {
     const menuItems = [
       {
         key: 'new_macro_folder',
-        label: 'New Folder',
+        label: t('New Folder'),
         onClick: () => {
           onClickMenuItem({ key: 'new_macro_folder' })
         }
       },
       {
         key: 'export_all_backup',
-        label: 'Export All (Backup)',
+        label: t('Export All (Backup)'),
         onClick: () => {
           onClickMenuItem({ key: 'export_all_backup' })
         }
       },
       {
         key: 'import_json',
-        label: 'Import JSON or ZIP',
+        label: t('Import JSON or ZIP'),
         onClick: () => {
           onClickMenuItem({ key: 'import_json' })
         }
@@ -906,9 +907,9 @@ class Files extends React.Component {
   renderRenameModal () {
     return (
       <Modal
-        title="Rename the macro as.."
-        okText="Save"
-        cancelText="Cancel"
+        title={t("Rename the macro as..")}
+        okText={t("Save")}
+        cancelText={t("Cancel")}
         open={this.state.showRename}
         onOk={this.onClickRename}
         onCancel={this.onCancelRename}
@@ -919,7 +920,7 @@ class Files extends React.Component {
           value={this.state.rename}
           onKeyDown={e => { e.keyCode === 13 && this.onClickRename() }}
           onChange={this.onChangeRename}
-          placeholder="macro name"
+          placeholder={t("macro name")}
           ref={el => { this.inputRenameTestCase = el }}
         />
       </Modal>
@@ -967,7 +968,7 @@ class Files extends React.Component {
               <FolderAddOutlined  />   
           </Button>
           </Dropdown>
-          <Input.Search style={{ flex: 1 }} placeholder="search macro" value={ this.props.searchText } onChange={ e => this.props.setMacroQuery(e.target.value) } />
+          <Input.Search style={{ flex: 1 }} placeholder={t("search macro")} value={ this.props.searchText } onChange={ e => this.props.setMacroQuery(e.target.value) } />
           {getStorageManager().isXFileMode() ? (
             // file mode: the tree only knows what the last listing saw —
             // files added, edited or renamed OUTSIDE Ui.Vision (an editor,
@@ -975,10 +976,10 @@ class Files extends React.Component {
             // icon next to the storage-mode picker.
             <Button
               shape="circle"
-              title="Reload the macro tree from the hard drive"
+              title={t("Reload the macro tree from the hard drive")}
               onClick={() => {
                 getStorageManager().emit(StorageManagerEvent.ForceReload)
-                message.info('reloaded from hard drive')
+                message.info(t('reloaded from hard drive'))
               }}
             >
               <ReloadOutlined />

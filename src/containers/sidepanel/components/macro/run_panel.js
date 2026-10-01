@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import { Button, Select, Tabs } from 'antd'
 import { DeleteOutlined, DownOutlined, UpOutlined } from '@ant-design/icons'
 import React from 'react'
@@ -55,19 +56,19 @@ class RunPanel extends React.Component {
           }}
           style={{ width: '76px' }}
           popupMatchSelectWidth={false}
-          title="Filter logs"
+          title={t("Filter logs")}
         >
-          <Select.Option value='All'>All</Select.Option>
-          <Select.Option value='Echo'>Echo</Select.Option>
-          <Select.Option value='Echo_And_Status'>Echo &amp; Status</Select.Option>
-          <Select.Option value='Error'>Error &amp; Reports</Select.Option>
-          <Select.Option value='None'>No log</Select.Option>
+          <Select.Option value='All'>{t('All')}</Select.Option>
+          <Select.Option value='Echo'>{t('Echo')}</Select.Option>
+          <Select.Option value='Echo_And_Status'>{t('Echo & Status')}</Select.Option>
+          <Select.Option value='Error'>{t('Error & Reports')}</Select.Option>
+          <Select.Option value='None'>{t('No log')}</Select.Option>
         </Select>
         <Button
           size="small"
           type="text"
           icon={<DeleteOutlined />}
-          title="Clear log"
+          title={t("Clear log")}
           onClick={() => this.props.clearLogs()}
         />
       </span>
@@ -80,11 +81,11 @@ class RunPanel extends React.Component {
     return (
       <div className="sidepanel-run-panel">
         <div className="run-panel-header" onClick={this.toggle}>
-          <span className="run-panel-title">{this.showVariables() ? <React.Fragment>Logs &amp; Variables</React.Fragment> : 'Logs'}</span>
+          <span className="run-panel-title">{this.showVariables() ? <React.Fragment>{t('Logs & Variables')}</React.Fragment> : t('Logs')}</span>
           <Button
             size="small"
             type="text"
-            title={open ? 'Collapse' : 'Expand'}
+            title={open ? t('Collapse') : t('Expand')}
             icon={open ? <DownOutlined /> : <UpOutlined />}
             onClick={(e) => { e.stopPropagation(); this.toggle() }}
           />
@@ -101,12 +102,12 @@ class RunPanel extends React.Component {
                 items={[
                   {
                     key: 'Logs',
-                    label: 'Logs',
+                    label: t('Logs'),
                     children: <LogList />
                   },
                   {
                     key: 'Variables',
-                    label: 'Variables',
+                    label: t('Variables'),
                     children: <VariablesTable />
                   }
                 ]}

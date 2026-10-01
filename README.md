@@ -103,6 +103,25 @@ Use `npm run start-ff` for the Firefox variant. Both run webpack in watch mode, 
 
 Once done, the ready-to-use extension code appears in the `/dist` directory (Chrome, Edge) or `/dist_ff` directory (Firefox). Load it via `chrome://extensions` → "Load unpacked" (Chrome/Edge) or `about:debugging` → "Load Temporary Add-on" (Firefox).
 
+## Common UI translations
+
+The common extension UI follows the browser's UI language. Simplified Chinese
+(`zh-CN`, `zh-SG`, or `zh-Hans`) uses Chinese labels; other languages use the
+existing English UI. Reload the extension pages after changing the browser
+language.
+
+This first translation covers recording/playback controls, macro menus, command
+table labels, log controls, settings navigation, General/Backup/Replay settings,
+common AI/OCR controls and the AI chat setup/input. Advanced help text and some
+settings remain in English. Command names, saved data keys, original diagnostic
+logs and AI prompt payloads retain their existing values.
+
+UI translations live in `src/common/locales/zh_CN.json`. Use `t('English text')`
+for display text only; never translate identifiers or state comparisons. Named
+placeholders such as `{line}` must match in both languages. Run
+`npm run test:ui-locale` to check language fallback, interpolation and dashboard
+tab/filter behavior.
+
 ## Repository layout
 
 - `src/` - the extension source (React UI, side panel, macro player, commands)

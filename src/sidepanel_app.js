@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import { Button } from 'antd'
 import React, { Component } from 'react'
 import { connect } from 'react-redux'
@@ -83,13 +84,13 @@ class SidepanelApp extends Component {
       return (
         <div className="app no-display">
           <div className="sidepanel content">
-            <div className="status">Ui.Vision is in "No Display" mode now</div>
+            <div className="status">{t('Ui.Vision is in "No Display" mode now')}</div>
             <Button.Group className="simple-actions">
               <Button size="large" onClick={() => this.getPlayer().stop()}>
-                <span>Stop</span>
+                <span>{t('Stop')}</span>
               </Button>
               <Button size="large" onClick={this.showGUI}>
-                <span>Show GUI</span>
+                <span>{t('Show GUI')}</span>
               </Button>
             </Button.Group>
           </div>
@@ -100,10 +101,10 @@ class SidepanelApp extends Component {
     return (
       <div className="app with-sidebar" ref={el => { this.$app = el }}>
         <div className="backup-alert">
-          <span>Do you want to run the automated backup?</span>
+          <span>{t('Do you want to run the automated backup?')}</span>
           <span className="backup-actions">
-            <Button type="primary" onClick={this.onClickBackup}>Yes</Button>
-            <Button onClick={this.onClickNoBackup}>No</Button>
+            <Button type="primary" onClick={this.onClickBackup}>{t('Yes')}</Button>
+            <Button onClick={this.onClickNoBackup}>{t('No')}</Button>
           </span>
         </div>
         <div className="app-inner">
@@ -116,13 +117,13 @@ class SidepanelApp extends Component {
         {this.props.ocrInDesktopMode ? (
           <div className="app no-display ocr-overlay">
             <div className="sidepanel content">
-              <div className="status">Desktop capture in progress</div>
+              <div className="status">{t('Desktop capture in progress')}</div>
               <Button.Group className="simple-actions">
                 <Button size="large" onClick={() => { const p = this.getPlayer(); if (p) p.stop() }}>
-                  <span>Stop</span>
+                  <span>{t('Stop')}</span>
                 </Button>
                 <Button size="large" onClick={this.showGUIForOCR}>
-                  <span>Show GUI</span>
+                  <span>{t('Show GUI')}</span>
                 </Button>
               </Button.Group>
             </div>

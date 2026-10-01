@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 // Settings > Advanced > Replay — extracted from the old settings modal in
 // header.js. The "If error happens in loop" and "Show notifications when
 // recording" settings were removed in the move (2026-07 settings cleanup).
@@ -36,10 +37,10 @@ class ReplayTab extends React.Component<ReplayTabProps, { restoringDemos: string
     // settings bundle.
     const folder = kind === 'classic' ? 'Demo and QA Test Scripts (Classic)' : 'Demo and QA Test Scripts'
     Modal.confirm({
-      title: 'Restore demo macros?',
-      content: `This resets the "${folder}" folder to the shipped demos: the folder is deleted and written fresh. Changes you made to demo macros — and any of your own macros saved inside that folder — are removed. Macros outside the folder are not touched.`,
-      okText: 'Restore',
-      cancelText: 'Cancel',
+      title: t('Restore demo macros?'),
+      content: t('This resets the "{folder}" folder to the shipped demos: the folder is deleted and written fresh. Changes you made to demo macros — and any of your own macros saved inside that folder — are removed. Macros outside the folder are not touched.', { folder }),
+      okText: t('Restore'),
+      cancelText: t('Cancel'),
       onOk: () => {
         this.setState({ restoringDemos: kind })
         return this.props.restoreDemoMacros(kind)
@@ -63,14 +64,14 @@ class ReplayTab extends React.Component<ReplayTabProps, { restoringDemos: string
 
     return (
       <Form>
-        <Form.Item label="Replay Helper" {...displayConfig}>
+        <Form.Item label={t("Replay Helper")} {...displayConfig}>
           <Checkbox
             onChange={(e: any) =>
               onConfigChange('playScrollElementsIntoView', e.target.checked)
             }
             checked={config.playScrollElementsIntoView}
           >
-            Scroll elements into view during replay
+            {t('Scroll elements into view during replay')}
           </Checkbox>
 
           <Checkbox
@@ -79,7 +80,7 @@ class ReplayTab extends React.Component<ReplayTabProps, { restoringDemos: string
             }
             checked={config.playHighlightElements}
           >
-            Replay browser animations (adds ~0.2s per command)
+            {t('Replay browser animations (adds ~0.2s per command)')}
           </Checkbox>
 
           <Checkbox
@@ -88,7 +89,7 @@ class ReplayTab extends React.Component<ReplayTabProps, { restoringDemos: string
             }
             checked={config.playDesktopAnimations !== false}
           >
-            Replay desktop animations (screen border and match boxes)
+            {t('Replay desktop animations (screen border and match boxes)')}
           </Checkbox>
 
           <Checkbox
@@ -99,28 +100,27 @@ class ReplayTab extends React.Component<ReplayTabProps, { restoringDemos: string
             }
             checked={!!config.desktopBorderCaptureVisible}
           >
-            Show border even during remote sessions (border then visible on
-            screenshots)
+            {t('Show border even during remote sessions (border then visible on screenshots)')}
           </Checkbox>
         </Form.Item>
 
         <Form.Item
           label={
             <a target="_blank" href="https://go.ui.vision/?help=command_interval">
-              Command Interval
+              {t('Command Interval')}
             </a>
           }
           {...displayConfig}
         >
           <Select
             style={{ width: '200px' }}
-            placeholder="interval"
+            placeholder={t("interval")}
             value={'' + config.playCommandInterval}
             onChange={(val) => onConfigChange('playCommandInterval', val)}
           >
-            <Select.Option value={'0'}>Fast (no delay)</Select.Option>
-            <Select.Option value={'0.3'}>Medium (0.3s delay)</Select.Option>
-            <Select.Option value={'2'}>Slow (2s delay)</Select.Option>
+            <Select.Option value={'0'}>{t('Fast (no delay)')}</Select.Option>
+            <Select.Option value={'0.3'}>{t('Medium (0.3s delay)')}</Select.Option>
+            <Select.Option value={'2'}>{t('Slow (2s delay)')}</Select.Option>
           </Select>
         </Form.Item>
 
@@ -138,9 +138,9 @@ class ReplayTab extends React.Component<ReplayTabProps, { restoringDemos: string
             style={{ width: '70px' }}
             value={config.timeoutPageLoad}
             onChange={(e) => onConfigChange('timeoutPageLoad', e.target.value)}
-            placeholder="in seconds"
+            placeholder={t("in seconds")}
           />
-          <span className="tip">Max. time for new page load</span>
+          <span className="tip">{t('Max. time for new page load')}</span>
         </Form.Item>
 
         <Form.Item
@@ -157,9 +157,9 @@ class ReplayTab extends React.Component<ReplayTabProps, { restoringDemos: string
             style={{ width: '70px' }}
             value={config.timeoutElement}
             onChange={(e) => onConfigChange('timeoutElement', e.target.value)}
-            placeholder="in seconds"
+            placeholder={t("in seconds")}
           />
-          <span className="tip">Max. time per step</span>
+          <span className="tip">{t('Max. time per step')}</span>
         </Form.Item>
         <Form.Item
           label={
@@ -175,9 +175,9 @@ class ReplayTab extends React.Component<ReplayTabProps, { restoringDemos: string
             style={{ width: '70px' }}
             value={config.timeoutMacro}
             onChange={(e) => onConfigChange('timeoutMacro', e.target.value)}
-            placeholder="in seconds"
+            placeholder={t("in seconds")}
           />
-          <span className="tip">Max. overall macro runtime</span>
+          <span className="tip">{t('Max. overall macro runtime')}</span>
         </Form.Item>
         <Form.Item
           label={
@@ -193,16 +193,16 @@ class ReplayTab extends React.Component<ReplayTabProps, { restoringDemos: string
             style={{ width: '70px' }}
             value={config.timeoutDownload}
             onChange={(e) => onConfigChange('timeoutDownload', e.target.value)}
-            placeholder="in seconds"
+            placeholder={t("in seconds")}
           />
-          <span className="tip">Max. allowed time for file</span>
+          <span className="tip">{t('Max. allowed time for file')}</span>
         </Form.Item>
-        <Form.Item label="For Tech Support/QA" {...displayConfig}>
+        <Form.Item label={t("For Tech Support/QA")} {...displayConfig}>
           {/* one flex row: default-height buttons match the label's line
               height, so the label, the text and the buttons sit on one
               baseline (small buttons left the label hanging low) */}
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-            <span>Restore Demo Macros:</span>
+            <span>{t('Restore Demo Macros:')}</span>
             {/* the restore writes ~50 macros plus csv/vision resources and
                 takes many seconds — without the spinner the button looked
                 hung until the toast finally appeared (user report) */}
@@ -218,11 +218,11 @@ class ReplayTab extends React.Component<ReplayTabProps, { restoringDemos: string
               disabled={!!this.state.restoringDemos && this.state.restoringDemos !== 'classic'}
               onClick={() => this.restoreDemos('classic', 'Classic demo macros restored.')}
             >
-              Classic
+              {t('Classic')}
             </Button>
           </div>
           <div style={{ fontSize: '12px', opacity: 0.75, marginTop: '8px' }}>
-            Restore rewrites the &quot;Demo and QA Test Scripts&quot; folder with the shipped demos. Updates refresh it while it exists; a deleted folder stays deleted. Keep your own macros outside it.
+            {t('Restore rewrites the "Demo and QA Test Scripts" folder with the shipped demos. Updates refresh it while it exists; a deleted folder stays deleted. Keep your own macros outside it.')}
           </div>
         </Form.Item>
       </Form>

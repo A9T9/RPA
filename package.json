@@ -7,7 +7,8 @@
     "start-ff": "cross-env NODE_ENV=development BROWSER=firefox webpack --watch --progress --mode development --config webpack.prod.config.js",
     "build": "cross-env NODE_ENV=production BROWSER=chrome webpack --mode production --config webpack.prod.config.js",
     "build-ff": "cross-env NODE_ENV=production BROWSER=firefox webpack --mode production --config webpack.prod.config.js",
-    "gen:ai-prompt-page": "node scripts/generate_ai_prompt_page.js"
+    "gen:ai-prompt-page": "node scripts/generate_ai_prompt_page.js",
+    "test:ui-locale": "node --test scripts/ui_locale.test.cjs scripts/ui_component.test.cjs"
   },
   "author": "",
   "license": "ISC",

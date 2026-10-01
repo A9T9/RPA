@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 // Settings > OCR — extracted from the old settings modal in header.js.
 // The manual OCRTEXTX calibration and "Screen Scaling %" fields were removed
 // in the move: the uiv.ocr.* finders compute coordinates straight from the
@@ -146,24 +147,24 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
       <div className={paneClass}>
         <div>
           <p>
-            <span className="label-text">Select Default OCR Engine</span>
+            <span className="label-text">{t('Select Default OCR Engine')}</span>
           </p>
         </div>
         <div className="row">
-          <span className="label-text">Local OCR — needs the{' '}
+          <span className="label-text">{t('Local OCR — needs the')}{' '}
             <a
               href="#desktop-automation"
               onClick={e => { e.preventDefault(); window.location.hash = 'desktop-automation' }}
             >
-              Desktop Automation XModule
+              {t('Desktop Automation XModule')}
             </a>
             {this.state.xmoduleInstalled === null
               ? ''
               : this.state.xmoduleInstalled
-                ? ' (status: installed)'
-                : ' (status: not installed)'}
+                ? t(' (status: installed)')
+                : t(' (status: not installed)')}
             {'  ['}
-            <a href="https://go.ui.vision/?help=ocr-local" target="_blank">more info</a>
+            <a href="https://go.ui.vision/?help=ocr-local" target="_blank">{t('more info')}</a>
             {']'}
           </span>
           <br />
@@ -175,7 +176,7 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
             {/* id 98, {engine: 'builtin'} in JS scripts: the ocrs engine in
                 the native app — the SAME recognition on every OS. */}
             <Radio value="98" onClick={() => this.onChangeDefaultOCREngine('98')}>
-              Built-in Cross-Platform OCR (ID &ldquo;builtin&rdquo;)
+              {t('Built-in Cross-Platform OCR (ID “builtin”)')}
             </Radio>
             {/* id 99: the OS reader (Windows.Media.Ocr / Apple Vision).
                 On Linux there is no separate OS reader — both ids run the
@@ -183,15 +184,15 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
             {OSType !== 'linux' ? (
               <Radio value="99" onClick={() => this.onChangeDefaultOCREngine('99')}>
                 {OSType === 'mac'
-                  ? <>Built-in local macOS OCR (ID &ldquo;builtin_mac&rdquo;)</>
-                  : <>Built-in local Windows OCR (ID &ldquo;builtin_win&rdquo;)</>}
+                  ? <>{t('Built-in local macOS OCR (ID “builtin_mac”)')}</>
+                  : <>{t('Built-in local Windows OCR (ID “builtin_win”)')}</>}
               </Radio>
             ) : null}
           </Radio.Group>
         </div>
         <div className="row">
-          <span className="label-text">Cloud OCR — to use Ocr.Space you need a{' '}
-            <a href="https://go.ui.vision/?help=free-ocr-api" target="_blank">Free OCR API account</a>
+          <span className="label-text">{t('Cloud OCR — to use Ocr.Space you need a')}{' '}
+            <a href="https://go.ui.vision/?help=free-ocr-api" target="_blank">{t('Free OCR API account')}</a>
           </span>
           <br />
           <Radio.Group
@@ -209,18 +210,18 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
                 OCR engine — like using ai.ask for OCR, but integrated with
                 findText & Co the way OCR.Space is (proxy task: 'aiocr'). */}
             <Radio value="90" onClick={() => this.onChangeDefaultOCREngine('90')}>
-              Use{' '}
+              {t('Use')}{' '}
               <a
                 href="#ai"
                 onClick={e => { e.preventDefault(); e.stopPropagation(); window.location.hash = 'ai' }}
               >
-                AI Provider
+                {t('AI Provider')}
               </a>
               {' '}(ID &ldquo;aiprovider&rdquo;)
             </Radio>
           </Radio.Group>
           <div>
-            <span className="label-text">OCR.Space OCR API Key:</span>
+            <span className="label-text">{t('OCR.Space OCR API Key:')}</span>
             <Input
               type="text"
               style={{ width: '120px' }}
@@ -234,7 +235,7 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
               disabled={![2, 3].includes(config.ocrEngine)}
               onClick={this.onTestOcrApiKey}
             >
-              Test
+              {t('Test')}
             </Button>
             {this.state.connectedAPIEndpointType ? (
               <span className="api-key-notification">
@@ -246,10 +247,10 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
 
         <div className="row">
           <div>
-            <span className="label-text">Default OCR language</span>
+            <span className="label-text">{t('Default OCR language')}</span>
             <Select
               style={{ width: '150px' }}
-              placeholder="OCR Language"
+              placeholder={t("OCR Language")}
               value={config.ocrLanguage}
               disabled={
                 // engine 2 and the AI provider auto-detect the language;
@@ -309,10 +310,10 @@ class OcrTab extends React.Component<OcrTabProps, OcrTabState> {
                   })
               }}
             >
-              Show OCR Overlay
+              {t('Show OCR Overlay')}
             </Button>
             <span style={{ marginLeft: '10px' }}>
-              currently in <b>{isCVTypeForDesktop(config.cvScope) ? 'Desktop' : 'Browser'} Vision</b> mode —{' '}
+              currently in <b>{isCVTypeForDesktop(config.cvScope) ? 'Desktop' : 'Browser'} {t('Vision')}</b> mode —{' '}
               <a
                 href="#vision"
                 onClick={e => { e.preventDefault(); window.location.hash = 'vision' }}
