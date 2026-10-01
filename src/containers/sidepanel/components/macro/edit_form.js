@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import { Button, Input, Modal, Select, message } from 'antd'
 import { CopyOutlined, DownOutlined, PlusOutlined, UpOutlined } from '@ant-design/icons'
 import React from 'react'
@@ -214,11 +215,11 @@ class EditForm extends React.Component {
 
     // easy to hit by accident, and it discards everything — always confirm
     Modal.confirm({
-      title: 'Discard unsaved changes?',
+      title: t('Discard unsaved changes?'),
       content: `This undoes all unsaved changes in macro "${this.getTestCaseName()}".`,
-      okText: 'Discard',
+      okText: t('Discard'),
       okButtonProps: { danger: true },
-      cancelText: 'Keep editing',
+      cancelText: t('Keep editing'),
       onOk: () => {
         const { src } = this.props.editing.meta
 
@@ -417,10 +418,10 @@ class EditForm extends React.Component {
 
         case 'setWindowSize': {
           return Modal.confirm({
-            title: 'Confirm',
+            title: t('Confirm'),
             content: 'Do you want to use the current browser dimensions?',
-            okText: 'Yes',
-            cancelText: 'No',
+            okText: t('Yes'),
+            cancelText: t('No'),
             onOk: () => {
               return csIpc.ask('PANEL_GET_WINDOW_SIZE_OF_PLAY_TAB').then((size) => {
                 this.props.updateSelectedCommand({
@@ -473,12 +474,12 @@ class EditForm extends React.Component {
       <div className="edit-form-body">
         {/* IDE-style rows: label in front, box behind */}
         <div className="field-row">
-        <label>Command</label>
+        <label>{t('Command')}</label>
         <div className="cmd-row" ref={this.cmdInputRef}>
           <Select
             showSearch
             optionFilterProp="children"
-            placeholder="command"
+            placeholder={t("command")}
             disabled={!isCmdEditable}
             value={selectedCmd && selectedCmd.cmd}
             onChange={(value) => this.onDetailChange('cmd', value)}
@@ -516,7 +517,7 @@ class EditForm extends React.Component {
           </Select>
           <Button
             size="small"
-            title="Toggle comment"
+            title={t("Toggle comment")}
             disabled={!isCmdEditable}
             onClick={() => {
               this.props.toggleCommentOnSelectedCommand()
@@ -527,22 +528,22 @@ class EditForm extends React.Component {
           {selectedCmd && selectedCmd.cmd ? (
             <a
               className="cmd-info-link"
-              title="Documentation for this command"
+              title={t("Documentation for this command")}
               href={`https://go.ui.vision/?cmd=${selectedCmd.cmd.toLowerCase()}`}
               target="_blank"
             >
-              Info
+              {t('Info')}
             </a>
           ) : null}
         </div>
         </div>
 
         <div className="field-row target-field-row">
-        <label>Target</label>
+        <label>{t('Target')}</label>
         <div className="field-input">
         {shouldUseNormalInputForTarget ? (
           <Input
-            placeholder="target"
+            placeholder={t("target")}
             disabled={!isCmdEditable}
             value={selectedCmd && selectedCmd.target}
             onChange={(e) => this.onDetailChange('target', e.target.value)}
@@ -564,7 +565,7 @@ class EditForm extends React.Component {
         {shouldUseTextareaForTarget ? (
           <Input.TextArea
             rows={2}
-            placeholder="target"
+            placeholder={t("target")}
             disabled={!isCmdEditable}
             value={selectedCmd && selectedCmd.target}
             onChange={(e) => this.onDetailChange('target', e.target.value)}
@@ -589,7 +590,7 @@ class EditForm extends React.Component {
             onClick={this.onToggleSelect}
           >
             {isInspecting
-              ? 'Cancel'
+              ? t('Cancel')
               : (selectedCmd && VISION_IMAGE_COMMANDS.indexOf(selectedCmd.cmd) !== -1 ? '👁Select image' : 'Select element')}
           </Button>
           <Button
@@ -612,23 +613,23 @@ class EditForm extends React.Component {
         ) : null}
 
         <div className="field-row">
-        <label>Value</label>
+        <label>{t('Value')}</label>
         <Input
           disabled={!isCmdEditable}
           value={selectedCmd && selectedCmd.value}
           onChange={(e) => this.onDetailChange('value', e.target.value)}
-          placeholder="value"
+          placeholder={t("value")}
           size="small"
         />
         </div>
 
         <div className="field-row">
-        <label>Description</label>
+        <label>{t('Description')}</label>
         <Input
           disabled={!isCmdEditable}
           value={selectedCmd && selectedCmd.description}
           onChange={(e) => this.onDetailChange('description', e.target.value)}
-          placeholder="description"
+          placeholder={t("description")}
           size="small"
         />
         </div>
@@ -651,13 +652,13 @@ class EditForm extends React.Component {
       <div className="sidepanel-edit-form" onKeyDown={this.onKeyDown}>
         {this.props.hasUnsaved && canEdit ? (
           <div className="edit-form-unsaved-bar">
-            <span className="unsaved-note">Unsaved changes</span>
+            <span className="unsaved-note">{t('Unsaved changes')}</span>
             <span className="unsaved-actions">
               <Button size="small" type="primary" onClick={this.onClickSave}>
-                Save
+                {t('Save')}
               </Button>
-              <Button size="small" title="Discard the unsaved changes" onClick={this.onClickCancelEdits}>
-                Cancel
+              <Button size="small" title={t("Discard the unsaved changes")} onClick={this.onClickCancelEdits}>
+                {t('Cancel')}
               </Button>
             </span>
           </div>
@@ -668,7 +669,7 @@ class EditForm extends React.Component {
             <Button
               size="small"
               icon={<PlusOutlined />}
-              title="Add command"
+              title={t("Add command")}
               disabled={!canEdit}
               onClick={this.onAddCommand}
             >
@@ -677,7 +678,7 @@ class EditForm extends React.Component {
             <Button
               size="small"
               icon={<CopyOutlined />}
-              title="Duplicate the selected command"
+              title={t("Duplicate the selected command")}
               disabled={!canEdit || !hasSelection}
               onClick={this.onDuplicateCommand}
             >
@@ -686,7 +687,7 @@ class EditForm extends React.Component {
             <Button
               size="small"
               type="text"
-              title={expanded ? 'Collapse' : 'Expand'}
+              title={expanded ? t('Collapse') : t('Expand')}
               icon={expanded ? <DownOutlined /> : <UpOutlined />}
               onClick={(e) => { e.stopPropagation(); this.toggle() }}
             />

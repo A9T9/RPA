@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import { Button, Popover, message } from 'antd'
 import React from 'react'
 import { connect } from 'react-redux'
@@ -201,26 +202,26 @@ class Controls extends React.Component {
           <div className='action-button-container'>
             <Button type="primary" disabled={this.state.scriptStatus !== 'stopped' || this.props.player.status === C.PLAYER_STATUS.PLAYING || this.props.player.status === C.PLAYER_STATUS.PAUSED || this.props.status === C.APP_STATUS.RECORDER } onClick={() => this.playCurrentMacro(false)} >
               <FontAwesomeIcon icon={faCirclePlay} />
-              <span> Play</span>
+              <span> {t('Play')}</span>
             </Button>
             {this.state.scriptStatus === 'paused' || this.props.player.status === C.PLAYER_STATUS.PAUSED ? (
               <Button
                 type="primary"
-                title="Resume"
+                title={t("Resume")}
                 onClick={() => {
                   if (this.state.scriptStatus === 'paused') return resumeScript()
                   this.getPlayer().resume()
                 }}
               >
                 <FontAwesomeIcon icon={faCirclePlay} />
-                <span> Resume</span>
+                <span> {t('Resume')}</span>
               </Button>
             ) : (
               // scripts pause at the next line change (a bridge command that
               // is mid-run finishes first)
               <Button
                 className="icon-only"
-                title={this.state.scriptStatus === 'running' ? 'Pause at the next script line' : 'Pause'}
+                title={this.state.scriptStatus === 'running' ? t('Pause at the next script line') : t('Pause')}
                 disabled={this.state.scriptStatus !== 'running' && this.props.player.status !== C.PLAYER_STATUS.PLAYING}
                 onClick={() => {
                   if (this.state.scriptStatus === 'running') return pauseScript()
@@ -232,7 +233,7 @@ class Controls extends React.Component {
             )}
             <Button
               className="icon-only"
-              title="Stop"
+              title={t("Stop")}
               disabled={this.state.scriptStatus === 'stopped' && this.props.player.status === C.PLAYER_STATUS.STOPPED}
               onClick={() => {
                 if (this.state.scriptStatus !== 'stopped') return stopScript()
@@ -248,21 +249,19 @@ class Controls extends React.Component {
               content={
                 <div className="interface-hint">
                   <p>
-                    Side Panel or IDE window — use whichever you like, your
-                    macros are the same in both. Pick which one opens by
-                    default in <strong>Settings &gt; General</strong>.
+                    {t('Side Panel or IDE window — use whichever you like, your macros are the same in both. Pick which one opens by default in')} <strong>{t('Settings > General')}</strong>.
                   </p>
                   <Button size="small" type="primary" onClick={this.dismissInterfaceHint}>
-                    Got it
+                    {t('Got it')}
                   </Button>
                 </div>
               }
             >
-              <Button className="icon-only" title="Open IDE window – same features as the sidebar, in a classic window layout" disabled={this.props.player.status === C.PLAYER_STATUS.PLAYING} onClick={this.onClickOpenIde}>
+              <Button className="icon-only" title={t("Open IDE window – same features as the sidebar, in a classic window layout")} disabled={this.props.player.status === C.PLAYER_STATUS.PLAYING} onClick={this.onClickOpenIde}>
                 <FontAwesomeIcon icon={faWindowRestore} />
               </Button>
             </Popover>
-            <Button disabled={this.props.player.status === C.PLAYER_STATUS.PLAYING} title="Settings" onClick={() => openSettings()} shape="circle" >
+            <Button disabled={this.props.player.status === C.PLAYER_STATUS.PLAYING} title={t("Settings")} onClick={() => openSettings()} shape="circle" >
               <SettingOutlined />
             </Button>
           </div>
@@ -287,7 +286,7 @@ class Controls extends React.Component {
                 {' - '}
                 <a onClick={() => {
                   chrome.tabs.create({url: goUivUrl("https://go.ui.vision/?help=forum")})
-                }}>Forum</a>
+                }}>{t('Forum')}</a>
                 {' - '}
                 <a onClick={() => {
                   chrome.tabs.create({url: goUivUrl("https://go.ui.vision/?help=github")})

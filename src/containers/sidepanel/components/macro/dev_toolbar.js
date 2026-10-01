@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 ﻿import { Button, message, Modal } from 'antd'
 import React from 'react'
 import { connect } from 'react-redux'
@@ -134,15 +135,15 @@ class DevToolbar extends React.Component {
           disabled={this.props.player.status !== C.PLAYER_STATUS.STOPPED}
           title={
             isRecording
-              ? 'Stop recording'
+              ? t('Stop recording')
               : this.props.isScriptView
-                ? 'Record — browser actions are appended to the script as uiv.* lines'
-                : 'Record'
+                ? t('Record — browser actions are appended to the script as uiv.* lines')
+                : t('Record')
           }
           onClick={this.onToggleRecord}
         >
           <FontAwesomeIcon icon={faCircleDot} />
-          <span> {isRecording ? 'Stop' : 'Rec'}</span>
+          <span> {isRecording ? t('Stop') : t('Rec')}</span>
         </Button>
         <Button
           className="new-macro-button"
@@ -153,10 +154,10 @@ class DevToolbar extends React.Component {
             this.props.player.status !== C.PLAYER_STATUS.STOPPED ||
             !getLicenseService().canPerform(Feature.Edit)
           }
-          title="Create a new macro"
+          title={t("Create a new macro")}
           onClick={this.addTestCase}
         >
-          <span>+ Macro</span>
+          <span>{t('+ Macro')}</span>
         </Button>
       </div>
     )

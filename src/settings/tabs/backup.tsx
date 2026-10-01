@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 // Settings > Backup — extracted from the old settings modal in header.js
 import React from 'react'
 import { connect } from 'react-redux'
@@ -83,15 +84,9 @@ class BackupTab extends React.Component<BackupTabProps, BackupTabState> {
 
     return (
       <div className="backup-pane">
-        <h4>Automatic Backup</h4>
+        <h4>{t('Automatic Backup')}</h4>
         <p>
-          The automatic backup reminder helps to you to regularly export
-          macros and other data as ZIP archive. As browser extension
-          Ui.Vision must store its data <em>inside the browser extension</em>.
-          This means that when you uninstall the extension, the data is
-          removed, too. Therefore it is good to have backups! Note that if the
-          hard drive storage mode of the File Access XModule is active, then
-          the backup archive contains these files.
+          {t('The automatic backup reminder helps to you to regularly export macros and other data as ZIP archive. As browser extension Ui.Vision must store its data')} <em>{t('inside the browser extension')}</em>{t('. This means that when you uninstall the extension, the data is removed, too. Therefore it is good to have backups! Note that if the hard drive storage mode of the File Access XModule is active, then the backup archive contains these files.')}
         </p>
         <div className="row">
           <Checkbox
@@ -100,7 +95,7 @@ class BackupTab extends React.Component<BackupTabProps, BackupTabState> {
             }
             checked={config.enableAutoBackup}
           >
-            Show backup reminder every
+            {t('Show backup reminder every')}
           </Checkbox>
           <Input
             type="number"
@@ -110,10 +105,10 @@ class BackupTab extends React.Component<BackupTabProps, BackupTabState> {
             onChange={(e) => onConfigChange('autoBackupInterval', e.target.value)}
             style={{ width: '60px', margin: '0 8px' }}
           />
-          <span>days</span>
+          <span>{t('days')}</span>
         </div>
         <div className="row">
-          <p>Backup includes <span style={{ fontWeight: 'bold' }}>macros, images, and CSV files</span>.</p>
+          <p>{t('Backup includes')} <span style={{ fontWeight: 'bold' }}>{t('macros, images, and CSV files')}</span>.</p>
         </div>
         <div className="row">
           <Button
@@ -122,9 +117,9 @@ class BackupTab extends React.Component<BackupTabProps, BackupTabState> {
             disabled={!this.state.macrosLoaded}
             onClick={this.onRunBackup}
           >
-            Run Backup Now
+            {t('Run Backup Now')}
           </Button>
-          <span> Create a backup ZIP file now.</span>
+          <span> {t('Create a backup ZIP file now.')}</span>
         </div>
         <div style={{ paddingTop: '30px' }} className="row">
           <Button
@@ -136,13 +131,13 @@ class BackupTab extends React.Component<BackupTabProps, BackupTabState> {
               }
             }}
           >
-            Restore Data from Backup
+            {t('Restore Data from Backup')}
           </Button>
           <span>
             {' '}
-            Select a backup ZIP file to import it (
+            {t('Select a backup ZIP file to import it (')}
             <a href="https://go.ui.vision/?help=bkup_import" target="_blank">
-              more info
+              {t('more info')}
             </a>
             ).{' '}
           </span>
@@ -172,7 +167,7 @@ class BackupTab extends React.Component<BackupTabProps, BackupTabState> {
                   // side panel / IDE window to reload their file trees too
                   getStorageManager().emit(StorageManagerEvent.ForceReload)
                   requestCrossPageForceReload()
-                  message.success('Backup restored')
+                  message.success(t('Backup restored'))
 
                   this.props.addLog(
                     'info',

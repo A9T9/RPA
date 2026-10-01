@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import { Button, Checkbox, Popover, Table } from 'antd'
 import { SettingOutlined } from '@ant-design/icons'
 import React from 'react'
@@ -52,8 +53,8 @@ class VariablesTable extends React.Component {
     const rows = [...scriptRows, ...variables]
 
     const columns = [
-      { title: 'Name',  dataIndex: 'key',   key: 'key',   width: '40%' },
-      { title: 'Value', dataIndex: 'value', key: 'value', render: (val) => JSON.stringify(val) || 'undefined' }
+      { title: t('Name'),  dataIndex: 'key',   key: 'key',   width: '40%' },
+      { title: t('Value'), dataIndex: 'value', key: 'value', render: (val) => JSON.stringify(val) || 'undefined' }
     ]
 
     return (

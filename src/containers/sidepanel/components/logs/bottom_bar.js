@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import { Button, Modal, Select, message } from 'antd'
 import JSZip from 'jszip'
 import React from 'react'
@@ -146,7 +147,7 @@ class LogsBottomBar extends React.Component {
   renderLogsControls () {
     return (
       <React.Fragment>
-        <span className="bar-label">Show:</span>
+        <span className="bar-label">{t('Show:')}</span>
         <Select
           value={this.props.config.logFilter || 'All'}
           onChange={(value) => {
@@ -156,20 +157,20 @@ class LogsBottomBar extends React.Component {
           style={{ flex: 1, minWidth: 0, maxWidth: '160px' }}
           popupMatchSelectWidth={false}
         >
-          <Select.Option value='All'>All</Select.Option>
-          <Select.Option value='Echo'>Echo</Select.Option>
-          <Select.Option value='Echo_And_Status'>Echo &amp; Status</Select.Option>
-          <Select.Option value='Error'>Error &amp; Reports</Select.Option>
-          <Select.Option value='None'>No log</Select.Option>
+          <Select.Option value='All'>{t('All')}</Select.Option>
+          <Select.Option value='Echo'>{t('Echo')}</Select.Option>
+          <Select.Option value='Echo_And_Status'>{t('Echo & Status')}</Select.Option>
+          <Select.Option value='Error'>{t('Error & Reports')}</Select.Option>
+          <Select.Option value='None'>{t('No log')}</Select.Option>
         </Select>
-        <Button style={{ marginLeft: 'auto' }} onClick={() => this.props.clearLogs()}>Clear log</Button>
+        <Button style={{ marginLeft: 'auto' }} onClick={() => this.props.clearLogs()}>{t('Clear log')}</Button>
       </React.Fragment>
     )
   }
 
   renderScreenshotsControls () {
     return (
-      <Button style={{ marginLeft: 'auto' }} onClick={() => this.props.clearScreenshots()}>Clear</Button>
+      <Button style={{ marginLeft: 'auto' }} onClick={() => this.props.clearScreenshots()}>{t('Clear')}</Button>
     )
   }
 
@@ -193,7 +194,7 @@ class LogsBottomBar extends React.Component {
     return (
       <React.Fragment>
         <span className="load-image-button ant-btn ant-btn-primary">
-          <label htmlFor="sidepanel_select_image_files">Load Image</label>
+          <label htmlFor="sidepanel_select_image_files">{t('Load Image')}</label>
           <input
             multiple
             type="file"
@@ -204,7 +205,7 @@ class LogsBottomBar extends React.Component {
             style={{ display: 'none' }}
           />
         </span>
-        <Button style={{ marginLeft: 'auto' }} onClick={this.exportAllVisions}>Export All</Button>
+        <Button style={{ marginLeft: 'auto' }} onClick={this.exportAllVisions}>{t('Export All')}</Button>
       </React.Fragment>
     )
   }

@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 // Settings > General — extracted from the old settings modal in header.js
 import React from 'react'
 import { connect } from 'react-redux'
@@ -45,17 +46,14 @@ class GeneralTab extends React.Component<GeneralTabProps> {
         // hard-drive mode needs the FileAccess XModule — explain why the
         // selection snaps back to "in browser" instead of silently reverting
         Modal.confirm({
-          title: 'Hard-drive mode not available',
+          title: t('Hard-drive mode not available'),
           content: (
             <div>
               <p style={{ marginBottom: '10px' }}>
-                Storing macros on the hard drive requires the <b>FileAccess XModule</b>, a small
-                helper app installed next to the browser — extensions cannot access the file
-                system on their own.
+                {t('Storing macros on the hard drive requires the')} <b>FileAccess XModule</b>{t(', a small helper app installed next to the browser — extensions cannot access the file system on their own.')}
               </p>
               <p style={{ marginBottom: '10px' }}>
-                It is not installed (or not reachable), so the storage mode stays at
-                &quot;Local Storage (in browser)&quot; for now.
+                {t('It is not installed (or not reachable), so the storage mode stays at "Local Storage (in browser)" for now.')}
               </p>
               {(() => {
                 // the browser's own reason, classified: "not registered",
@@ -68,8 +66,8 @@ class GeneralTab extends React.Component<GeneralTabProps> {
               })()}
             </div>
           ),
-          okText: 'Show Desktop Automation settings',
-          cancelText: 'Close',
+          okText: t('Show Desktop Automation settings'),
+          cancelText: t('Close'),
           onOk: () => {
             window.location.hash = 'desktop-automation'
           }
@@ -83,14 +81,14 @@ class GeneralTab extends React.Component<GeneralTabProps> {
 
     return (
       <Form>
-        <Form.Item label="Ui.Vision Side Panel" {...displayConfig}>
+        <Form.Item label={t("Ui.Vision Side Panel")} {...displayConfig}>
           <Checkbox
             onChange={(e: any) => {
               onConfigChange('showSidePanel', e.target.checked)
             }}
             checked={config.showSidePanel}
           >
-            Open Side Panel by default
+            {t('Open Side Panel by default')}
           </Checkbox>
           {/* the "Side Panel is on the left" checkbox is gone: since v10.0.76
               the viewport origin is MEASURED from trusted mouse events, which
@@ -101,7 +99,7 @@ class GeneralTab extends React.Component<GeneralTabProps> {
         <Form.Item
           label={
             <a target="_blank" href="https://go.ui.vision/?help=storage_mode">
-              Storage Mode
+              {t('Storage Mode')}
             </a>
           }
           {...displayConfig}
@@ -112,10 +110,10 @@ class GeneralTab extends React.Component<GeneralTabProps> {
             onChange={this.onTryToChangeStorageMode}
           >
             <Select.Option value={StorageStrategyType.Browser}>
-              Local Storage (in browser)
+              {t('Local Storage (in browser)')}
             </Select.Option>
             <Select.Option value={StorageStrategyType.XFile}>
-              File system (on hard drive)
+              {t('File system (on hard drive)')}
             </Select.Option>
           </Select>
           {getStorageManager().isXFileMode() ? (
@@ -127,14 +125,14 @@ class GeneralTab extends React.Component<GeneralTabProps> {
                 // side panel / IDE window, where the file tree actually lives
                 getStorageManager().emit(StorageManagerEvent.ForceReload)
                 requestCrossPageForceReload()
-                message.info('reloaded from hard drive')
+                message.info(t('reloaded from hard drive'))
               }}
             >
-              Reload files
+              {t('Reload files')}
             </a>
           ) : null}
         </Form.Item>
-        <Form.Item label="Ui.Vision Color Theme" {...displayConfig}>
+        <Form.Item label={t("Ui.Vision Color Theme")} {...displayConfig}>
           <Checkbox
             onChange={(e: any) => {
               const useDarkTheme = e.target.checked
@@ -144,7 +142,7 @@ class GeneralTab extends React.Component<GeneralTabProps> {
             checked={config.useDarkTheme}
             style={{ marginBottom: 0 }}
           >
-            Use Dark Mode (
+            {t('Use Dark Mode (')}
             <a
               onClick={(e) => {
                 e.preventDefault()
@@ -152,7 +150,7 @@ class GeneralTab extends React.Component<GeneralTabProps> {
                 window.open(goUivUrl('https://go.ui.vision/?help=darkmode'))
               }}
             >
-              Beta - report issues here
+              {t('Beta - report issues here')}
             </a>
             )
           </Checkbox>

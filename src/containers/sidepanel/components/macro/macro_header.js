@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import { Input, Modal, Segmented, Switch, message } from 'antd'
 import { EditOutlined } from '@ant-design/icons'
 import React from 'react'
@@ -132,7 +133,7 @@ class MacroHeader extends React.Component {
         >
           {name}
           {this.props.hasUnsaved ? (
-            <span className="unsaved-dot" title="Unsaved changes" />
+            <span className="unsaved-dot" title={t("Unsaved changes")} />
           ) : null}
           {this.canRename() ? <EditOutlined className="rename-icon" /> : null}
         </span>
@@ -143,8 +144,8 @@ class MacroHeader extends React.Component {
             value={activeView}
             onChange={this.onChangeView}
             options={[
-              { label: 'Table', value: 'table_view' },
-              { label: 'Source', value: 'source_view' }
+              { label: t('Table'), value: 'table_view' },
+              { label: t('Source'), value: 'source_view' }
             ]}
           />
         ) : null}
@@ -155,12 +156,12 @@ class MacroHeader extends React.Component {
           onChange={this.onToggleDevMode}
           checkedChildren="Dev"
           unCheckedChildren="Dev"
-          title="Developer mode: command editor, source view, logs & variables"
+          title={t("Developer mode: command editor, source view, logs & variables")}
         />
         <Modal
-          title="Rename the macro as.."
-          okText="Save"
-          cancelText="Cancel"
+          title={t("Rename the macro as..")}
+          okText={t("Save")}
+          cancelText={t("Cancel")}
           open={this.state.showRename}
           onOk={this.onConfirmRename}
           onCancel={this.onCancelRename}
@@ -171,7 +172,7 @@ class MacroHeader extends React.Component {
             value={this.state.rename}
             onKeyDown={(e) => { e.keyCode === 13 && this.onConfirmRename() }}
             onChange={(e) => this.setState({ rename: e.target.value })}
-            placeholder="macro name"
+            placeholder={t("macro name")}
             ref={this.inputRef}
           />
         </Modal>

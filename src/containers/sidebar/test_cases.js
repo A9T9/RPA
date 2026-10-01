@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import { FolderAddOutlined } from '@ant-design/icons';
 import { Button, Dropdown, Input, Modal, message } from 'antd';
 import keycode from 'keycode';
@@ -291,13 +292,13 @@ class SidebarTestCases extends React.Component {
     const { filteredMacroFileNodeData } = this.props
 
     if (this.props.isLoadingMacros && this.props.isMacroFolderNodeListEmpty) {
-      return <div className="no-data">Loading macros...</div>
+      return <div className="no-data">{t('Loading macros...')}</div>
     }
 
     return (
       <div className="sidebar-macros">
         {filteredMacroFileNodeData.length === 0 ? (
-          <div className="no-data">No macro found</div>
+          <div className="no-data">{t('No macro found')}</div>
         ) : null}
         <FileTree
           nodes={filteredMacroFileNodeData}
@@ -372,7 +373,7 @@ class SidebarTestCases extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Delete',
+            content: t('Delete'),
             onClick: () => {
               this.props.macroDeleteFolder({
                 dir:  folderEntry.entryPath
@@ -460,7 +461,7 @@ class SidebarTestCases extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Import JSON or ZIP',
+            content: t('Import JSON or ZIP'),
             onClick: () => {
               const $selectFile = document.getElementById('select_json_files_for_macros')
 
@@ -502,7 +503,7 @@ class SidebarTestCases extends React.Component {
         {
           type: MenuItemType.Button,
           data: {
-            content: 'Play',
+            content: t('Play'),
             onClick: () => {
               this.playTestCase(macroNode.fullPath)
             }
@@ -680,7 +681,7 @@ class SidebarTestCases extends React.Component {
           type: MenuItemType.Button,
           disabled: !getLicenseService().canPerform(Feature.Edit),
           data: {
-            content: 'Delete',
+            content: t('Delete'),
             onClick: () => {
               const go = () => {
                 return this.props.removeTestCase(macroNode.fullPath)
@@ -689,17 +690,17 @@ class SidebarTestCases extends React.Component {
                   })
                   .catch(e => {
                     Modal.warning({
-                      title: 'Failed to delete',
+                      title: t('Failed to delete'),
                       content: e.message
                     })
                   })
               }
 
               Modal.confirm({
-                title: 'Sure to delete?',
+                title: t('Sure to delete?'),
                 content: `Do you really want to delete "${macroNode.name}"?`,
-                okText: 'Delete',
-                cancelText: 'Cancel',
+                okText: t('Delete'),
+                cancelText: t('Cancel'),
                 onOk: go,
                 onCancel: () => {}
               })
@@ -714,9 +715,9 @@ class SidebarTestCases extends React.Component {
   renderRenameModal () {
     return (
       <Modal
-        title="Rename the macro as.."
-        okText="Save"
-        cancelText="Cancel"
+        title={t("Rename the macro as..")}
+        okText={t("Save")}
+        cancelText={t("Cancel")}
         open={this.state.showRename}
         onOk={this.onClickRename}
         onCancel={this.onCancelRename}
@@ -727,7 +728,7 @@ class SidebarTestCases extends React.Component {
           value={this.state.rename}
           onKeyDown={e => { e.keyCode === 13 && this.onClickRename() }}
           onChange={this.onChangeRename}
-          placeholder="macro name"
+          placeholder={t("macro name")}
           ref={el => { this.inputRenameTestCase = el }}
         />
       </Modal>
@@ -749,7 +750,7 @@ class SidebarTestCases extends React.Component {
   testCaseMenu = () => [
     {
       key: 'new_macro_folder',
-      label: 'New Folder',
+      label: t('New Folder'),
       onClick: () => {
         this.props.macroCreateFolder({
           name: 'untitled',
@@ -759,7 +760,7 @@ class SidebarTestCases extends React.Component {
     },
     {
       key: 'import_json',
-      label: 'Import JSON or ZIP',
+      label: t('Import JSON or ZIP'),
       onClick: () => {
         const $selectFile = document.getElementById('select_json_files_for_macros')
 
@@ -798,7 +799,7 @@ class SidebarTestCases extends React.Component {
             disabled={!getLicenseService().canPerform(Feature.Edit)}
             onClick={this.addTestCase}
           >
-            + Macro
+            {t('+ Macro')}
           </Button>
           <Dropdown
             menu={{ items: this.testCaseMenu() }}
@@ -809,7 +810,7 @@ class SidebarTestCases extends React.Component {
             >  
             </Button>
           </Dropdown>
-          <Search  placeholder="search macro"          
+          <Search placeholder={t("search macro")}
             value={this.props.searchText}
             onChange={( e) => this.props.setMacroQuery(e.target.value)}
             allowClear

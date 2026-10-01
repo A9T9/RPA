@@ -20,6 +20,10 @@ var distDir = (function () {
 // strip console.log/info/debug to cut noise and avoid leaking data. Keep
 // console.error/warn. Dev builds (`start`) keep all logging.
 var isProd = process.env.NODE_ENV === 'production'
+var privateMacroPrompt = path.join(__dirname, 'src/services/ai/macro_agent/prompt_full.PRIVATE.ts')
+var macroAgentPrompt = process.env.PUBLIC_BUILD !== '1' && fs.existsSync(privateMacroPrompt)
+  ? privateMacroPrompt
+  : path.join(__dirname, 'src/services/ai/macro_agent/prompt_basic.ts')
 // Base plugins mirror what .babelrc declared; kept inline so babel-loader is
 // self-contained (babelrc:false below) and option merging stays deterministic.
 var basePlugins = ['@babel/plugin-transform-modules-commonjs']
@@ -35,7 +39,7 @@ module.exports = {
     csv_editor:       './src/csv_editor.js',
     vision_editor:    './src/vision_editor/index.tsx',
     desktop_screenshot_editor: './src/desktop_screenshot_editor/index.tsx',
-    options:          './src/options.ts',
+    options:          './src/settings/index.tsx',
     content_script:   './src/ext/content_script/index.js',
     inject:           './src/ext/inject.js',
     bg:               './src/ext/bg.js'
@@ -121,6 +125,7 @@ module.exports = {
   resolve: {
     extensions: ['.tsx', '.ts', '.js', '.json'],
     alias: {
+      '@macro-agent-prompt': macroAgentPrompt,
       '@': path.join(__dirname, 'src'),
       '$': __dirname
     },

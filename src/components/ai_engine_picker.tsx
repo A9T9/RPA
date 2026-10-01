@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import React, { useEffect, useState } from 'react'
 import { Select, Progress, Tooltip } from 'antd'
 import { OPENAI_COMPAT } from '@/common/constant'
@@ -43,26 +44,28 @@ export default function AIEnginePicker({ config, updateConfig, disabled = false 
   const valid = quota && Number.isFinite(quota.remainingPercent) && Number.isFinite(Number(quota.resetAt)) && Number(quota.resetAt) > now
   const usedPercent = valid ? Math.max(0, Math.min(100, 100 - quota.remainingPercent)) : 0
   const hours = valid ? Math.max(1, Math.ceil((quota.resetAt - now) / 3600000)) : null
-  const usageText = valid ? `${Math.round(usedPercent)}% used · Resets in ${hours} ${hours === 1 ? 'hour' : 'hours'}` : 'Usage unavailable'
+  const usageText = valid
+    ? t('{percent}% used · Resets in {hours} {unit}', { percent: Math.round(usedPercent), hours, unit: t(hours === 1 ? 'hour' : 'hours') })
+    : t('Usage unavailable')
   const aiIcon = (smarter: boolean) => <span aria-hidden="true" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 2, fontSize: 9, fontWeight: 700, lineHeight: '16px', width: 26, border: '1px solid currentColor', borderRadius: 4 }}>
     AI<svg width="8" height="10" viewBox="0 0 12 14" fill="currentColor">
       <path d={smarter ? 'M6 0L7.7 4.9L12 7L7.7 9.1L6 14L4.3 9.1L0 7L4.3 4.9Z' : 'M7 0L1 8H5L4 14L11 5H7Z'} />
     </svg>
   </span>
-  return <><Select aria-label="Chat engine" className="chat-engine-picker" variant="borderless" disabled={disabled} value={config.uivisionEngine === 'advanced' ? 'advanced' : 'standard'}
+  return <><Select aria-label={t("Chat engine")} className="chat-engine-picker" variant="borderless" disabled={disabled} value={config.uivisionEngine === 'advanced' ? 'advanced' : 'standard'}
     popupMatchSelectWidth={false} placement="topRight" onChange={uivisionEngine => updateConfig({ uivisionEngine })}
     options={[
-      { value: 'standard', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{aiIcon(false)}Faster</span> },
-      { value: 'advanced', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{aiIcon(true)}Smarter</span> }
+      { value: 'standard', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{aiIcon(false)}{t('Faster')}</span> },
+      { value: 'advanced', label: <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{aiIcon(true)}{t('Smarter')}</span> }
     ]}
     optionRender={option => <div>
       <strong>{option.label}</strong>
-      <div style={{ fontSize: 12, opacity: 0.7 }}>{option.value === 'advanced' ? 'Complex macros and debugging' : 'Simple tasks and quick edits'}</div>
+      <div style={{ fontSize: 12, opacity: 0.7 }}>{option.value === 'advanced' ? t('Complex macros and debugging') : t('Simple tasks and quick edits')}</div>
     </div>}
     dropdownRender={menu => <div style={{ width: 250, maxWidth: 'calc(100vw - 40px)' }}>
       {menu}
       {valid && quota.remainingPercent <= 0 && <div style={{ padding: '8px 12px', fontSize: 12 }}>
-        <a href="https://go.ui.vision/?help=aipro" target="_blank" rel="noreferrer">Daily allowance used — explore AI PRO</a>
+        <a href="https://go.ui.vision/?help=aipro" target="_blank" rel="noreferrer">{t('Daily allowance used — explore AI PRO')}</a>
       </div>}
     </div>}
   />

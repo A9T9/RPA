@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import {
   Button,
   Menu,
@@ -332,13 +333,13 @@ class MacroTable extends React.Component {
             <div className="row-col index-col">
             </div>
             <div className="row-col command-col">
-              Command
+              {t('Command')}
             </div>
             <div className="row-col target-col">
-              Target
+              {t('Target')}
             </div>
             <div className="row-col value-col">
-              Value
+              {t('Value')}
             </div>
           </div>
         )
@@ -644,9 +645,9 @@ class MacroTable extends React.Component {
     }
 
     Modal.info({
-      title: 'Edit in sidebar',
+      title: t('Edit in sidebar'),
       content: 'This turns on Dev mode',
-      okText: 'Ok',
+      okText: t('Ok'),
       onOk: () => {
         this.props.updateConfig({ sidebarDevMode: true })
         // wait for the dev-mode panels (edit form) to mount
@@ -866,7 +867,7 @@ class MacroTable extends React.Component {
               key: 'cut',
               label: (
                 <>
-                  <span>Cut</span>
+                  <span>{t('Cut')}</span>
                   <span className="shortcut">{ctrlKey}X</span>
                 </>
               ),
@@ -876,7 +877,7 @@ class MacroTable extends React.Component {
               key: 'copy',
               label: (
                 <>
-                  <span>Copy</span>
+                  <span>{t('Copy')}</span>
                   <span className="shortcut">{ctrlKey}C</span>
                 </>
               ),
@@ -886,30 +887,30 @@ class MacroTable extends React.Component {
               key: 'paste',
               label: (
                 <>
-                  <span>Paste</span>
+                  <span>{t('Paste')}</span>
                   <span className="shortcut">{ctrlKey}V</span>
                 </>
               ),
               disabled: !canEdit || clipboard.commands.length === 0
             },
-            { key: 'delete', label: 'Delete', disabled: !canEdit },
+            { key: 'delete', label: t('Delete'), disabled: !canEdit },
             { type: 'divider' },
-            { key: 'insert', label: 'Insert new line', disabled: !canEdit },
+            { key: 'insert', label: t('Insert new line'), disabled: !canEdit },
             {
               key: isBreakpoint ? 'remove_breakpoint' : 'add_breakpoint',
-              label: isBreakpoint ? 'Remove breakpoint' : 'Add breakpoint'
+              label: isBreakpoint ? t('Remove breakpoint') : t('Add breakpoint')
             },
             { type: 'divider' },
-            { key: 'run_line', label: 'Execute this command' },
-            { key: 'play_from_here_keep_variables', label: 'Play from here and keep variables' },
-            { key: 'play_to_here', label: 'Play to this point' },
+            { key: 'run_line', label: t('Execute this command') },
+            { key: 'play_from_here_keep_variables', label: t('Play from here and keep variables') },
+            { key: 'play_to_here', label: t('Play to this point') },
             { type: 'divider' },
             // the source view is a dev-mode feature (see macro/index.js)
             ...(this.props.config.sidebarDevMode
-              ? [{ key: 'jump_to_source_code', label: 'Jump to source' }]
+              ? [{ key: 'jump_to_source_code', label: t('Jump to source') }]
               : []),
-            { key: 'edit_in_sidebar', label: 'Edit (in sidebar)' },
-            { key: 'edit_in_ide', label: 'Edit (in IDE)' }
+            { key: 'edit_in_sidebar', label: t('Edit (in sidebar)') },
+            { key: 'edit_in_ide', label: t('Edit (in IDE)') }
           ]}
         />
       </div>
@@ -999,19 +1000,19 @@ class MacroTable extends React.Component {
             <Column
               // headerRenderer={this.headerRenderer}
               dataKey="cmd"
-              label="Command"
+              label={t("Command")}
               width={columnWidths.cmd * (tableWidth + 50)  * headerWidthPatchFactor}
               maxWidth={ 170 } 
             />  
             <Column
               // headerRenderer={this.headerRenderer}
               dataKey="target"
-              label="Target"
+              label={t("Target")}
               width={columnWidths.target * (tableWidth + 50) * headerWidthPatchFactor}
             />  
             <Column
               dataKey="value"
-              label="Value"
+              label={t("Value")}
               width={columnWidths.value * (tableWidth + 50) * headerWidthPatchFactor}
             />
           </RcvTable>
@@ -1022,9 +1023,9 @@ class MacroTable extends React.Component {
  
   renderNormalTable (dataSource) {
     const columns = [
-      { title: 'Command',  dataIndex: 'cmd',      key: 'cmd',     width: 130 },
-      { title: 'Target',   dataIndex: 'target',   key: 'target',  width: 190 },
-      { title: 'Value',    dataIndex: 'value',    key: 'value' }
+      { title: t('Command'),  dataIndex: 'cmd',      key: 'cmd',     width: 130 },
+      { title: t('Target'),   dataIndex: 'target',   key: 'target',  width: 190 },
+      { title: t('Value'),    dataIndex: 'value',    key: 'value' }
     ]
 
     const tableConfig = {

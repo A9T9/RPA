@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import React from 'react'
 import { connect } from 'react-redux'
 import { bindActionCreators, Dispatch } from 'redux'
@@ -217,10 +218,10 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
 
     if (this.props.config[configName]) {
       Modal.confirm({
-        title: 'Confirm',
+        title: t('Confirm'),
         content: 'Do you want to overwrite the existing API key?',
-        okText: 'Yes',
-        cancelText: 'No',
+        okText: t('Yes'),
+        cancelText: t('No'),
         onOk: doSave
       })
     } else {
@@ -345,25 +346,25 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
           The AI commands feature is currently experimental/beta. The built-in Ui.Vision AI works without an API key; for the
           other providers, enter their API key{' '}
           <a href="https://go.ui.vision/?help=aiprovider" target="_blank">
-            (more information)
+            {t('(more information)')}
           </a>
           :
         </div>
 
         <div className="ai-settings-item">
-          <span className="label-text">AI Provider:</span>
+          <span className="label-text">{t('AI Provider:')}</span>
           <Select
             style={{ minWidth: 320 }}
             value={this.getProviderSelection()}
             onChange={this.onSelectProvider}
             options={[
-              { value: 'uivision', label: 'Ui.Vision AI (Free Beta) — no API key needed' },
+              { value: 'uivision', label: t('Ui.Vision AI (Free Beta) — no API key needed') },
               // a ratio, not a number: the daily limits are server settings
               // and change without an extension release
-              { value: 'uivision-pro', label: 'Ui.Vision AI PRO (Beta) - 10x the free limit' },
-              { value: 'anthropic', label: 'Anthropic Claude — best overall results' },
-              { value: 'openrouter', label: 'OpenRouter — many models, one key' },
-              { value: 'local', label: 'Local — OpenAI-compatible (e.g. Ollama), no key' }
+              { value: 'uivision-pro', label: t('Ui.Vision AI PRO (Beta) - 10x the free limit') },
+              { value: 'anthropic', label: t('Anthropic Claude — best overall results') },
+              { value: 'openrouter', label: t('OpenRouter — many models, one key') },
+              { value: 'local', label: t('Local — OpenAI-compatible (e.g. Ollama), no key') }
             ]}
           />
         </div>
@@ -371,17 +372,17 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
         {apiKeyConfigName && (
           <div className="ai-settings-item">
             <span className="label-text">
-              {isPro ? 'PRO Key' : 'API Key'}
-              {hasSavedKey ? ' (saved)' : ''}:
+              {isPro ? t('PRO Key') : t('API Key')}
+              {hasSavedKey ? t(' (saved)') : ''}:
             </span>
             <Input
               type="password"
               placeholder={
                 hasSavedKey
-                  ? '••••••••  (enter a new key to replace it)'
+                  ? t('••••••••  (enter a new key to replace it)')
                   : isPro
-                    ? 'Paste your PRO key'
-                    : 'Enter API key'
+                    ? t('Paste your PRO key')
+                    : t('Enter API key')
               }
               value={this.state.apiKeyInput}
               onChange={(e) => {
@@ -389,11 +390,11 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
               }}
             />
             <Button type="primary" disabled={!this.state.apiKeyInput} onClick={this.saveApiKey}>
-              Save
+              {t('Save')}
             </Button>
             {isPro && (
               <a href="https://go.ui.vision/?help=apiprogetkey" target="_blank" style={{ marginLeft: '10px', whiteSpace: 'nowrap' }}>
-                Get a PRO key
+                {t('Get a PRO key')}
               </a>
             )}
           </div>
@@ -401,26 +402,26 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
 
         {provider === 'anthropic' && (
           <div className="ai-settings-item">
-            <span className="label-text">Model:</span>
+            <span className="label-text">{t('Model:')}</span>
             <AutoComplete
               style={{ minWidth: 420 }}
               value={this.props.config.anthropicModel || ANTHROPIC.COMPUTER_USE_MODEL}
               options={ANTHROPIC_MODEL_OPTIONS}
               onChange={(val: string) => onConfigChange('anthropicModel', val)}
-              placeholder="Pick a model or type any Anthropic model id"
+              placeholder={t("Pick a model or type any Anthropic model id")}
             />
           </div>
         )}
 
         {provider === 'openrouter' && (
           <div className="ai-settings-item">
-            <span className="label-text">Model:</span>
+            <span className="label-text">{t('Model:')}</span>
             <AutoComplete
               style={{ minWidth: 420 }}
               value={this.props.config.openRouterModel || DEFAULT_OPENROUTER_MODEL}
               options={OPENROUTER_MODEL_OPTIONS}
               onChange={(val: string) => onConfigChange('openRouterModel', val)}
-              placeholder="Pick a model or type any OpenRouter model id"
+              placeholder={t("Pick a model or type any OpenRouter model id")}
             />
           </div>
         )}
@@ -428,7 +429,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
         {provider === 'local' && (
           <>
             <div className="ai-settings-item">
-              <span className="label-text">Base URL:</span>
+              <span className="label-text">{t('Base URL:')}</span>
               <Input
                 type="text"
                 placeholder={DEFAULT_LOCAL_BASE_URL}
@@ -437,7 +438,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
               />
             </div>
             <div className="ai-settings-item">
-              <span className="label-text">Model name:</span>
+              <span className="label-text">{t('Model name:')}</span>
               <Input
                 type="text"
                 placeholder="e.g. qwen3-vl"
@@ -486,7 +487,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
         )}
 
         <div className="ai-settings-item">
-          <span className="label-text">Test Prompt:</span>
+          <span className="label-text">{t('Test Prompt:')}</span>
           <Input
             type="text"
             value={this.state.prompt}
@@ -495,14 +496,14 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
             }}
           />
           <Button type="primary" loading={this.state.testing} onClick={this.onClickTestPrompt}>
-            Test
+            {t('Test')}
           </Button>
         </div>
         {/* answer area only exists once a test ran — keeps the tab compact */}
         {this.state.testing || this.state.promptResponse ? (
           <>
             <div className="row" style={{ marginBottom: '10px' }}>
-              AI Answer:
+              {t('AI Answer:')}
             </div>
             <div className="ai-response">
               <pre>{this.state.promptResponse}</pre>
@@ -511,14 +512,14 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
         ) : null}
         <div className="ai-settings-item" style={{ marginTop: '20px' }}>
           <span className="label-text">
-            <strong>MCP bridge (Claude Code):</strong>
+            <strong>{t('MCP bridge (Claude Code):')}</strong>
           </span>
           <Switch
             checked={!!this.props.config.mcpBridgeEnabled}
             onChange={(checked: boolean) => onConfigChange('mcpBridgeEnabled', checked)}
           />
           <a href="https://go.ui.vision/?help=mcp" target="_blank" style={{ marginLeft: '10px' }}>
-            (more info)
+            {t('(more info)')}
           </a>
         </div>
         {this.props.config.mcpBridgeEnabled ? (
@@ -529,7 +530,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
               // are how the user tells them apart; the ACTIVE one is where
               // the AI's tool calls go (select_browser switches it)
               <div className="row" style={{ marginBottom: '10px', fontSize: '12px', color: '#389e0d' }}>
-                <strong>Connected now:</strong>{' '}
+                <strong>{t('Connected now:')}</strong>{' '}
                 {this.state.bridgeConnections.map(l => l === this.state.bridgeActive ? `${l} (active)` : l).join(', ')}
                 {' '}&mdash; the AI drives the <em>active</em> one; its <code>select_browser</code> tool switches.
               </div>
@@ -539,7 +540,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
               small local bridge process on 127.0.0.1 and must stay open while the AI works.
             </div>
             <div className="ai-settings-item">
-              <span className="label-text">Run this once:</span>
+              <span className="label-text">{t('Run this once:')}</span>
               <Input readOnly value={MCP_BRIDGE_SETUP_CMD} style={{ fontFamily: 'monospace', fontSize: '12px' }} />
               <Button
                 onClick={() => {
@@ -549,7 +550,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
                     .catch(() => message.error('Could not copy — select the text and copy manually'))
                 }}
               >
-                Copy
+                {t('Copy')}
               </Button>
             </div>
             <div className="row" style={{ marginBottom: '10px', fontSize: '12px' }}>
@@ -575,7 +576,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
             <div className="ai-settings-item">
               <span className="label-text">Connection:</span>
               <Button loading={this.state.testingBridge} onClick={this.testBridge}>
-                Test
+                {t('Test')}
               </Button>
               <span style={{ marginLeft: 8, fontSize: '12px', color: '#389e0d' }}>
                 Chrome, Edge and Firefox pair automatically — the bridge recognises the Ui.Vision extension by its origin.
@@ -606,7 +607,7 @@ class AITab extends React.Component<AiTabProps, AiTabAppState> {
               {this.state.showSystemPrompt ? 'Hide' : 'Show'}
             </Button>
             <a href="https://go.ui.vision/?help=aiprompt" target="_blank" style={{ marginLeft: '10px' }}>
-              (more info)
+              {t('(more info)')}
             </a>
             {this.state.showSystemPrompt ? (
               <Button

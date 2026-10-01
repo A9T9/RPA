@@ -1,3 +1,4 @@
+import { t } from '@/common/ui_locale'
 import React from 'react'
 import { connect } from 'react-redux'
 import { bindActionCreators }  from 'redux'
@@ -262,8 +263,8 @@ class DashboardBottom extends React.Component {
 
   deleteVision = (name) => {
     return Modal.confirm({
-      title: 'Sure to delete?',
-      okText: 'Delete',
+      title: t('Sure to delete?'),
+      okText: t('Delete'),
       onOk: () => {
         return getStorageManager()
         .getVisionStorage()
@@ -524,7 +525,7 @@ class DashboardBottom extends React.Component {
               <span
                 className="load-image-button ant-btn ant-btn-primary"
               >
-                <label htmlFor="select_image_files">Load Image</label>
+                <label htmlFor="select_image_files">{t('Load Image')}</label>
                 <input
                   multiple
                   type="file"
@@ -538,7 +539,7 @@ class DashboardBottom extends React.Component {
               <Button
                 onClick={this.exportAllVisions}
               >
-                Export All
+                {t('Export All')}
               </Button>
             </div>
 
@@ -550,9 +551,9 @@ class DashboardBottom extends React.Component {
                 onChange: e => this.setState({ searchImageText: e.target.value })
               }}
             /> */}
-            <Input.Search style={{ flex: 0.8 }} placeholder="Search image" onChange={e => this.setState({ searchImageText: e.target.value })} />
+            <Input.Search style={{ flex: 0.8 }} placeholder={t("Search image")} onChange={e => this.setState({ searchImageText: e.target.value })} />
           </div>
-          <a className="more-info" target="_blank" href="https://go.ui.vision/?help=visual">More Info</a>
+          <a className="more-info" target="_blank" href="https://go.ui.vision/?help=visual">{t('More Info')}</a>
         </div>
         {this.renderVisionTable()}
       </div>
@@ -611,8 +612,8 @@ class DashboardBottom extends React.Component {
     }
 
     const columns = [
-      { title: 'Name',    dataIndex: 'key',      key: 'key',    width: '40%' },
-      { title: 'Value',   dataIndex: 'value',    key: 'value',  render: (val) => JSON.stringify(val) || 'undefined' }
+      { title: t('Name'),    dataIndex: 'key',      key: 'key',    width: '40%' },
+      { title: t('Value'),   dataIndex: 'value',    key: 'value',  render: (val) => JSON.stringify(val) || 'undefined' }
     ]
     const { showCommonInternalVariables, showAdvancedInternalVariables } = this.props.config
     const filter = createVarsFilter({
@@ -829,7 +830,7 @@ class DashboardBottom extends React.Component {
           }}
           items={[
             {
-              label: 'Logs',
+              label: t('Logs'),
               key: 'Logs',
               children: (
                 <ul className="log-content">
@@ -844,7 +845,7 @@ class DashboardBottom extends React.Component {
               )
             },
             {
-              label: 'Variables',
+              label: t('Variables'),
               key: 'Variables',
               children: (
                 <div className="variable-content">
@@ -867,7 +868,7 @@ class DashboardBottom extends React.Component {
               )
             },
             {
-              label: this.prefixHardDisk('Screenshots'),
+              label: this.prefixHardDisk(t('Screenshots')),
               key: 'Screenshots',
               children: this.renderScreenshots()
             },
@@ -882,7 +883,7 @@ class DashboardBottom extends React.Component {
               )
             },
             {
-              label: this.prefixHardDisk('👁Visual'),
+              label: this.prefixHardDisk(t('👁Visual')),
               key: 'Vision',
               children: this.renderVisionSection()
             }
@@ -902,18 +903,18 @@ class DashboardBottom extends React.Component {
               popupMatchSelectWidth={false}
               size="small"
             >
-              <Select.Option value='All'>All</Select.Option>
-              <Select.Option value='Echo'>Echo</Select.Option>
-              <Select.Option value='Echo_And_Status'>Echo &amp; Status</Select.Option>
-              <Select.Option value='Error'>Error &amp; Reports</Select.Option>
-              <Select.Option value='None'>No log</Select.Option>
+              <Select.Option value='All'>{t('All')}</Select.Option>
+              <Select.Option value='Echo'>{t('Echo')}</Select.Option>
+              <Select.Option value='Echo_And_Status'>{t('Echo & Status')}</Select.Option>
+              <Select.Option value='Error'>{t('Error & Reports')}</Select.Option>
+              <Select.Option value='None'>{t('No log')}</Select.Option>
             </Select>,
             <Button
               key="clear-logs"
               size="small"
               onClick={this.props.clearLogs}
             >
-              Clear
+              {t('Clear')}
             </Button>
           ] : null}
 
@@ -922,7 +923,7 @@ class DashboardBottom extends React.Component {
               size="small"
               onClick={this.props.clearScreenshots}
             >
-              Clear
+              {t('Clear')}
             </Button>
           ) : null}
 
